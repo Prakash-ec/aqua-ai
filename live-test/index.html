@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>Aqua AI Live Test</title>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #eef7fb;
+            color: #222;
+        }
+
+        header {
+            background: #087ea4;
+            color: white;
+            padding: 25px;
+            text-align: center;
+        }
+
+        header h1 {
+            margin: 0;
+        }
+
+        header p {
+            margin-bottom: 0;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 30px auto;
+            padding: 20px;
+        }
+
+        .status {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+            box-shadow: 0 3px 10px #ccc;
+        }
+
+        .connected {
+            color: green;
+        }
+
+        .disconnected {
+            color: red;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 3px 10px #ccc;
+        }
+
+        .icon {
+            font-size: 35px;
+        }
+
+        .label {
+            font-size: 18px;
+            margin-top: 10px;
+        }
+
+        .value {
+            font-size: 32px;
+            font-weight: bold;
+            margin-top: 10px;
+            color: #087ea4;
+        }
+
+        .info {
+            background: white;
+            margin-top: 25px;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 3px 10px #ccc;
+        }
+
+        .info p {
+            font-size: 17px;
+        }
+
+        .raw {
+            background: #111;
+            color: #00ff88;
+            padding: 20px;
+            border-radius: 10px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+
+        @media(max-width: 600px) {
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+
+<header>
+
+    <h1>🌊 Aqua AI</h1>
+
+    <p>Live Water Quality Reading Test</p>
+
+</header>
+
+
+<div class="container">
+
+
+    <!-- CONNECTION STATUS -->
+
+    <div id="status"
+         class="status disconnected">
+
+        🔴 Connecting to backend...
+
+    </div>
+
+
+    <!-- SENSOR VALUES -->
+
+    <div class="grid">
+
+
+        <div class="card">
+
+            <div class="icon">🌡️</div>
+
+            <div class="label">
+                Temperature
+            </div>
+
+            <div class="value">
+
+                <span id="temperature">
+                    --
+                </span>
+
+                °C
+
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="icon">🧪</div>
+
+            <div class="label">
+                pH
+            </div>
+
+            <div class="value">
+
+                <span id="ph">
+                    --
+                </span>
+
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="icon">💧</div>
+
+            <div class="label">
+                Turbidity
+            </div>
+
+            <div class="value">
+
+                <span id="turbidity">
+                    --
+                </span>
+
+                NTU
+
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="icon">⚡</div>
+
+            <div class="label">
+                TDS
+            </div>
+
+            <div class="value">
+
+                <span id="tds">
+                    --
+                </span>
+
+                ppm
+
+            </div>
+
+        </div>
+
+
+    </div>
+
+
+    <!-- READING INFORMATION -->
+
+    <div class="info">
+
+        <h2>Latest Reading Information</h2>
+
+        <p>
+            <strong>Device ID:</strong>
+
+            <span id="device">
+                --
+            </span>
+        </p>
+
+
+        <p>
+            <strong>Reading ID:</strong>
+
+            <span id="readingId">
+                --
+            </span>
+        </p>
+
+
+        <p>
+            <strong>Recorded At:</strong>
+
+            <span id="recordedAt">
+                --
+            </span>
+        </p>
+
+
+        <p>
+            <strong>Last Website Update:</strong>
+
+            <span id="websiteTime">
+                --
+            </span>
+        </p>
+
+    </div>
+
+
+    <!-- RAW DATA -->
+
+    <div class="info">
+
+        <h2>Backend Response</h2>
+
+        <pre id="raw"
+             class="raw">
+
+Waiting for data...
+
+        </pre>
+
+    </div>
+
+
+</div>
+
+
+<script>
+
+
+// ========================================
+// AQUA AI BACKEND
+// ========================================
+
+const API_URL =
+    "http://127.0.0.1:8000/readings/";
+
+
+// ========================================
+// GET LATEST READING
+// ========================================
+
+async function getLatestReading() {
+
+    try {
+
+        console.log(
+            "Requesting:",
+            API_URL
+        );
+
+
+        const response =
+            await fetch(API_URL);
+
+
+        // Check HTTP status
+
+        if (!response.ok) {
+
+            throw new Error(
+                "HTTP Error: " +
+                response.status
+            );
+
+        }
+
+
+        // Convert response to JSON
+
+        const data =
+            await response.json();
+
+
+        console.log(
+            "Backend data:",
+            data
+        );
+
+
+        // Check if backend returned data
+
+        if (
+            !Array.isArray(data) ||
+            data.length === 0
+        ) {
+
+            document.getElementById(
+                "status"
+            ).innerHTML =
+                "🟡 Backend connected - No readings";
+
+            return;
+
+        }
+
+
+        // ====================================
+        // NEWEST READING
+        // ====================================
+
+        const latest = data[0];
+
+
+        console.log(
+            "Latest reading:",
+            latest
+        );
+
+
+        // ====================================
+        // UPDATE SENSOR VALUES
+        // ====================================
+
+        document.getElementById(
+            "temperature"
+        ).textContent =
+            latest.temperature;
+
+
+        document.getElementById(
+            "ph"
+        ).textContent =
+            latest.ph;
+
+
+        document.getElementById(
+            "turbidity"
+        ).textContent =
+            latest.turbidity;
+
+
+        document.getElementById(
+            "tds"
+        ).textContent =
+            latest.tds;
+
+
+        // ====================================
+        // UPDATE INFORMATION
+        // ====================================
+
+        document.getElementById(
+            "device"
+        ).textContent =
+            latest.device_id;
+
+
+        document.getElementById(
+            "readingId"
+        ).textContent =
+            latest.id;
+
+
+        document.getElementById(
+            "recordedAt"
+        ).textContent =
+            latest.recorded_at;
+
+
+        document.getElementById(
+            "websiteTime"
+        ).textContent =
+            new Date().toLocaleTimeString();
+
+
+        // ====================================
+        // RAW JSON
+        // ====================================
+
+        document.getElementById(
+            "raw"
+        ).textContent =
+            JSON.stringify(
+                latest,
+                null,
+                2
+            );
+
+
+        // ====================================
+        // CONNECTION STATUS
+        // ====================================
+
+        const status =
+            document.getElementById(
+                "status"
+            );
+
+
+        status.innerHTML =
+            "🟢 BACKEND CONNECTED — LIVE";
+
+
+        status.className =
+            "status connected";
+
+
+    }
+
+
+    catch (error) {
+
+
+        console.error(
+            "Backend error:",
+            error
+        );
+
+
+        const status =
+            document.getElementById(
+                "status"
+            );
+
+
+        status.innerHTML =
+            "🔴 BACKEND CONNECTION FAILED";
+
+
+        status.className =
+            "status disconnected";
+
+
+        document.getElementById(
+            "raw"
+        ).textContent =
+            error.toString();
+
+
+    }
+
+}
+
+
+// ========================================
+// FIRST REQUEST
+// ========================================
+
+getLatestReading();
+
+
+// ========================================
+// REFRESH EVERY 2 SECONDS
+// ========================================
+
+setInterval(
+    getLatestReading,
+    2000
+);
+
+
+</script>
+
+
+</body>
+
+</html>

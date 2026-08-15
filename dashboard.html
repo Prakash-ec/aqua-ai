@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Aqua AI - Live Water Quality</title>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #eef7ff;
+            color: #222;
+        }
+
+        header {
+            background: #0077cc;
+            color: white;
+            padding: 25px;
+            text-align: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 32px;
+        }
+
+        header p {
+            margin-top: 8px;
+        }
+
+        .status {
+            text-align: center;
+            margin: 20px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .dashboard {
+            max-width: 1000px;
+            margin: auto;
+            padding: 20px;
+
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.12);
+        }
+
+        .card h2 {
+            margin-top: 0;
+            font-size: 20px;
+        }
+
+        .value {
+            font-size: 36px;
+            font-weight: bold;
+            margin: 15px 0;
+        }
+
+        .unit {
+            color: #666;
+        }
+
+        .info {
+            max-width: 600px;
+            margin: 20px auto;
+        }
+
+        .info p {
+            font-size: 17px;
+        }
+
+        #error {
+            color: red;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px;
+            color: #666;
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+
+<header>
+
+    <h1>🌊 Aqua AI</h1>
+
+    <p>Live Water Quality Monitoring System</p>
+
+</header>
+
+
+<div class="status">
+
+    Backend Status:
+    <span id="status">🟡 Connecting...</span>
+
+</div>
+
+
+<div class="dashboard">
+
+
+    <div class="card">
+
+        <h2>🌡 Temperature</h2>
+
+        <div class="value" id="temperature">
+            --
+        </div>
+
+        <div class="unit">
+            °C
+        </div>
+
+    </div>
+
+
+    <div class="card">
+
+        <h2>🧪 pH</h2>
+
+        <div class="value" id="ph">
+            --
+        </div>
+
+        <div class="unit">
+            pH
+        </div>
+
+    </div>
+
+
+    <div class="card">
+
+        <h2>💧 Turbidity</h2>
+
+        <div class="value" id="turbidity">
+            --
+        </div>
+
+        <div class="unit">
+            NTU
+        </div>
+
+    </div>
+
+
+    <div class="card">
+
+        <h2>🔬 TDS</h2>
+
+        <div class="value" id="tds">
+            --
+        </div>
+
+        <div class="unit">
+            ppm
+        </div>
+
+    </div>
+
+
+</div>
+
+
+<div class="info">
+
+    <div class="card">
+
+        <h2>📡 Device Information</h2>
+
+        <p>
+            Device:
+            <strong id="device">--</strong>
+        </p>
+
+        <p>
+            Reading ID:
+            <strong id="readingId">--</strong>
+        </p>
+
+        <p>
+            Last Updated:
+            <strong id="updated">--</strong>
+        </p>
+
+        <p>
+            Auto Refresh:
+            <strong>5 seconds</strong>
+        </p>
+
+    </div>
+
+</div>
+
+
+<p id="error"></p>
+
+
+<footer>
+
+    Aqua AI © 2026
+
+</footer>
+
+
+
+<script>
+
+
+const API_URL =
+    "https://aqua-ai-wz4s.onrender.com/readings/";
+
+
+
+async function getLatestReading() {
+
+    try {
+
+        console.log("Requesting data...");
+
+
+        const response = await fetch(API_URL);
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                "Backend returned HTTP " + response.status
+            );
+
+        }
+
+
+        const readings = await response.json();
+
+
+        console.log("Backend data:", readings);
+
+
+        if (!Array.isArray(readings)) {
+
+            throw new Error(
+                "Backend did not return a list"
+            );
+
+        }
+
+
+        if (readings.length === 0) {
+
+            throw new Error(
+                "No readings found"
+            );
+
+        }
+
+
+        // Backend sorts newest reading first
+
+        const data = readings[0];
+
+
+        console.log(
+            "Latest reading:",
+            data
+        );
+
+
+
+        // Temperature
+
+        document.getElementById(
+            "temperature"
+        ).textContent = data.temperature;
+
+
+
+        // pH
+
+        document.getElementById(
+            "ph"
+        ).textContent = data.ph;
+
+
+
+        // Turbidity
+
+        document.getElementById(
+            "turbidity"
+        ).textContent = data.turbidity;
+
+
+
+        // TDS
+
+        document.getElementById(
+            "tds"
+        ).textContent = data.tds;
+
+
+
+        // Device
+
+        document.getElementById(
+            "device"
+        ).textContent =
+            "ESP32 #" + data.device_id;
+
+
+
+        // Reading ID
+
+        document.getElementById(
+            "readingId"
+        ).textContent = data.id;
+
+
+
+        // Time
+
+        document.getElementById(
+            "updated"
+        ).textContent =
+            new Date(
+                data.recorded_at
+            ).toLocaleString();
+
+
+
+        // Status
+
+        document.getElementById(
+            "status"
+        ).textContent = "🟢 LIVE";
+
+
+
+        // Clear error
+
+        document.getElementById(
+            "error"
+        ).textContent = "";
+
+
+    }
+
+
+    catch (error) {
+
+
+        console.error(
+            "Dashboard error:",
+            error
+        );
+
+
+        document.getElementById(
+            "status"
+        ).textContent = "🔴 OFFLINE";
+
+
+        document.getElementById(
+            "error"
+        ).textContent =
+            "Unable to connect: " +
+            error.message;
+
+
+    }
+
+}
+
+
+
+// Get data immediately
+
+getLatestReading();
+
+
+
+// Automatically update every 5 seconds
+
+setInterval(
+    getLatestReading,
+    5000
+);
+
+
+</script>
+
+
+</body>
+
+</html>

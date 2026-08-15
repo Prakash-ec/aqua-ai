@@ -11,12 +11,19 @@ router = APIRouter(
 )
 
 
+# --------------------------------------------------
+# CREATE A NEW WATER READING
+# ESP32 uses this endpoint
+# --------------------------------------------------
 @router.post("/", response_model=WaterReadingResponse)
 def create_reading(
     reading: WaterReadingCreate,
     db: Session = Depends(get_db)
 ):
-    device = db.query(Device).filter(Device.id == reading.device_id).first()
+    # Check whether the device exists
+    device = db.query(Device).filter(
+        Device.id == reading.device_id
+    ).first()
 
     if not device:
         raise HTTPException(
@@ -24,6 +31,7 @@ def create_reading(
             detail="Device not found"
         )
 
+    # Create new reading
     new_reading = WaterReading(
         device_id=reading.device_id,
         temperature=reading.temperature,
@@ -32,6 +40,7 @@ def create_reading(
         tds=reading.tds
     )
 
+    # Save to database
     db.add(new_reading)
     db.commit()
     db.refresh(new_reading)
@@ -39,8 +48,35 @@ def create_reading(
     return new_reading
 
 
+# --------------------------------------------------
+# GET ALL WATER READINGS
+# Useful for history / charts
+# --------------------------------------------------
 @router.get("/", response_model=list[WaterReadingResponse])
-def get_readings(db: Session = Depends(get_db)):
+def get_readings(
+    db: Session = Depends(get_db)
+):
     return db.query(WaterReading).order_by(
         WaterReading.recorded_at.desc()
     ).all()
+
+
+# --------------------------------------------------
+# GET LATEST WATER READING
+# Useful for LIVE dashboard
+# --------------------------------------------------
+@router.get("/latest", response_model=WaterReadingResponse)
+def get_latest_reading(
+    db: Session = Depends(get_db)
+):
+    latest = db.query(WaterReading).order_by(
+        WaterReading.recorded_at.desc()
+    ).first()
+
+    if not latest:
+        raise HTTPException(
+            status_code=404,
+            detail="No readings found"
+        )
+
+    return latest

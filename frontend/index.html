@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Aqua AI | Water Quality Dashboard</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- HEADER -->
+    <header class="header">
+
+        <div>
+            <h1>🌊 Aqua AI</h1>
+            <p>Smart Water Quality Monitoring System</p>
+        </div>
+
+        <div id="connectionStatus" class="status offline">
+            ● Connecting...
+        </div>
+
+    </header>
+
+
+    <main>
+
+        <!-- TITLE -->
+        <section class="hero">
+
+            <h2>Live Water Quality</h2>
+
+            <p>
+                Real-time readings from your ESP32
+            </p>
+
+        </section>
+
+
+        <!-- SENSOR CARDS -->
+        <section class="cards">
+
+            <!-- TEMPERATURE -->
+            <div class="card">
+
+                <div class="icon">
+                    🌡️
+                </div>
+
+                <h3>Temperature</h3>
+
+                <div class="value">
+                    <span id="temperature">--</span>
+                    <small>°C</small>
+                </div>
+
+            </div>
+
+
+            <!-- PH -->
+            <div class="card">
+
+                <div class="icon">
+                    🧪
+                </div>
+
+                <h3>pH</h3>
+
+                <div class="value">
+                    <span id="ph">--</span>
+                </div>
+
+            </div>
+
+
+            <!-- TURBIDITY -->
+            <div class="card">
+
+                <div class="icon">
+                    💧
+                </div>
+
+                <h3>Turbidity</h3>
+
+                <div class="value">
+                    <span id="turbidity">--</span>
+                    <small>NTU</small>
+                </div>
+
+            </div>
+
+
+            <!-- TDS -->
+            <div class="card">
+
+                <div class="icon">
+                    ⚡
+                </div>
+
+                <h3>TDS</h3>
+
+                <div class="value">
+                    <span id="tds">--</span>
+                    <small>ppm</small>
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- QUALITY STATUS -->
+        <section class="quality">
+
+            <h2>Water Quality Status</h2>
+
+            <div id="qualityStatus" class="quality-badge">
+                WAITING...
+            </div>
+
+            <p id="qualityMessage">
+                Waiting for sensor data...
+            </p>
+
+        </section>
+
+
+        <!-- DEVICE INFORMATION -->
+        <section class="device">
+
+            <h2>📡 Device Information</h2>
+
+            <div class="device-grid">
+
+                <div class="info-box">
+
+                    <span>Device ID</span>
+
+                    <strong id="deviceId">
+                        --
+                    </strong>
+
+                </div>
+
+
+                <div class="info-box">
+
+                    <span>Reading ID</span>
+
+                    <strong id="readingId">
+                        --
+                    </strong>
+
+                </div>
+
+
+                <div class="info-box">
+
+                    <span>Recorded At</span>
+
+                    <strong id="recordedAt">
+                        --
+                    </strong>
+
+                </div>
+
+
+                <div class="info-box">
+
+                    <span>Dashboard Updated</span>
+
+                    <strong id="updatedAt">
+                        --
+                    </strong>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- CAMERA SECTION -->
+        <section class="camera">
+
+            <h2>📷 AI Camera Analysis</h2>
+
+            <p>
+                Camera-based water analysis will be integrated here.
+            </p>
+
+
+            <div class="camera-grid">
+
+                <div class="camera-item">
+
+                    <span>🛢️ Oil</span>
+
+                    <strong>
+                        Coming Soon
+                    </strong>
+
+                </div>
+
+
+                <div class="camera-item">
+
+                    <span>🫧 Foam</span>
+
+                    <strong>
+                        Coming Soon
+                    </strong>
+
+                </div>
+
+
+                <div class="camera-item">
+
+                    <span>🎨 Colouration</span>
+
+                    <strong>
+                        Coming Soon
+                    </strong>
+
+                </div>
+
+
+                <div class="camera-item">
+
+                    <span>🔬 Particles</span>
+
+                    <strong>
+                        Coming Soon
+                    </strong>
+
+                </div>
+
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <!-- FOOTER -->
+    <footer>
+
+        <p>
+            Aqua AI © 2026
+        </p>
+
+    </footer>
+
+
+    <script src="app.js"></script>
+
+</body>
+
+</html>

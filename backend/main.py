@@ -4,18 +4,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.routes.devices import router as devices_router
 from backend.routes.readings import router as readings_router
 
-
 app = FastAPI(
     title="Aqua AI API",
     description="AI-powered water quality monitoring backend",
     version="1.0.0"
 )
 
-
-# =========================================================
 # CORS
-# =========================================================
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,18 +19,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# =========================================================
-# ROUTES
-# =========================================================
-
+# Routes
 app.include_router(devices_router)
 app.include_router(readings_router)
 
-
-# =========================================================
-# ROOT
-# =========================================================
 
 @app.get("/")
 def root():

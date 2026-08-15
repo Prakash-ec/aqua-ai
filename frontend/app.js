@@ -1,41 +1,129 @@
-// ============================================================
+// ==========================================
 // AQUA AI FRONTEND
-// Sensor Dashboard + AI Camera Analysis
-// ============================================================
+// ==========================================
 
 
-// ============================================================
-// BACKEND URL
-// ============================================================
+// ==========================================
+// BACKEND
+// ==========================================
 
-const API_URL = "https://aqua-ai-wz4s.onrender.com";
+const API_URL =
+    "https://aqua-ai-wz4s.onrender.com";
 
 
-// ============================================================
-// LOAD LATEST SENSOR DATA
-// ============================================================
+// ==========================================
+// DOM HELPERS
+// ==========================================
+
+function setValue(id, value) {
+
+    const element =
+        document.getElementById(id);
+
+    if (element) {
+
+        element.textContent =
+            value ?? "--";
+
+    }
+
+}
+
+
+function show(id) {
+
+    const element =
+        document.getElementById(id);
+
+    if (element) {
+
+        element.classList.remove("hidden");
+
+    }
+
+}
+
+
+function hide(id) {
+
+    const element =
+        document.getElementById(id);
+
+    if (element) {
+
+        element.classList.add("hidden");
+
+    }
+
+}
+
+
+// ==========================================
+// DATE FORMAT
+// ==========================================
+
+function formatDate(dateString) {
+
+    if (!dateString) {
+
+        return "--";
+
+    }
+
+    const date =
+        new Date(dateString);
+
+    if (
+        Number.isNaN(
+            date.getTime()
+        )
+    ) {
+
+        return dateString;
+
+    }
+
+    return date.toLocaleString();
+
+}
+
+
+// ==========================================
+// LOAD SENSOR DATA
+// ==========================================
 
 async function loadData() {
 
+    console.log(
+        "Fetching Aqua AI data..."
+    );
+
+
     try {
 
-        console.log("Fetching Aqua AI data...");
+        const response =
+            await fetch(
+                `${API_URL}/readings/`
+            );
 
-        const response = await fetch(
-            `${API_URL}/readings/`
-        );
 
         if (!response.ok) {
 
             throw new Error(
-                `Backend returned HTTP ${response.status}`
+                `Backend HTTP ${response.status}`
             );
 
         }
 
-        const readings = await response.json();
 
-        console.log("Backend data:", readings);
+        const readings =
+            await response.json();
+
+
+        console.log(
+            "Backend readings:",
+            readings
+        );
 
 
         if (
@@ -44,53 +132,51 @@ async function loadData() {
         ) {
 
             throw new Error(
-                "No readings found"
+                "No sensor readings found"
             );
 
         }
 
 
-        // Backend sends newest first
-
-        const latest = readings[0];
-
-        console.log(
-            "LATEST READING:",
-            latest
-        );
+        const latest =
+            readings[0];
 
 
-        // ====================================================
         // SENSOR VALUES
-        // ====================================================
 
         setValue(
             "temperature",
-            Number(latest.temperature).toFixed(1)
+            Number(
+                latest.temperature
+            ).toFixed(1)
         );
 
 
         setValue(
             "ph",
-            Number(latest.ph).toFixed(2)
+            Number(
+                latest.ph
+            ).toFixed(2)
         );
 
 
         setValue(
             "turbidity",
-            Number(latest.turbidity).toFixed(1)
+            Number(
+                latest.turbidity
+            ).toFixed(1)
         );
 
 
         setValue(
             "tds",
-            Number(latest.tds).toFixed(0)
+            Number(
+                latest.tds
+            ).toFixed(0)
         );
 
 
-        // ====================================================
-        // DEVICE INFORMATION
-        // ====================================================
+        // DEVICE
 
         setValue(
             "deviceId",
@@ -118,9 +204,7 @@ async function loadData() {
         );
 
 
-        // ====================================================
-        // CONNECTION STATUS
-        // ====================================================
+        // ONLINE
 
         const connection =
             document.getElementById(
@@ -139,9 +223,7 @@ async function loadData() {
         }
 
 
-        // ====================================================
-        // QUALITY STATUS
-        // ====================================================
+        // QUALITY
 
         updateQuality(
             Number(latest.temperature),
@@ -151,23 +233,14 @@ async function loadData() {
         );
 
 
-        console.log(
-            "Aqua AI dashboard updated successfully."
-        );
-
     }
-
     catch (error) {
 
         console.error(
-            "Aqua AI error:",
+            "Aqua AI sensor error:",
             error
         );
 
-
-        // ====================================================
-        // OFFLINE
-        // ====================================================
 
         const connection =
             document.getElementById(
@@ -202,70 +275,9 @@ async function loadData() {
 }
 
 
-
-// ============================================================
-// SAFE HTML UPDATE
-// ============================================================
-
-function setValue(
-    id,
-    value
-) {
-
-    const element =
-        document.getElementById(id);
-
-
-    if (element) {
-
-        element.textContent =
-            value;
-
-    }
-
-}
-
-
-
-// ============================================================
-// FORMAT DATE
-// ============================================================
-
-function formatDate(
-    dateString
-) {
-
-    if (!dateString) {
-
-        return "--";
-
-    }
-
-
-    const date =
-        new Date(dateString);
-
-
-    if (
-        isNaN(
-            date.getTime()
-        )
-    ) {
-
-        return dateString;
-
-    }
-
-
-    return date.toLocaleString();
-
-}
-
-
-
-// ============================================================
-// WATER QUALITY CHECK
-// ============================================================
+// ==========================================
+// WATER QUALITY
+// ==========================================
 
 function updateQuality(
     temperature,
@@ -277,13 +289,15 @@ function updateQuality(
     let status =
         "NORMAL";
 
-
     let message =
         "Current readings are within the configured test range.";
 
 
-    // Demonstration thresholds only.
-    // These are NOT official drinking-water standards.
+    /*
+       These are demonstration thresholds.
+       They are NOT laboratory certification limits.
+    */
+
 
     if (
         ph < 6.5 ||
@@ -294,7 +308,6 @@ function updateQuality(
 
         status =
             "WARNING";
-
 
         message =
             "One or more parameters are outside the configured test range.";
@@ -320,25 +333,22 @@ function updateQuality(
             status;
 
 
-        if (
-            status === "NORMAL"
-        ) {
+        if (status === "NORMAL") {
 
             badge.style.background =
-                "#d9f7df";
+                "#dcfce7";
 
             badge.style.color =
-                "#14752a";
+                "#15803d";
 
         }
-
         else {
 
             badge.style.background =
-                "#fff1c7";
+                "#fff7ed";
 
             badge.style.color =
-                "#8a6200";
+                "#c2410c";
 
         }
 
@@ -355,27 +365,19 @@ function updateQuality(
 }
 
 
+// ==========================================
+// IMAGE ELEMENTS
+// ==========================================
 
-// ============================================================
-// ============================================================
-// CAMERA AI
-// ============================================================
-// ============================================================
-
-
-// ============================================================
-// CAMERA ELEMENTS
-// ============================================================
-
-const waterImage =
+const imageInput =
     document.getElementById(
-        "waterImage"
+        "imageInput"
     );
 
 
-const analyzeButton =
+const cameraInput =
     document.getElementById(
-        "analyzeButton"
+        "cameraInput"
     );
 
 
@@ -385,162 +387,88 @@ const imagePreview =
     );
 
 
-const imagePreviewContainer =
-    document.getElementById(
-        "imagePreviewContainer"
+let selectedFile =
+    null;
+
+
+// ==========================================
+// HANDLE IMAGE
+// ==========================================
+
+function handleImage(file) {
+
+    if (!file) {
+
+        return;
+
+    }
+
+
+    console.log(
+        "Selected image:",
+        file.name
     );
 
 
-const aiLoading =
-    document.getElementById(
-        "aiLoading"
+    if (
+        !file.type.startsWith(
+            "image/"
+        )
+    ) {
+
+        showAIError(
+            "Please select a valid image file."
+        );
+
+        return;
+
+    }
+
+
+    selectedFile =
+        file;
+
+
+    const imageURL =
+        URL.createObjectURL(
+            file
+        );
+
+
+    imagePreview.src =
+        imageURL;
+
+
+    show(
+        "previewContainer"
     );
 
 
-const aiError =
-    document.getElementById(
+    hide(
+        "aiResult"
+    );
+
+
+    hide(
         "aiError"
     );
 
-
-const aiResults =
-    document.getElementById(
-        "aiResults"
-    );
+}
 
 
+// ==========================================
+// FILE INPUT
+// ==========================================
 
-// ============================================================
-// IMAGE SELECTED
-// ============================================================
+if (imageInput) {
 
-if (waterImage) {
-
-    waterImage.addEventListener(
+    imageInput.addEventListener(
         "change",
         function () {
 
-            const file =
-                waterImage.files[0];
-
-
-            if (!file) {
-
-                return;
-
-            }
-
-
-            console.log(
-                "Selected image:",
-                file.name
+            handleImage(
+                this.files[0]
             );
-
-
-            // ----------------------------------------------
-            // Check file type
-            // ----------------------------------------------
-
-            if (
-                !file.type.startsWith(
-                    "image/"
-                )
-            ) {
-
-                showAIError(
-                    "Please select a valid image file."
-                );
-
-                return;
-
-            }
-
-
-            // ----------------------------------------------
-            // Check file size
-            // ----------------------------------------------
-
-            const maxSize =
-                10 * 1024 * 1024;
-
-
-            if (
-                file.size > maxSize
-            ) {
-
-                showAIError(
-                    "Image is too large. Please choose an image below 10 MB."
-                );
-
-                return;
-
-            }
-
-
-            // ----------------------------------------------
-            // Preview image
-            // ----------------------------------------------
-
-            const reader =
-                new FileReader();
-
-
-            reader.onload =
-                function (event) {
-
-                    if (imagePreview) {
-
-                        imagePreview.src =
-                            event.target.result;
-
-                    }
-
-
-                    if (
-                        imagePreviewContainer
-                    ) {
-
-                        imagePreviewContainer.style.display =
-                            "block";
-
-                    }
-
-                };
-
-
-            reader.readAsDataURL(
-                file
-            );
-
-
-            // ----------------------------------------------
-            // Enable analyze button
-            // ----------------------------------------------
-
-            if (analyzeButton) {
-
-                analyzeButton.disabled =
-                    false;
-
-                analyzeButton.textContent =
-                    "🤖 Analyze with AI";
-
-            }
-
-
-            // ----------------------------------------------
-            // Clear previous results
-            // ----------------------------------------------
-
-            hideAIError();
-
-
-            if (aiResults) {
-
-                aiResults.style.display =
-                    "none";
-
-            }
 
         }
     );
@@ -548,10 +476,35 @@ if (waterImage) {
 }
 
 
+// ==========================================
+// CAMERA INPUT
+// ==========================================
 
-// ============================================================
+if (cameraInput) {
+
+    cameraInput.addEventListener(
+        "change",
+        function () {
+
+            handleImage(
+                this.files[0]
+            );
+
+        }
+    );
+
+}
+
+
+// ==========================================
 // ANALYZE BUTTON
-// ============================================================
+// ==========================================
+
+const analyzeButton =
+    document.getElementById(
+        "analyzeButton"
+    );
+
 
 if (analyzeButton) {
 
@@ -563,22 +516,16 @@ if (analyzeButton) {
 }
 
 
-
-// ============================================================
-// ANALYZE WATER IMAGE
-// ============================================================
+// ==========================================
+// AI CAMERA ANALYSIS
+// ==========================================
 
 async function analyzeWaterImage() {
 
-    const file =
-        waterImage &&
-        waterImage.files[0];
-
-
-    if (!file) {
+    if (!selectedFile) {
 
         showAIError(
-            "Please choose a water image first."
+            "Please select a water image first."
         );
 
         return;
@@ -587,70 +534,50 @@ async function analyzeWaterImage() {
 
 
     console.log(
-        "Starting AI image analysis..."
+        "Sending image to:",
+        `${API_URL}/camera/analyze`
     );
 
 
-    // ========================================================
-    // UI: LOADING
-    // ========================================================
-
-    if (analyzeButton) {
-
-        analyzeButton.disabled =
-            true;
-
-        analyzeButton.textContent =
-            "🤖 Analyzing...";
-
-    }
+    hide(
+        "aiError"
+    );
 
 
-    hideAIError();
+    hide(
+        "aiResult"
+    );
 
 
-    if (aiResults) {
-
-        aiResults.style.display =
-            "none";
-
-    }
+    show(
+        "aiLoading"
+    );
 
 
-    if (aiLoading) {
-
-        aiLoading.style.display =
-            "block";
-
-    }
-
+    analyzeButton.disabled =
+        true;
 
 
     try {
-
-        // ====================================================
-        // CREATE FORM DATA
-        // ====================================================
 
         const formData =
             new FormData();
 
 
+        /*
+         IMPORTANT:
+
+         This name MUST match your FastAPI
+         parameter:
+
+         image: UploadFile = File(...)
+        */
+
         formData.append(
-            "file",
-            file
+            "image",
+            selectedFile
         );
 
-
-        console.log(
-            "Sending image to:",
-            `${API_URL}/camera/analyze`
-        );
-
-
-        // ====================================================
-        // SEND IMAGE TO BACKEND
-        // ====================================================
 
         const response =
             await fetch(
@@ -668,12 +595,42 @@ async function analyzeWaterImage() {
         );
 
 
-        // ====================================================
-        // READ RESPONSE
-        // ====================================================
+        const text =
+            await response.text();
 
-        const data =
-            await response.json();
+
+        console.log(
+            "AI raw response:",
+            text
+        );
+
+
+        let data;
+
+
+        try {
+
+            data =
+                JSON.parse(text);
+
+        }
+        catch {
+
+            throw new Error(
+                "Backend returned invalid JSON."
+            );
+
+        }
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                data.detail ||
+                `AI request failed (${response.status})`
+            );
+
+        }
 
 
         console.log(
@@ -682,46 +639,32 @@ async function analyzeWaterImage() {
         );
 
 
-        // ====================================================
-        // HANDLE HTTP ERROR
-        // ====================================================
+        /*
+         Your backend may return:
 
-        if (!response.ok) {
+         {
+             success: true,
+             model: "...",
+             analysis: {
+                 ...
+             }
+         }
 
-            throw new Error(
-                data.detail ||
-                `AI server returned HTTP ${response.status}`
-            );
+         Therefore extract analysis.
+        */
 
-        }
+        const analysis =
+            data.analysis ||
+            data;
 
-
-        // ====================================================
-        // CHECK SUCCESS
-        // ====================================================
-
-        if (
-            data.success === false
-        ) {
-
-            throw new Error(
-                data.analysis ||
-                "AI analysis failed."
-            );
-
-        }
-
-
-        // ====================================================
-        // DISPLAY RESULT
-        // ====================================================
 
         displayAIResult(
-            data
+            analysis,
+            data.model
         );
 
-    }
 
+    }
     catch (error) {
 
         console.error(
@@ -732,542 +675,300 @@ async function analyzeWaterImage() {
 
         showAIError(
             error.message ||
-            "Unable to analyze image."
+            "AI analysis failed."
         );
 
     }
-
     finally {
 
-        // ====================================================
-        // STOP LOADING
-        // ====================================================
-
-        if (aiLoading) {
-
-            aiLoading.style.display =
-                "none";
-
-        }
+        hide(
+            "aiLoading"
+        );
 
 
-        if (analyzeButton) {
-
-            analyzeButton.disabled =
-                false;
-
-            analyzeButton.textContent =
-                "🤖 Analyze with AI";
-
-        }
+        analyzeButton.disabled =
+            false;
 
     }
 
 }
 
 
-
-// ============================================================
+// ==========================================
 // DISPLAY AI RESULT
-// ============================================================
+// ==========================================
 
 function displayAIResult(
-    data
+    analysis,
+    model
 ) {
 
     console.log(
-        "Displaying AI result:",
-        data
+        "Displaying AI analysis:",
+        analysis
     );
 
 
-    // ========================================================
-    // GET ANALYSIS
-    // ========================================================
-
-    let analysis =
-        data.analysis;
-
-
-    // --------------------------------------------------------
-    // Some backends return analysis as a JSON string.
-    // Convert it into an object when necessary.
-    // --------------------------------------------------------
-
-    if (
-        typeof analysis === "string"
-    ) {
-
-        try {
-
-            analysis =
-                JSON.parse(
-                    analysis
-                );
-
-        }
-
-        catch (error) {
-
-            console.log(
-                "Analysis is plain text."
-            );
-
-        }
-
-    }
-
-
-    // ========================================================
-    // IF ANALYSIS IS STILL TEXT
-    // ========================================================
-
-    if (
-        typeof analysis === "string"
-    ) {
-
-        displayTextAnalysis(
-            analysis
-        );
-
-        return;
-
-    }
-
-
-    // ========================================================
-    // NORMAL JSON ANALYSIS
-    // ========================================================
-
-    if (
-        !analysis ||
-        typeof analysis !== "object"
-    ) {
-
-        throw new Error(
-            "AI returned an invalid analysis format."
-        );
-
-    }
-
-
-    // ========================================================
-    // WATER IMAGE
-    // ========================================================
+    // OBSERVATION
 
     setValue(
-        "aiWater",
-        formatAIValue(
-            analysis.is_water_image
-        )
+        "overallObservation",
+        analysis.overall_observation ||
+        "No observation returned."
     );
 
 
-    // ========================================================
-    // POLLUTION CONCERN
-    // ========================================================
+    // OIL
 
     setValue(
-        "aiConcern",
-        formatAIValue(
-            analysis.pollution_concern
-        )
+        "oilSheen",
+        analysis.oil_sheen ||
+        "Uncertain"
     );
 
 
-    // ========================================================
+    // ALGAE
+
+    setValue(
+        "algae",
+        analysis.algae ||
+        "Uncertain"
+    );
+
+
+    // FOAM
+
+    setValue(
+        "foam",
+        analysis.foam ||
+        "Uncertain"
+    );
+
+
+    // PARTICLES
+
+    setValue(
+        "floatingParticles",
+        analysis.floating_particles ||
+        "Uncertain"
+    );
+
+
+    // WATER APPEARANCE
+
+    setValue(
+        "waterAppearance",
+        analysis.water_appearance ||
+        "Uncertain"
+    );
+
+
+    // POLLUTION
+
+    setValue(
+        "pollutionConcern",
+        analysis.pollution_concern ||
+        "Uncertain"
+    );
+
+
+    // RECOMMENDATION
+
+    setValue(
+        "recommendation",
+        analysis.recommendation ||
+        "Further investigation is recommended."
+    );
+
+
+    // LIMITATIONS
+
+    setValue(
+        "limitations",
+        analysis.limitations ||
+        "Visual screening cannot chemically confirm pollution."
+    );
+
+
     // CONFIDENCE
-    // ========================================================
 
     let confidence =
         analysis.confidence;
 
 
     if (
-        confidence !== undefined &&
-        confidence !== null
+        typeof confidence === "number"
     ) {
 
-        if (
-            typeof confidence === "number"
-        ) {
+        confidence =
+            Math.round(
+                confidence
+            );
 
-            confidence =
-                `${confidence}%`;
-
-        }
+        setValue(
+            "confidenceBadge",
+            `${confidence}%`
+        );
 
     }
-
     else {
 
-        confidence =
-            "Not provided";
-
-    }
-
-
-    setValue(
-        "aiConfidence",
-        confidence
-    );
-
-
-    // ========================================================
-    // OIL
-    // ========================================================
-
-    setValue(
-        "aiOil",
-        formatAIValue(
-            analysis.oil_sheen
-        )
-    );
-
-
-    // ========================================================
-    // ALGAE
-    // ========================================================
-
-    setValue(
-        "aiAlgae",
-        formatAIValue(
-            analysis.algae
-        )
-    );
-
-
-    // ========================================================
-    // FOAM
-    // ========================================================
-
-    setValue(
-        "aiFoam",
-        formatAIValue(
-            analysis.foam
-        )
-    );
-
-
-    // ========================================================
-    // FLOATING PARTICLES
-    // ========================================================
-
-    setValue(
-        "aiParticles",
-        formatAIValue(
-            analysis.floating_particles
-        )
-    );
-
-
-    // ========================================================
-    // WATER APPEARANCE
-    // ========================================================
-
-    setValue(
-        "aiAppearance",
-        formatAIValue(
-            analysis.water_appearance
-        )
-    );
-
-
-    // ========================================================
-    // OVERALL OBSERVATION
-    // ========================================================
-
-    setValue(
-        "aiObservation",
-        formatAIValue(
-            analysis.overall_observation
-        )
-    );
-
-
-    // ========================================================
-    // RECOMMENDATION
-    // ========================================================
-
-    setValue(
-        "aiRecommendation",
-        formatAIValue(
-            analysis.recommendation
-        )
-    );
-
-
-    // ========================================================
-    // LIMITATIONS
-    // ========================================================
-
-    setValue(
-        "aiLimitations",
-        formatAIValue(
-            analysis.limitations
-        )
-    );
-
-
-    // ========================================================
-    // SHOW RESULTS
-    // ========================================================
-
-    if (aiResults) {
-
-        aiResults.style.display =
-            "block";
-
-    }
-
-
-    // ========================================================
-    // SCROLL TO RESULT
-    // ========================================================
-
-    if (aiResults) {
-
-        setTimeout(
-            function () {
-
-                aiResults.scrollIntoView(
-                    {
-                        behavior: "smooth",
-                        block: "start"
-                    }
-                );
-
-            },
-            100
+        setValue(
+            "confidenceBadge",
+            "--"
         );
 
     }
 
-}
+
+    // SHOW RESULT
+
+    show(
+        "aiResult"
+    );
 
 
+    // SCROLL TO RESULT
 
-// ============================================================
-// FORMAT AI VALUE
-// ============================================================
-
-function formatAIValue(
-    value
-) {
-
-    if (
-        value === undefined ||
-        value === null
-    ) {
-
-        return "Not provided";
-
-    }
+    document
+        .getElementById(
+            "aiResult"
+        )
+        ?.scrollIntoView({
+            behavior: "smooth",
+            block: "start"
+        });
 
 
-    if (
-        typeof value === "boolean"
-    ) {
-
-        return value
-            ? "Yes"
-            : "No";
-
-    }
-
-
-    if (
-        typeof value === "object"
-    ) {
-
-        try {
-
-            return JSON.stringify(
-                value
-            );
-
-        }
-
-        catch (error) {
-
-            return "Unable to display";
-
-        }
-
-    }
-
-
-    const text =
-        String(value).trim();
-
-
-    if (!text) {
-
-        return "Not provided";
-
-    }
-
-
-    return text;
+    console.log(
+        "AI model:",
+        model || "Backend selected model"
+    );
 
 }
 
 
-
-// ============================================================
-// DISPLAY TEXT ANALYSIS
-// ============================================================
-
-function displayTextAnalysis(
-    text
-) {
-
-    const cleanText =
-        String(text).trim();
-
-
-    setValue(
-        "aiWater",
-        "Analyzed"
-    );
-
-
-    setValue(
-        "aiConcern",
-        "See analysis"
-    );
-
-
-    setValue(
-        "aiConfidence",
-        "Not provided"
-    );
-
-
-    setValue(
-        "aiOil",
-        "See analysis"
-    );
-
-
-    setValue(
-        "aiAlgae",
-        "See analysis"
-    );
-
-
-    setValue(
-        "aiFoam",
-        "See analysis"
-    );
-
-
-    setValue(
-        "aiParticles",
-        "See analysis"
-    );
-
-
-    setValue(
-        "aiAppearance",
-        cleanText
-    );
-
-
-    setValue(
-        "aiObservation",
-        cleanText
-    );
-
-
-    setValue(
-        "aiRecommendation",
-        "Review the AI analysis and perform laboratory testing for confirmation."
-    );
-
-
-    setValue(
-        "aiLimitations",
-        "Visual AI screening cannot chemically confirm pollution."
-    );
-
-
-    if (aiResults) {
-
-        aiResults.style.display =
-            "block";
-
-    }
-
-}
-
-
-
-// ============================================================
-// SHOW AI ERROR
-// ============================================================
+// ==========================================
+// AI ERROR
+// ==========================================
 
 function showAIError(
     message
 ) {
 
-    console.error(
-        "AI ERROR:",
-        message
-    );
+    const error =
+        document.getElementById(
+            "aiError"
+        );
 
 
-    if (!aiError) {
+    if (!error) {
 
         return;
 
     }
 
 
-    aiError.textContent =
-        `❌ ${message}`;
+    error.textContent =
+        "❌ " + message;
 
 
-    aiError.style.display =
-        "block";
-
-}
-
+    show(
+        "aiError"
+    );
 
 
-// ============================================================
-// HIDE AI ERROR
-// ============================================================
-
-function hideAIError() {
-
-    if (aiError) {
-
-        aiError.textContent =
-            "";
-
-        aiError.style.display =
-            "none";
-
-    }
+    hide(
+        "aiLoading"
+    );
 
 }
 
 
+// ==========================================
+// NEW ANALYSIS
+// ==========================================
 
-// ============================================================
-// INITIAL SENSOR LOAD
-// ============================================================
+const newAnalysisButton =
+    document.getElementById(
+        "newAnalysisButton"
+    );
+
+
+if (newAnalysisButton) {
+
+    newAnalysisButton.addEventListener(
+        "click",
+        function () {
+
+            selectedFile =
+                null;
+
+
+            if (imageInput) {
+
+                imageInput.value =
+                    "";
+
+            }
+
+
+            if (cameraInput) {
+
+                cameraInput.value =
+                    "";
+
+            }
+
+
+            if (imagePreview) {
+
+                imagePreview.src =
+                    "";
+
+            }
+
+
+            hide(
+                "previewContainer"
+            );
+
+
+            hide(
+                "aiResult"
+            );
+
+
+            hide(
+                "aiError"
+            );
+
+
+            window.scrollTo({
+                top: document
+                    .querySelector(
+                        ".ai-section"
+                    )
+                    .offsetTop,
+                behavior: "smooth"
+            });
+
+        }
+    );
+
+}
+
+
+// ==========================================
+// INITIAL LOAD
+// ==========================================
 
 loadData();
 
 
-
-// ============================================================
-// LIVE SENSOR UPDATE
-// ============================================================
-
-// Fetch latest ESP32 reading every 5 seconds
+// ==========================================
+// AUTO REFRESH
+// ==========================================
 
 setInterval(
     loadData,

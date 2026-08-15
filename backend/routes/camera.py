@@ -1,368 +1,219 @@
 import os
-import base64
 import json
+import base64
+import re
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from openai import OpenAI
+
 
 router = APIRouter(
     prefix="/camera",
     tags=["Camera AI"]
 )
 
-# ============================================================
-# OPENROUTER CONFIGURATION
-# ============================================================
+
+# =========================================================
+# CONFIGURATION
+# =========================================================
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-if not OPENROUTER_API_KEY:
-    raise RuntimeError(
-        "OPENROUTER_API_KEY environment variable is not set"
-    )
-
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY
-)
-
-# ============================================================
-# STRONGER FREE VISION MODEL
-# ============================================================
-
 MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
 
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-# ============================================================
-# AQUA AI PROMPT
-# ============================================================
 
-PROMPT = """
-You are Aqua AI, an AI-assisted water-surface visual
-screening system.
+# =========================================================
+# CHECK API KEY
+# =========================================================
 
-Analyze the uploaded image carefully.
+if not OPENROUTER_API_KEY:
+    print("WARNING: OPENROUTER_API_KEY is not configured")
 
-Your task is ONLY visual screening.
-Do not claim that a chemical contaminant has been
-scientifically confirmed from an image.
 
-============================================================
-STEP 1 — DETERMINE WHETHER THIS IS A WATER IMAGE
-============================================================
+# =========================================================
+# CLIENT
+# =========================================================
 
-First determine whether a visible water surface exists.
+client = None
 
-If the image is NOT a water image, return:
+if OPENROUTER_API_KEY:
 
-{
-  "is_water_image": false,
-  "overall_observation": "...",
-  "oil_sheen": "Not applicable",
-  "algae": "Not applicable",
-  "foam": "Not applicable",
-  "floating_particles": "Not applicable",
-  "water_appearance": "No water visible",
-  "pollution_concern": "Cannot determine",
-  "confidence": 0,
-  "recommendation": "Please upload a clear image of a water surface.",
-  "limitations": "Visual screening cannot chemically confirm pollution and does not replace laboratory testing."
-}
+    client = OpenAI(
+        api_key=OPENROUTER_API_KEY,
+        base_url=OPENROUTER_BASE_URL
+    )
 
-============================================================
-STEP 2 — WATER SURFACE ANALYSIS
-============================================================
 
-If water is visible, examine these categories separately.
+# =========================================================
+# AI PROMPT
+# =========================================================
 
-------------------------------------------------------------
-A. OIL SHEEN
-------------------------------------------------------------
+SYSTEM_PROMPT = """
+You are Aqua AI, a water-surface visual screening system.
 
-Look specifically for:
+Analyze ONLY what can reasonably be observed in the supplied image.
 
-- rainbow or iridescent colors
-- thin multicolored surface films
-- metallic-looking surface reflections
-- smooth glossy patches
-- swirling film patterns
-- colors that change across the surface
+Your task is to identify visual indicators related to:
 
-Important:
+1. Oil sheen
+2. Algae
+3. Foam
+4. Floating particles or debris
+5. General water appearance
 
-Normal reflections from sunlight, sky, buildings,
-vegetation or camera exposure can resemble an oil sheen.
+IMPORTANT:
 
-Therefore:
+This is visual screening only.
 
-DO NOT say "oil confirmed".
+Do NOT claim that oil, microplastics, chemicals,
+bacteria, heavy metals, or other pollutants are chemically
+confirmed from an image.
 
-Use:
+For oil:
+Use "Possible oil sheen" when rainbow-like,
+iridescent, reflective, thin-film patterns could indicate oil.
 
-"Possible oil sheen"
+For algae:
+Look for visually apparent green, brown, or biological
+growth patterns or mats.
 
-when the visual characteristics could indicate oil.
+For foam:
+Look for visible white or bubbly foam.
 
-Use:
+For floating particles:
+Look for clearly visible particles, debris, suspended material,
+or floating objects.
 
-"Not visually detected"
-
-when there is no convincing visual evidence.
-
-Use:
-
-"Uncertain"
-
-when the image quality is insufficient.
-
-------------------------------------------------------------
-B. ALGAE
-------------------------------------------------------------
-
-Look for:
-
-- green floating material
-- brown/green mats
-- visible biological growth
-- surface scum
-- concentrated patches of algae-like material
-
-Do not classify normal green reflections as algae.
-
-------------------------------------------------------------
-C. FOAM
-------------------------------------------------------------
-
-Look for:
-
-- white foam
-- froth
-- bubbles
-- persistent foam patches
-
-Do not classify normal water bubbles as pollution automatically.
-
-------------------------------------------------------------
-D. FLOATING PARTICLES / DEBRIS
-------------------------------------------------------------
-
-Look for:
-
-- plastic
-- leaves
-- visible particles
-- floating dirt
-- trash
-- organic debris
-- sediment-like material
-
-Only report what is visually supported.
-
-------------------------------------------------------------
-E. WATER APPEARANCE
-------------------------------------------------------------
-
-Describe:
-
-- clear
-- cloudy
-- muddy
-- dark
-- greenish
-- brownish
-- unusual coloration
-- visible surface film
-- normal-looking
-
-Do not infer chemical composition from color alone.
-
-============================================================
-POLLUTION CONCERN
-============================================================
-
-Use:
-
-"Low"
-
-when no obvious visual pollution indicator exists.
-
-"Moderate"
-
-when there are some suspicious visual indicators.
-
-"High"
-
-when strong visible pollution indicators exist.
-
-"Uncertain"
-
-when image quality or scene ambiguity prevents
-a reliable visual assessment.
-
-============================================================
-CONFIDENCE
-============================================================
-
-Give an overall visual confidence from 0 to 100.
-
-This is NOT a laboratory accuracy measurement.
-
-============================================================
-RECOMMENDATION
-============================================================
-
-Give a practical recommendation based ONLY on
-the visible evidence.
-
-For suspicious water:
-
-Recommend further inspection and appropriate
-laboratory testing.
-
-For possible oil sheen:
-
-Recommend avoiding direct contact and obtaining
-appropriate environmental/water testing.
-
-============================================================
-OUTPUT FORMAT
-============================================================
+Consider lighting, reflections, glare, and image quality.
 
 Return ONLY valid JSON.
 
-Do NOT return markdown.
-
-Do NOT return explanations outside the JSON.
-
-Do NOT return <think>.
-
-Use exactly:
+Use exactly this structure:
 
 {
   "is_water_image": true,
   "overall_observation": "...",
-  "oil_sheen": "...",
-  "algae": "...",
-  "foam": "...",
-  "floating_particles": "...",
+  "oil_sheen": "Possible oil sheen / Not visually detected / Uncertain",
+  "algae": "Detected / Not visually detected / Uncertain",
+  "foam": "Detected / Not visually detected / Uncertain",
+  "floating_particles": "Detected / Not visually detected / Uncertain",
   "water_appearance": "...",
-  "pollution_concern": "...",
+  "pollution_concern": "Low / Moderate / High / Uncertain",
   "confidence": 0,
   "recommendation": "...",
   "limitations": "Visual screening cannot chemically confirm pollution and does not replace laboratory testing."
 }
+
+Confidence must be an integer from 0 to 100.
+
+Be conservative.
+Do not treat color alone as proof of pollution.
 """
 
 
-# ============================================================
-# REMOVE MODEL THINKING / MARKDOWN
-# ============================================================
+# =========================================================
+# HELPER: EXTRACT JSON
+# =========================================================
 
-def clean_model_response(text: str) -> str:
-
-    if not text:
-        return ""
-
-    text = text.strip()
-
-    # Remove <think>...</think>
-    if "<think>" in text:
-
-        if "</think>" in text:
-
-            text = text.split(
-                "</think>",
-                1
-            )[1].strip()
-
-    # Remove markdown JSON block
-    if text.startswith("```json"):
-
-        text = text[len("```json"):].strip()
-
-    elif text.startswith("```"):
-
-        text = text[len("```"):].strip()
-
-    if text.endswith("```"):
-
-        text = text[:-3].strip()
-
-    return text
-
-
-# ============================================================
-# TRY TO EXTRACT JSON
-# ============================================================
-
-def parse_json_response(text: str):
-
-    text = clean_model_response(text)
+def extract_json(text: str):
 
     if not text:
         return None
 
+    text = text.strip()
+
+    # Direct JSON
     try:
-
         return json.loads(text)
-
-    except json.JSONDecodeError:
-
+    except Exception:
         pass
 
-    # Try extracting JSON object from surrounding text
+    # Remove markdown code fences
+    text = re.sub(
+        r"```json\s*",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    text = re.sub(
+        r"```\s*",
+        "",
+        text
+    )
+
+    text = text.strip()
+
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    # Find first JSON object
     start = text.find("{")
     end = text.rfind("}")
 
     if start != -1 and end != -1 and end > start:
 
-        possible_json = text[
-            start:end + 1
-        ]
+        candidate = text[start:end + 1]
 
         try:
-
-            return json.loads(possible_json)
-
-        except json.JSONDecodeError:
-
-            return None
+            return json.loads(candidate)
+        except Exception:
+            pass
 
     return None
 
 
-# ============================================================
-# POST /camera/analyze
-# ============================================================
+# =========================================================
+# CAMERA ANALYSIS
+# =========================================================
 
 @router.post("/analyze")
 async def analyze_water_image(
-    file: UploadFile = File(...)
+    image: UploadFile = File(...)
 ):
 
-    # --------------------------------------------------------
-    # FILE VALIDATION
-    # --------------------------------------------------------
+    # -----------------------------------------------------
+    # Check API
+    # -----------------------------------------------------
 
-    if not file.content_type:
+    if client is None:
+
+        raise HTTPException(
+            status_code=500,
+            detail="OPENROUTER_API_KEY is not configured on the server."
+        )
+
+
+    # -----------------------------------------------------
+    # Check file
+    # -----------------------------------------------------
+
+    if not image.content_type:
 
         raise HTTPException(
             status_code=400,
-            detail="Could not determine uploaded file type."
+            detail="Image content type is missing."
         )
 
-    if not file.content_type.startswith("image/"):
+
+    if not image.content_type.startswith("image/"):
 
         raise HTTPException(
             status_code=400,
             detail="Please upload an image file."
         )
 
-    # --------------------------------------------------------
-    # READ IMAGE
-    # --------------------------------------------------------
 
-    image_bytes = await file.read()
+    # -----------------------------------------------------
+    # Read image
+    # -----------------------------------------------------
+
+    image_bytes = await image.read()
+
 
     if not image_bytes:
 
@@ -371,21 +222,24 @@ async def analyze_water_image(
             detail="Uploaded image is empty."
         )
 
-    # --------------------------------------------------------
-    # BASE64 IMAGE
-    # --------------------------------------------------------
 
-    image_base64 = base64.b64encode(
+    # -----------------------------------------------------
+    # Convert image to Base64
+    # -----------------------------------------------------
+
+    encoded_image = base64.b64encode(
         image_bytes
     ).decode("utf-8")
 
+
     image_url = (
-        f"data:{file.content_type};base64,{image_base64}"
+        f"data:{image.content_type};base64,{encoded_image}"
     )
 
-    # --------------------------------------------------------
-    # CALL OPENROUTER
-    # --------------------------------------------------------
+
+    # -----------------------------------------------------
+    # Call OpenRouter
+    # -----------------------------------------------------
 
     try:
 
@@ -394,6 +248,12 @@ async def analyze_water_image(
             model=MODEL,
 
             messages=[
+
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT
+                },
+
                 {
                     "role": "user",
 
@@ -401,7 +261,10 @@ async def analyze_water_image(
 
                         {
                             "type": "text",
-                            "text": PROMPT
+
+                            "text":
+                                "Analyze this water image "
+                                "and return only the requested JSON."
                         },
 
                         {
@@ -414,143 +277,115 @@ async def analyze_water_image(
 
                     ]
                 }
+
             ],
 
             temperature=0.1,
 
-            max_tokens=1200
+            max_tokens=1000
+
         )
 
-        # ----------------------------------------------------
-        # CHECK CHOICES
-        # ----------------------------------------------------
-
-        if not response.choices:
-
-            raise Exception(
-                "OpenRouter returned no choices."
-            )
-
-        message = response.choices[0].message
-
-        # ----------------------------------------------------
-        # GET CONTENT
-        # ----------------------------------------------------
-
-        result = message.content
-
-        # Some reasoning models may return unusual
-        # content structures. Handle the normal case first.
-
-        if result is None:
-
-            raise Exception(
-                "OpenRouter returned an empty response."
-            )
-
-        # ----------------------------------------------------
-        # CLEAN RESPONSE
-        # ----------------------------------------------------
-
-        result = clean_model_response(result)
-
-        if not result:
-
-            raise Exception(
-                "OpenRouter returned empty text after cleaning."
-            )
-
-        # ----------------------------------------------------
-        # PARSE JSON
-        # ----------------------------------------------------
-
-        analysis = parse_json_response(result)
-
-        # ----------------------------------------------------
-        # IF MODEL DID NOT RETURN JSON
-        # ----------------------------------------------------
-
-        if analysis is None:
-
-            analysis = {
-
-                "is_water_image": True,
-
-                "overall_observation": result,
-
-                "oil_sheen": "Uncertain",
-
-                "algae": "Uncertain",
-
-                "foam": "Uncertain",
-
-                "floating_particles": "Uncertain",
-
-                "water_appearance": "Unable to structure response",
-
-                "pollution_concern": "Uncertain",
-
-                "confidence": 0,
-
-                "recommendation": (
-                    "Please inspect the image manually "
-                    "and consider laboratory testing."
-                ),
-
-                "limitations": (
-                    "Visual screening cannot chemically "
-                    "confirm pollution and does not replace "
-                    "laboratory testing."
-                )
-            }
-
-        # ----------------------------------------------------
-        # NORMALIZE CONFIDENCE
-        # ----------------------------------------------------
-
-        if "confidence" in analysis:
-
-            try:
-
-                confidence = float(
-                    analysis["confidence"]
-                )
-
-                confidence = max(
-                    0,
-                    min(100, confidence)
-                )
-
-                analysis["confidence"] = confidence
-
-            except (ValueError, TypeError):
-
-                analysis["confidence"] = 0
-
-        # ----------------------------------------------------
-        # RETURN RESULT
-        # ----------------------------------------------------
-
-        return {
-
-            "success": True,
-
-            "model": MODEL,
-
-            "analysis": analysis
-
-        }
-
-    # --------------------------------------------------------
-    # ERROR HANDLING
-    # --------------------------------------------------------
 
     except Exception as e:
 
-        raise HTTPException(
-
-            status_code=500,
-
-            detail=f"AI analysis failed: {str(e)}"
-
+        print(
+            "OpenRouter error:",
+            repr(e)
         )
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI provider error: {str(e)}"
+        )
+
+
+    # -----------------------------------------------------
+    # Get AI response
+    # -----------------------------------------------------
+
+    try:
+
+        content = response.choices[0].message.content
+
+    except Exception:
+
+        content = None
+
+
+    if not content:
+
+        raise HTTPException(
+            status_code=502,
+            detail="OpenRouter returned an empty response."
+        )
+
+
+    print(
+        "AI RAW RESPONSE:",
+        content
+    )
+
+
+    # -----------------------------------------------------
+    # Parse JSON
+    # -----------------------------------------------------
+
+    result = extract_json(content)
+
+
+    if result is None:
+
+        raise HTTPException(
+            status_code=502,
+            detail="AI returned invalid JSON."
+        )
+
+
+    # -----------------------------------------------------
+    # Add model information
+    # -----------------------------------------------------
+
+    result["model"] = MODEL
+
+
+    # -----------------------------------------------------
+    # Normalize confidence
+    # -----------------------------------------------------
+
+    confidence = result.get(
+        "confidence",
+        0
+    )
+
+    try:
+
+        confidence = int(confidence)
+
+    except Exception:
+
+        confidence = 0
+
+
+    confidence = max(
+        0,
+        min(100, confidence)
+    )
+
+
+    result["confidence"] = confidence
+
+
+    # -----------------------------------------------------
+    # Final response
+    # -----------------------------------------------------
+
+    return {
+
+        "success": True,
+
+        "model": MODEL,
+
+        "analysis": result
+
+    }

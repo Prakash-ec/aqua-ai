@@ -2,37 +2,67 @@
 <html lang="en">
 
 <head>
+
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
     <title>Aqua AI | Water Quality Dashboard</title>
 
-    <link rel="stylesheet" href="style.css">
+    <link
+        rel="stylesheet"
+        href="style.css"
+    >
+
 </head>
+
 
 <body>
 
-    <!-- HEADER -->
+
+    <!-- ==========================================
+         HEADER
+         ========================================== -->
+
     <header class="header">
 
         <div>
+
             <h1>🌊 Aqua AI</h1>
-            <p>Smart Water Quality Monitoring System</p>
+
+            <p>
+                Smart Water Quality Monitoring System
+            </p>
+
         </div>
 
-        <div id="connectionStatus" class="status offline">
+
+        <div
+            id="connectionStatus"
+            class="status offline"
+        >
             ● Connecting...
         </div>
 
     </header>
 
 
+
     <main>
 
-        <!-- TITLE -->
+
+        <!-- ==========================================
+             HERO
+             ========================================== -->
+
         <section class="hero">
 
-            <h2>Live Water Quality</h2>
+            <h2>
+                Live Water Quality
+            </h2>
 
             <p>
                 Real-time readings from your ESP32
@@ -41,104 +71,175 @@
         </section>
 
 
-        <!-- SENSOR CARDS -->
+
+        <!-- ==========================================
+             SENSOR CARDS
+             ========================================== -->
+
         <section class="cards">
 
+
             <!-- TEMPERATURE -->
+
             <div class="card">
 
                 <div class="icon">
                     🌡️
                 </div>
 
-                <h3>Temperature</h3>
+                <h3>
+                    Temperature
+                </h3>
 
                 <div class="value">
-                    <span id="temperature">--</span>
-                    <small>°C</small>
+
+                    <span id="temperature">
+                        --
+                    </span>
+
+                    <small>
+                        °C
+                    </small>
+
                 </div>
 
             </div>
 
 
+
             <!-- PH -->
+
             <div class="card">
 
                 <div class="icon">
                     🧪
                 </div>
 
-                <h3>pH</h3>
+                <h3>
+                    pH
+                </h3>
 
                 <div class="value">
-                    <span id="ph">--</span>
+
+                    <span id="ph">
+                        --
+                    </span>
+
                 </div>
 
             </div>
 
 
+
             <!-- TURBIDITY -->
+
             <div class="card">
 
                 <div class="icon">
                     💧
                 </div>
 
-                <h3>Turbidity</h3>
+                <h3>
+                    Turbidity
+                </h3>
 
                 <div class="value">
-                    <span id="turbidity">--</span>
-                    <small>NTU</small>
+
+                    <span id="turbidity">
+                        --
+                    </span>
+
+                    <small>
+                        NTU
+                    </small>
+
                 </div>
 
             </div>
 
 
+
             <!-- TDS -->
+
             <div class="card">
 
                 <div class="icon">
                     ⚡
                 </div>
 
-                <h3>TDS</h3>
+                <h3>
+                    TDS
+                </h3>
 
                 <div class="value">
-                    <span id="tds">--</span>
-                    <small>ppm</small>
+
+                    <span id="tds">
+                        --
+                    </span>
+
+                    <small>
+                        ppm
+                    </small>
+
                 </div>
 
             </div>
 
+
         </section>
 
 
-        <!-- QUALITY STATUS -->
+
+        <!-- ==========================================
+             WATER QUALITY STATUS
+             ========================================== -->
+
         <section class="quality">
 
-            <h2>Water Quality Status</h2>
+            <h2>
+                Water Quality Status
+            </h2>
 
-            <div id="qualityStatus" class="quality-badge">
+
+            <div
+                id="qualityStatus"
+                class="quality-badge"
+            >
                 WAITING...
             </div>
 
+
             <p id="qualityMessage">
+
                 Waiting for sensor data...
+
             </p>
 
         </section>
 
 
-        <!-- DEVICE INFORMATION -->
+
+        <!-- ==========================================
+             DEVICE INFORMATION
+             ========================================== -->
+
         <section class="device">
 
-            <h2>📡 Device Information</h2>
+            <h2>
+                📡 Device Information
+            </h2>
+
 
             <div class="device-grid">
 
+
+                <!-- DEVICE ID -->
+
                 <div class="info-box">
 
-                    <span>Device ID</span>
+                    <span>
+                        Device ID
+                    </span>
 
                     <strong id="deviceId">
                         --
@@ -147,9 +248,14 @@
                 </div>
 
 
+
+                <!-- READING ID -->
+
                 <div class="info-box">
 
-                    <span>Reading ID</span>
+                    <span>
+                        Reading ID
+                    </span>
 
                     <strong id="readingId">
                         --
@@ -158,9 +264,14 @@
                 </div>
 
 
+
+                <!-- RECORDED -->
+
                 <div class="info-box">
 
-                    <span>Recorded At</span>
+                    <span>
+                        Recorded At
+                    </span>
 
                     <strong id="recordedAt">
                         --
@@ -169,9 +280,14 @@
                 </div>
 
 
+
+                <!-- UPDATED -->
+
                 <div class="info-box">
 
-                    <span>Dashboard Updated</span>
+                    <span>
+                        Dashboard Updated
+                    </span>
 
                     <strong id="updatedAt">
                         --
@@ -179,74 +295,370 @@
 
                 </div>
 
+
             </div>
 
         </section>
 
 
-        <!-- CAMERA SECTION -->
+
+        <!-- ==========================================
+             CAMERA AI SECTION
+             ========================================== -->
+
         <section class="camera">
 
-            <h2>📷 AI Camera Analysis</h2>
+
+            <h2>
+                📷 Aqua AI Vision
+            </h2>
+
 
             <p>
-                Camera-based water analysis will be integrated here.
+                Upload a water image and use AI to
+                screen for visible pollution indicators.
             </p>
 
 
-            <div class="camera-grid">
 
-                <div class="camera-item">
+            <!-- ======================================
+                 IMAGE UPLOAD
+                 ====================================== -->
 
-                    <span>🛢️ Oil</span>
-
-                    <strong>
-                        Coming Soon
-                    </strong>
-
-                </div>
+            <div class="camera-upload">
 
 
-                <div class="camera-item">
+                <label
+                    for="waterImage"
+                    class="upload-button"
+                >
 
-                    <span>🫧 Foam</span>
+                    📷 Choose Water Image
 
-                    <strong>
-                        Coming Soon
-                    </strong>
-
-                </div>
-
-
-                <div class="camera-item">
-
-                    <span>🎨 Colouration</span>
-
-                    <strong>
-                        Coming Soon
-                    </strong>
-
-                </div>
+                </label>
 
 
-                <div class="camera-item">
+                <input
+                    type="file"
+                    id="waterImage"
+                    accept="image/*"
+                    hidden
+                >
 
-                    <span>🔬 Particles</span>
 
-                    <strong>
-                        Coming Soon
-                    </strong>
+                <button
+                    id="analyzeButton"
+                    class="analyze-button"
+                    disabled
+                >
 
-                </div>
+                    🤖 Analyze with AI
+
+                </button>
+
 
             </div>
 
+
+
+            <!-- ======================================
+                 IMAGE PREVIEW
+                 ====================================== -->
+
+            <div
+                id="imagePreviewContainer"
+                class="image-preview-container"
+                style="display:none;"
+            >
+
+                <h3>
+                    Selected Image
+                </h3>
+
+
+                <img
+                    id="imagePreview"
+                    alt="Selected water image"
+                >
+
+            </div>
+
+
+
+            <!-- ======================================
+                 AI LOADING
+                 ====================================== -->
+
+            <div
+                id="aiLoading"
+                class="ai-loading"
+                style="display:none;"
+            >
+
+                <div class="spinner"></div>
+
+
+                <p>
+                    🤖 AI is analyzing the image...
+                </p>
+
+            </div>
+
+
+
+            <!-- ======================================
+                 AI ERROR
+                 ====================================== -->
+
+            <div
+                id="aiError"
+                class="ai-error"
+                style="display:none;"
+            >
+
+            </div>
+
+
+
+            <!-- ======================================
+                 AI RESULTS
+                 ====================================== -->
+
+            <div
+                id="aiResults"
+                class="ai-results"
+                style="display:none;"
+            >
+
+
+                <h2>
+                    🤖 AI Analysis Result
+                </h2>
+
+
+
+                <!-- ==================================
+                     SUMMARY
+                     ================================== -->
+
+                <div class="ai-summary">
+
+
+                    <!-- WATER -->
+
+                    <div class="ai-result-box">
+
+                        <span>
+                            Water Image
+                        </span>
+
+                        <strong id="aiWater">
+                            --
+                        </strong>
+
+                    </div>
+
+
+
+                    <!-- POLLUTION -->
+
+                    <div class="ai-result-box">
+
+                        <span>
+                            Pollution Concern
+                        </span>
+
+                        <strong id="aiConcern">
+                            --
+                        </strong>
+
+                    </div>
+
+
+
+                    <!-- CONFIDENCE -->
+
+                    <div class="ai-result-box">
+
+                        <span>
+                            AI Confidence
+                        </span>
+
+                        <strong id="aiConfidence">
+                            --
+                        </strong>
+
+                    </div>
+
+
+                </div>
+
+
+
+                <!-- ==================================
+                     DETECTIONS
+                     ================================== -->
+
+                <div class="ai-detection-grid">
+
+
+                    <!-- OIL -->
+
+                    <div class="camera-item">
+
+                        <span>
+                            🛢️ Oil Sheen
+                        </span>
+
+                        <strong id="aiOil">
+                            --
+                        </strong>
+
+                    </div>
+
+
+
+                    <!-- ALGAE -->
+
+                    <div class="camera-item">
+
+                        <span>
+                            🌿 Algae
+                        </span>
+
+                        <strong id="aiAlgae">
+                            --
+                        </strong>
+
+                    </div>
+
+
+
+                    <!-- FOAM -->
+
+                    <div class="camera-item">
+
+                        <span>
+                            🫧 Foam
+                        </span>
+
+                        <strong id="aiFoam">
+                            --
+                        </strong>
+
+                    </div>
+
+
+
+                    <!-- PARTICLES -->
+
+                    <div class="camera-item">
+
+                        <span>
+                            🔬 Floating Particles
+                        </span>
+
+                        <strong id="aiParticles">
+                            --
+                        </strong>
+
+                    </div>
+
+
+                </div>
+
+
+
+                <!-- ==================================
+                     WATER APPEARANCE
+                     ================================== -->
+
+                <div class="ai-observation">
+
+                    <h3>
+                        💧 Water Appearance
+                    </h3>
+
+                    <p id="aiAppearance">
+                        --
+                    </p>
+
+                </div>
+
+
+
+                <!-- ==================================
+                     OVERALL OBSERVATION
+                     ================================== -->
+
+                <div class="ai-observation">
+
+                    <h3>
+                        👁️ Overall Observation
+                    </h3>
+
+                    <p id="aiObservation">
+                        --
+                    </p>
+
+                </div>
+
+
+
+                <!-- ==================================
+                     RECOMMENDATION
+                     ================================== -->
+
+                <div class="ai-recommendation">
+
+                    <h3>
+                        💡 Recommendation
+                    </h3>
+
+                    <p id="aiRecommendation">
+                        --
+                    </p>
+
+                </div>
+
+
+
+                <!-- ==================================
+                     LIMITATIONS
+                     ================================== -->
+
+                <div class="ai-limitations">
+
+                    <strong>
+                        ⚠️ Important
+                    </strong>
+
+
+                    <p id="aiLimitations">
+
+                        Visual screening cannot chemically
+                        confirm pollution and does not replace
+                        laboratory testing.
+
+                    </p>
+
+                </div>
+
+
+            </div>
+
+
         </section>
+
 
     </main>
 
 
-    <!-- FOOTER -->
+
+    <!-- ==========================================
+         FOOTER
+         ========================================== -->
+
     <footer>
 
         <p>
@@ -256,7 +668,13 @@
     </footer>
 
 
+
+    <!-- ==========================================
+         JAVASCRIPT
+         ========================================== -->
+
     <script src="app.js"></script>
+
 
 </body>
 

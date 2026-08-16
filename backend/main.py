@@ -29,8 +29,12 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        # Local development
         "http://127.0.0.1:5500",
         "http://localhost:5500",
+
+        # Netlify production frontend
+        "https://vac-project-ver1.netlify.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],

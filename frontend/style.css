@@ -494,6 +494,54 @@ button:disabled {
     letter-spacing: -0.02em;
 }
 
+.ai-engine-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ai-engine-header {
+    margin-bottom: 4px;
+}
+
+.ai-engine-row {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.ai-engine-row label,
+.ai-engine-status,
+.ai-engine-meta {
+    font-size: 0.8rem;
+}
+
+.ai-engine-row label {
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.ai-engine-row select {
+    width: min(100%, 360px);
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 0.9rem;
+}
+
+.ai-engine-status {
+    color: var(--primary);
+    font-weight: 700;
+    margin-top: 4px;
+}
+
+.ai-engine-meta {
+    color: var(--muted);
+    margin-top: 2px;
+}
+
 .dashboard-two-column {
     display: grid;
     grid-template-columns: 1fr 1fr;

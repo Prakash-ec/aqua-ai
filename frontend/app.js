@@ -44,6 +44,12 @@ let turbidityChart = null;
 
 let tdsChart = null;
 
+const CHAT_PROVIDER_STORAGE_KEY = 'aqua_ai_chat_provider';
+const CHAT_MODEL_STORAGE_KEY = 'aqua_ai_chat_model';
+const CAMERA_PROVIDER_STORAGE_KEY = 'aqua_ai_camera_provider';
+const CAMERA_MODEL_STORAGE_KEY = 'aqua_ai_camera_model';
+
+const DEFAULT_PROVIDER_OPTION = 'automatic';
 
 /* =========================================================
    DOM HELPERS
@@ -64,6 +70,195 @@ function setText(id, value) {
     }
 }
 
+function readStoredSelection(key, fallback) {
+   try {
+       const stored = localStorage.getItem(key);
+       return stored ? stored : fallback;
+   } catch (error) {
+       return fallback;
+   }
+}
+
+function writeStoredSelection(key, value) {
+   try {
+       localStorage.setItem(key, value);
+   } catch (error) {
+       // ignore localStorage failures silently
+   }
+}
+
+function normalizeProviderId(value) {
+   return String(value || '').trim().toLowerCase();
+}
+
+function getAvailableProviderList() {
+   return window.__AQUA_AI_PROVIDERS__ || [];
+}
+
+function providerNameById(providerId) {
+   const providerList = getAvailableProviderList();
+   const match = providerList.find(item => normalizeProviderId(item.id) === normalizeProviderId(providerId));
+   return match ? match.name : providerId || 'Automatic';
+}
+
+function modelNameByProvider(providerId) {
+   const providerList = getAvailableProviderList();
+   const match = providerList.find(item => normalizeProviderId(item.id) === normalizeProviderId(providerId));
+   return match ? match.model : '';
+}
+
+function getChatProviderSelection() {
+   return readStoredSelection(CHAT_PROVIDER_STORAGE_KEY, DEFAULT_PROVIDER_OPTION);
+}
+
+function getChatModelSelection() {
+   return readStoredSelection(CHAT_MODEL_STORAGE_KEY, DEFAULT_PROVIDER_OPTION);
+}
+
+function getCameraProviderSelection() {
+   return readStoredSelection(CAMERA_PROVIDER_STORAGE_KEY, DEFAULT_PROVIDER_OPTION);
+}
+
+function getCameraModelSelection() {
+   return readStoredSelection(CAMERA_MODEL_STORAGE_KEY, 'Aqua AI Vision — Automatic');
+}
+
+function setProviderDropdown(select, options, selectedValue, labelFallback) {
+   if (!select) {
+       return;
+   }
+
+   const value = options.some(option => option.value === selectedValue)
+       ? selectedValue
+       : (options[0] ? options[0].value : labelFallback);
+
+   select.innerHTML = options.length
+       ? options.map(option => `<option value="${option.value}">${option.label}</option>`).join('')
+       : `<option value="${labelFallback}">${labelFallback}</option>`;
+
+   select.value = value;
+}
+
+function renderProviderOptions() {
+   const chatProviderSelect = $('chatProviderSelect');
+   const chatModelSelect = $('aiModelSelectorSetting');
+   const cameraProviderSelect = $('cameraProviderSelect');
+   const cameraModelSelect = $('aiModelSelector');
+
+   const providers = getAvailableProviderList();
+   const chatOptions = [{ value: 'automatic', label: 'Automatic (Recommended)' }].concat(
+       providers.map(provider => ({ value: provider.id, label: provider.name }))
+   );
+
+   const cameraOptions = [{ value: 'automatic', label: 'Automatic' }].concat(
+       providers
+           .filter(provider => provider.supports_vision || normalizeProviderId(provider.id) === 'groq')
+           .map(provider => ({ value: provider.id, label: provider.name }))
+   );
+
+   setProviderDropdown(chatProviderSelect, chatOptions, getChatProviderSelection(), 'automatic');
+   setProviderDropdown(cameraProviderSelect, cameraOptions, getCameraProviderSelection(), 'automatic');
+
+   const selectedChatProvider = getChatProviderSelection();
+   const selectedCameraProvider = getCameraProviderSelection();
+
+   const chatModelOptions = selectedChatProvider === 'automatic'
+       ? [{ value: 'automatic', label: 'Automatic' }]
+       : [{ value: modelNameByProvider(selectedChatProvider), label: modelNameByProvider(selectedChatProvider) || 'Automatic' }];
+
+   const cameraModelOptions = selectedCameraProvider === 'automatic'
+       ? [{ value: 'automatic', label: 'Aqua AI Vision — Automatic' }]
+       : [{ value: 'qwen/qwen3.6-27b', label: 'qwen/qwen3.6-27b' }];
+
+   setProviderDropdown(chatModelSelect, chatModelOptions, getChatModelSelection(), 'automatic');
+   setProviderDropdown(cameraModelSelect, cameraModelOptions, getCameraModelSelection(), 'automatic');
+
+   const cameraSettingsModelSelect = $('cameraModelSelectorSetting');
+   setProviderDropdown(cameraSettingsModelSelect, cameraModelOptions, getCameraModelSelection(), 'automatic');
+
+   const cameraSettingsProviderSelect = $('cameraProviderSelectSetting');
+   setProviderDropdown(cameraSettingsProviderSelect, cameraOptions, getCameraProviderSelection(), 'automatic');
+
+   const chatStatus = $('chatEngineStatus');
+   const chatModelStatus = $('chatModelStatus');
+   if (chatStatus) {
+       const chatProviderLabel = selectedChatProvider === 'automatic' ? 'Automatic' : providerNameById(selectedChatProvider);
+       chatStatus.textContent = `AI Provider: ${chatProviderLabel}`;
+   }
+   if (chatModelStatus) {
+       const currentModel = selectedChatProvider === 'automatic' ? 'Automatic' : (modelNameByProvider(selectedChatProvider) || 'Automatic');
+       chatModelStatus.textContent = `Currently using: ${currentModel}`;
+   }
+
+   const cameraStatus = $('cameraEngineStatus');
+   const cameraModelStatus = $('cameraSettingsStatus');
+   const cameraCurrentText = $('cameraSettingsModelStatus');
+   const cameraCombinedText = selectedCameraProvider === 'automatic' ? 'Aqua AI Vision — Automatic' : 'Aqua AI Vision — Automatic';
+   if (cameraStatus) {
+       cameraStatus.textContent = `AI Provider: ${selectedCameraProvider === 'automatic' ? 'Automatic' : providerNameById(selectedCameraProvider)}`;
+   }
+   if (cameraModelStatus) {
+       cameraModelStatus.textContent = `AI Provider: ${selectedCameraProvider === 'automatic' ? 'Automatic' : providerNameById(selectedCameraProvider)}`;
+   }
+   if (cameraCurrentText) {
+       cameraCurrentText.textContent = `Currently using: ${cameraCombinedText}`;
+   }
+}
+
+function updateChatAIStatusFromResponse(response) {
+   const chatStatus = $('chatEngineStatus');
+   const chatModelStatus = $('chatModelStatus');
+   const modelName = response && response.model ? response.model : 'Automatic';
+   const providerName = getProviderNameFromModel(modelName);
+
+   if (chatStatus) {
+       chatStatus.textContent = `AI Provider: ${providerName}`;
+   }
+   if (chatModelStatus) {
+       chatModelStatus.textContent = `Currently using: ${modelName}`;
+   }
+}
+
+function getProviderNameFromModel(modelName) {
+   const providers = getAvailableProviderList();
+   if (!modelName) return 'Automatic';
+   const found = providers.find(provider => provider.model === modelName || normalizeProviderId(provider.name) === normalizeProviderId(modelName));
+   return found ? found.name : 'Automatic';
+}
+
+function buildChatPayload(question) {
+   const providerSelect = $('chatProviderSelect');
+   const modelSelect = $('aiModelSelectorSetting');
+   const selectedProvider = providerSelect ? providerSelect.value : readStoredSelection(CHAT_PROVIDER_STORAGE_KEY, DEFAULT_PROVIDER_OPTION);
+   const selectedModel = modelSelect ? modelSelect.value : readStoredSelection(CHAT_MODEL_STORAGE_KEY, DEFAULT_PROVIDER_OPTION);
+   const payload = { question: question.trim() };
+
+   if (selectedProvider && selectedProvider !== 'automatic') {
+       payload.provider = selectedProvider;
+       if (selectedModel && selectedModel !== 'automatic' && selectedModel.trim()) {
+           payload.model = selectedModel.trim();
+       }
+   }
+
+   return payload;
+}
+
+function buildCameraPayload() {
+   const providerSelect = $('cameraProviderSelect');
+   const modelSelect = $('aiModelSelector');
+   const selectedProvider = providerSelect ? providerSelect.value : readStoredSelection(CAMERA_PROVIDER_STORAGE_KEY, DEFAULT_PROVIDER_OPTION);
+   const selectedModel = modelSelect ? modelSelect.value : readStoredSelection(CAMERA_MODEL_STORAGE_KEY, 'Aqua AI Vision — Automatic');
+   const payload = {};
+
+   if (selectedProvider && selectedProvider !== 'automatic') {
+       payload.provider = selectedProvider;
+   }
+   if (selectedModel && selectedModel !== 'automatic' && selectedModel.trim()) {
+       payload.model = selectedModel.trim();
+   }
+
+   return payload;
+}
 
 /* =========================================================
    NAVIGATION
@@ -267,37 +462,78 @@ async function fetchReadings() {
 
     try {
 
-        // lightweight console message only on debug builds
+       const response = await fetch(READINGS_ENDPOINT, { method: 'GET', headers: { Accept: 'application/json' } });
 
-        const response = await fetch(READINGS_ENDPOINT, { method: 'GET', headers: { Accept: 'application/json' } });
+       if (!response.ok) {
+           throw new Error(`HTTP ${response.status}`);
+       }
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
+       const data = await response.json();
 
-        const data = await response.json();
+       setConnectionStatus(true, `Updated ${new Date().toLocaleTimeString()}`);
 
-        setConnectionStatus(true, `Updated ${new Date().toLocaleTimeString()}`);
+       normalizeReadings(data);
 
-        normalizeReadings(data);
+       if (headerStamp) headerStamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
 
-        if (headerStamp) headerStamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
+   } catch (error) {
 
-    } catch (error) {
+       setConnectionStatus(false, 'Unable to reach backend');
 
-        // user-friendly error handling
-        setConnectionStatus(false, 'Unable to reach backend');
+       setText('qualityTitle', 'Unable to read sensor data');
+       setText('qualityMessage', 'Check the Aqua AI backend and ESP32 connection.');
 
-        setText('qualityTitle', 'Unable to read sensor data');
-        setText('qualityMessage', 'Check the Aqua AI backend and ESP32 connection.');
+       const header = $("headerLastUpdated");
+       if (header) header.textContent = 'Last update failed';
 
-        const header = $("headerLastUpdated");
-        if (header) header.textContent = 'Last update failed';
-
-    }
+   }
 
 }
 
+async function fetchAvailableAIProviders() {
+   const chatStatus = $('chatEngineStatus');
+   const cameraStatus = $('cameraEngineStatus');
+   const cameraSettingsStatus = $('cameraSettingsStatus');
+
+   try {
+       const response = await fetch(`${API_BASE}/ai/providers`, {
+           method: 'GET',
+           headers: { Accept: 'application/json' }
+       });
+
+       if (!response.ok) {
+           throw new Error(`HTTP ${response.status}`);
+       }
+
+       const data = await response.json();
+       const providers = Array.isArray(data.providers) ? data.providers : [];
+       window.__AQUA_AI_PROVIDERS__ = providers;
+
+       if (!providers.length) {
+           throw new Error('No providers returned');
+       }
+
+       renderProviderOptions();
+
+       if (chatStatus) chatStatus.textContent = `AI Provider: ${getChatProviderSelection() === 'automatic' ? 'Automatic' : providerNameById(getChatProviderSelection())}`;
+       if (cameraStatus) cameraStatus.textContent = `AI Provider: ${getCameraProviderSelection() === 'automatic' ? 'Automatic' : providerNameById(getCameraProviderSelection())}`;
+       if (cameraSettingsStatus) cameraSettingsStatus.textContent = `AI Provider: ${getCameraProviderSelection() === 'automatic' ? 'Automatic' : providerNameById(getCameraProviderSelection())}`;
+
+   } catch (error) {
+       window.__AQUA_AI_PROVIDERS__ = [];
+       renderProviderOptions();
+
+       if (chatStatus) {
+           chatStatus.textContent = 'Unable to load provider information. Automatic mode will be used.';
+       }
+       if (cameraStatus) {
+           cameraStatus.textContent = 'Unable to load provider information. Automatic mode will be used.';
+       }
+       if (cameraSettingsStatus) {
+           cameraSettingsStatus.textContent = 'Unable to load provider information. Automatic mode will be used.';
+       }
+   }
+}
 
 /* =========================================================
    NORMALIZE READINGS
@@ -1684,13 +1920,15 @@ async function sendChatMessage(text) {
     loading.classList.remove('hidden');
 
     try {
+        const payload = buildChatPayload(text);
+
         const response = await fetch(CHAT_ENDPOINT, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
             },
-            body: JSON.stringify({ question: text.trim() })
+            body: JSON.stringify(payload)
         });
 
         if (!response.ok) {
@@ -1705,6 +1943,7 @@ async function sendChatMessage(text) {
         }
 
         const aiMsg = { role: 'ai', text: data.answer || 'No answer', time: new Date().toLocaleString(), model: data.model };
+        updateChatAIStatusFromResponse(data);
         const newHistory = loadChatHistory();
         newHistory.push(aiMsg);
         saveChatHistory(newHistory);
@@ -1725,8 +1964,30 @@ async function sendChatMessage(text) {
 function setupChat() {
     const input = $('chatInput');
     const sendBtn = $('chatSendButton');
+    const providerSelect = $('chatProviderSelect');
+    const modelSelect = $('aiModelSelectorSetting');
 
     renderConversation();
+
+    providerSelect?.addEventListener('change', () => {
+        const selectedProvider = providerSelect.value;
+        writeStoredSelection(CHAT_PROVIDER_STORAGE_KEY, selectedProvider);
+
+        if (selectedProvider === 'automatic') {
+            writeStoredSelection(CHAT_MODEL_STORAGE_KEY, 'automatic');
+            if (modelSelect) modelSelect.value = 'automatic';
+        } else {
+            const providerModel = modelNameByProvider(selectedProvider) || 'automatic';
+            writeStoredSelection(CHAT_MODEL_STORAGE_KEY, providerModel);
+            if (modelSelect) modelSelect.value = providerModel;
+        }
+
+        renderProviderOptions();
+    });
+
+    modelSelect?.addEventListener('change', () => {
+        writeStoredSelection(CHAT_MODEL_STORAGE_KEY, modelSelect.value);
+    });
 
     if (sendBtn) {
         sendBtn.addEventListener('click', () => {
@@ -1935,11 +2196,58 @@ function setupImageUpload() {
     const previewImage = $("imagePreview");
     const clearBtn = $("clearImageButton");
     const modelSelect = $("aiModelSelector");
+    const providerSelect = $("cameraProviderSelect");
+    const settingsProviderSelect = $("cameraProviderSelectSetting");
+    const settingsModelSelect = $("cameraModelSelectorSetting");
 
-    if (modelSelect) {
-        // only one model available for now - mark as active
-        modelSelect.disabled = true;
-    }
+    providerSelect?.addEventListener('change', () => {
+        const value = providerSelect.value;
+        writeStoredSelection(CAMERA_PROVIDER_STORAGE_KEY, value);
+
+        if (value === 'automatic') {
+            writeStoredSelection(CAMERA_MODEL_STORAGE_KEY, 'Aqua AI Vision — Automatic');
+            if (modelSelect) modelSelect.value = 'automatic';
+            if (settingsModelSelect) settingsModelSelect.value = 'automatic';
+            if (settingsProviderSelect) settingsProviderSelect.value = value;
+            renderProviderOptions();
+            return;
+        }
+
+        const providerModel = 'qwen/qwen3.6-27b';
+        writeStoredSelection(CAMERA_MODEL_STORAGE_KEY, providerModel);
+        if (modelSelect) modelSelect.value = providerModel;
+        if (settingsModelSelect) settingsModelSelect.value = providerModel;
+        if (settingsProviderSelect) settingsProviderSelect.value = value;
+        renderProviderOptions();
+    });
+
+    modelSelect?.addEventListener('change', () => {
+        writeStoredSelection(CAMERA_MODEL_STORAGE_KEY, modelSelect.value);
+        if (settingsModelSelect) settingsModelSelect.value = modelSelect.value;
+    });
+
+    settingsProviderSelect?.addEventListener('change', () => {
+        const value = settingsProviderSelect.value;
+        writeStoredSelection(CAMERA_PROVIDER_STORAGE_KEY, value);
+        if (providerSelect) providerSelect.value = value;
+        if (value === 'automatic') {
+            writeStoredSelection(CAMERA_MODEL_STORAGE_KEY, 'Aqua AI Vision — Automatic');
+            if (settingsModelSelect) settingsModelSelect.value = 'automatic';
+            if (modelSelect) modelSelect.value = 'automatic';
+            renderProviderOptions();
+            return;
+        }
+        const providerModel = 'qwen/qwen3.6-27b';
+        writeStoredSelection(CAMERA_MODEL_STORAGE_KEY, providerModel);
+        if (settingsModelSelect) settingsModelSelect.value = providerModel;
+        if (modelSelect) modelSelect.value = providerModel;
+        renderProviderOptions();
+    });
+
+    settingsModelSelect?.addEventListener('change', () => {
+        writeStoredSelection(CAMERA_MODEL_STORAGE_KEY, settingsModelSelect.value);
+        if (modelSelect) modelSelect.value = settingsModelSelect.value;
+    });
 
     if (!input || !uploadArea) return;
 
@@ -2271,6 +2579,14 @@ async function analyzeImage(
             file
         );
 
+        const cameraRequest = buildCameraPayload();
+        if (cameraRequest.provider) {
+            formData.append("provider", cameraRequest.provider);
+        }
+        if (cameraRequest.model) {
+            formData.append("model", cameraRequest.model);
+        }
+
 
         console.log(
             "Sending image to:",
@@ -2381,6 +2697,22 @@ function displayAIResult(
             "hidden"
         );
 
+    const providerLabel = result && result.provider ? result.provider : 'Automatic';
+    const modelLabel = result && result.model ? result.model : 'Aqua AI Vision — Automatic';
+
+    const cameraStatus = $('cameraEngineStatus');
+    const cameraSettingsStatus = $('cameraSettingsStatus');
+    const cameraCurrentText = $('cameraSettingsModelStatus');
+
+    if (cameraStatus) {
+        cameraStatus.textContent = `AI Provider: ${providerLabel === 'automatic' ? 'Automatic' : providerLabel}`;
+    }
+    if (cameraSettingsStatus) {
+        cameraSettingsStatus.textContent = `AI Provider: ${providerLabel === 'automatic' ? 'Automatic' : providerLabel}`;
+    }
+    if (cameraCurrentText) {
+        cameraCurrentText.textContent = `Currently using: ${modelLabel}`;
+    }
 
     setText(
         "aiConfidence",
@@ -2600,6 +2932,9 @@ async function initialize() {
 
     setupRefresh();
 
+    await fetchAvailableAIProviders();
+
+    renderProviderOptions();
 
     await fetchReadings();
 

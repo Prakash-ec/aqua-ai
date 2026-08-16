@@ -8,6 +8,7 @@ from fastapi import (
     APIRouter,
     UploadFile,
     File,
+    Form,
     HTTPException,
 )
 
@@ -335,7 +336,26 @@ def validate_analysis(data: dict) -> dict:
 @router.post("/analyze")
 async def analyze_camera(
     image: UploadFile = File(...),
+    provider: str | None = Form(None),
+    model: str | None = Form(None),
 ):
+
+    # =====================================================
+    # DETERMINE VISION MODEL
+    # =====================================================
+
+    selected_provider = (provider or "").strip().lower()
+    selected_model = (model or "").strip()
+    effective_provider = "groq"
+    effective_model = GROQ_VISION_MODEL
+
+    if selected_provider in {"groq", "automatic", ""}:
+        effective_provider = "groq"
+    else:
+        effective_provider = "groq"
+
+    if selected_model and selected_model != "automatic":
+        effective_model = selected_model
 
     # =====================================================
     # CHECK API KEY
@@ -434,11 +454,12 @@ async def analyze_camera(
             "bytes",
         )
         print(
-            "Provider: Groq"
+            "Provider:",
+            effective_provider,
         )
         print(
             "Model:",
-            GROQ_VISION_MODEL,
+            effective_model,
         )
         print(
             "Reasoning: disabled"
@@ -454,7 +475,7 @@ async def analyze_camera(
 
         response = groq_client.chat.completions.create(
 
-            model=GROQ_VISION_MODEL,
+            model=effective_model,
 
             messages=[
 
@@ -627,9 +648,9 @@ async def analyze_camera(
 
             "size_bytes": len(image_bytes),
 
-            "provider": "groq",
+            "provider": effective_provider,
 
-            "model": GROQ_VISION_MODEL,
+            "model": effective_model,
 
         }
 

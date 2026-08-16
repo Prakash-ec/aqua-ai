@@ -774,10 +774,29 @@
 
                 <div id="uploadMode" class="camera-mode active">
 
-                    <label for="aiModelSelector" class="eyebrow" style="display:block;margin-bottom:8px;">AI Model</label>
-                    <select id="aiModelSelector" aria-label="AI model selector" class="primary-button" style="display:inline-block;padding:8px 12px;margin-bottom:14px;border-radius:8px;border:1px solid #e5ebf0;background:white;">
-                        <option value="aqua_ai_vision">Aqua AI Vision — Active Model</option>
-                    </select>
+                    <div class="ai-engine-controls">
+                        <div class="ai-engine-header">
+                            <span class="eyebrow">AI VISION ENGINE</span>
+                        </div>
+
+                        <div class="ai-engine-row">
+                            <label for="cameraProviderSelect">Provider</label>
+                            <select id="cameraProviderSelect" aria-label="Camera provider selector">
+                                <option value="automatic">Automatic</option>
+                            </select>
+                        </div>
+
+                        <div class="ai-engine-row">
+                            <label for="aiModelSelector">Model</label>
+                            <select id="aiModelSelector" aria-label="Camera model selector">
+                                <option value="automatic">Aqua AI Vision — Automatic</option>
+                            </select>
+                        </div>
+
+                        <div id="cameraEngineStatus" class="ai-engine-status">
+                            Loading AI providers...
+                        </div>
+                    </div>
 
                     <div class="upload-area" id="uploadArea" aria-label="Drop image here or click to select" tabindex="0">
 
@@ -1202,14 +1221,61 @@
 
                 <div class="panel">
                     <div class="panel-header">
-                        <h3>AI Model</h3>
+                        <h3>AI CHAT ENGINE</h3>
                     </div>
-                    <div>
-                        <label for="aiModelSelectorSetting">Active Model</label>
-                        <select id="aiModelSelectorSetting" disabled>
-                            <option>Aqua AI Vision — Active Model</option>
-                        </select>
-                        <p style="color:var(--muted);margin-top:8px;">Only the backend-supported model is available at present.</p>
+
+                    <div class="ai-engine-controls">
+                        <div class="ai-engine-row">
+                            <label for="chatProviderSelect">Provider</label>
+                            <select id="chatProviderSelect" aria-label="Chat provider selector">
+                                <option value="automatic">Automatic (Recommended)</option>
+                            </select>
+                        </div>
+
+                        <div class="ai-engine-row">
+                            <label for="aiModelSelectorSetting">Model</label>
+                            <select id="aiModelSelectorSetting" aria-label="Chat model selector">
+                                <option value="automatic">Automatic</option>
+                            </select>
+                        </div>
+
+                        <div id="chatEngineStatus" class="ai-engine-status">
+                            AI Provider: Automatic
+                        </div>
+
+                        <div id="chatModelStatus" class="ai-engine-meta">
+                            Currently using: Automatic
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3>AI VISION ENGINE</h3>
+                    </div>
+
+                    <div class="ai-engine-controls">
+                        <div class="ai-engine-row">
+                            <label for="cameraProviderSelectSetting">Provider</label>
+                            <select id="cameraProviderSelectSetting" aria-label="Camera provider selector settings">
+                                <option value="automatic">Automatic</option>
+                            </select>
+                        </div>
+
+                        <div class="ai-engine-row">
+                            <label for="cameraModelSelectorSetting">Model</label>
+                            <select id="cameraModelSelectorSetting" aria-label="Camera model selector settings">
+                                <option value="automatic">Aqua AI Vision — Automatic</option>
+                            </select>
+                        </div>
+
+                        <div id="cameraSettingsStatus" class="ai-engine-status">
+                            AI Provider: Automatic
+                        </div>
+
+                        <div id="cameraSettingsModelStatus" class="ai-engine-meta">
+                            Currently using: Aqua AI Vision — Automatic
+                        </div>
                     </div>
                 </div>
             </section>

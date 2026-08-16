@@ -327,6 +327,7 @@ def ask_ai(
     system_prompt,
     user_content,
     selected_provider=None,
+    selected_model=None,
 ):
 
     # =====================================================
@@ -406,6 +407,14 @@ def ask_ai(
         client = config["client"]
 
         model = config["model"]
+
+        if (
+            selected_provider and
+            selected_provider.lower().strip() == provider_id and
+            selected_model and
+            selected_model.strip()
+        ):
+            model = selected_model.strip()
 
         provider_name = config["name"]
 

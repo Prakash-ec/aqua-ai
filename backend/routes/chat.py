@@ -28,6 +28,8 @@ router = APIRouter(
 
 class ChatRequest(BaseModel):
     question: str
+    provider: Optional[str] = None
+    model: Optional[str] = None
 
 
 class ChatResult(BaseModel):
@@ -726,7 +728,8 @@ Do NOT include analysis.
         answer_text, model_used = ask_ai(
             system_prompt=SYSTEM_PROMPT,
             user_content=user_content,
-            selected_provider=None,
+            selected_provider=request.provider,
+            selected_model=request.model,
         )
 
         # =================================================

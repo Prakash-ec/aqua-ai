@@ -32,10 +32,27 @@ def providers():
 
     available = get_available_providers()
 
+    provider_list = []
+
+    for provider in available:
+        provider_id = provider["id"]
+        config = PROVIDERS.get(provider_id)
+
+        provider_list.append({
+            **provider,
+            "supports_vision": provider_id == "groq",
+            "vision_model": (
+                "qwen/qwen3.6-27b"
+                if provider_id == "groq"
+                else None
+            ),
+            "default_model": config["model"] if config else provider["model"],
+        })
+
     return {
         "success": True,
         "current": CURRENT_PROVIDER,
-        "providers": available,
+        "providers": provider_list,
     }
 
 

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.routes.devices import router as devices_router
 from backend.routes.readings import router as readings_router
 from backend.routes.camera import router as camera_router
+from backend.routes.chat import router as chat_router
 
 
 # ==========================================
@@ -44,6 +45,7 @@ app.add_middleware(
 app.include_router(devices_router)
 app.include_router(readings_router)
 app.include_router(camera_router)
+app.include_router(chat_router)
 
 
 # ==========================================

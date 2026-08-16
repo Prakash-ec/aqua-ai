@@ -1,4 +1,3 @@
-```python
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -28,20 +27,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-
     allow_origins=[
         "http://127.0.0.1:5500",
         "http://localhost:5500",
-
-        # Add your deployed frontend URL here later
-        # Example:
-        # "https://your-frontend.onrender.com",
     ],
-
     allow_credentials=True,
-
     allow_methods=["*"],
-
     allow_headers=["*"],
 )
 
@@ -50,17 +41,9 @@ app.add_middleware(
 # REGISTER ROUTES
 # ==========================================
 
-app.include_router(
-    devices_router
-)
-
-app.include_router(
-    readings_router
-)
-
-app.include_router(
-    camera_router
-)
+app.include_router(devices_router)
+app.include_router(readings_router)
+app.include_router(camera_router)
 
 
 # ==========================================
@@ -75,6 +58,7 @@ def root():
         "version": "1.0.0",
         "endpoints": {
             "docs": "/docs",
+            "health": "/health",
             "devices": "/devices/",
             "readings": "/readings/",
             "camera": "/camera/analyze",
@@ -93,4 +77,3 @@ def health():
         "status": "healthy",
         "service": "Aqua AI",
     }
-```

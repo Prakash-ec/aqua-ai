@@ -1,170 +1,331 @@
 import os
 import json
 import base64
+import traceback
 import re
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import (
+    APIRouter,
+    UploadFile,
+    File,
+    HTTPException,
+)
+
+from dotenv import load_dotenv
 from openai import OpenAI
 
 
+# =========================================================
+# LOAD ENVIRONMENT
+# =========================================================
+
+load_dotenv()
+
+
+# =========================================================
+# GROQ CONFIGURATION
+# =========================================================
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+GROQ_VISION_MODEL = "qwen/qwen3.6-27b"
+
+
+# =========================================================
+# GROQ CLIENT
+# =========================================================
+
+groq_client = None
+
+if GROQ_API_KEY:
+
+    groq_client = OpenAI(
+        api_key=GROQ_API_KEY,
+        base_url="https://api.groq.com/openai/v1",
+    )
+
+    print("GROQ_API_KEY loaded successfully")
+
+else:
+
+    print("WARNING: GROQ_API_KEY is not configured")
+
+
+# =========================================================
+# ROUTER
+# =========================================================
+
 router = APIRouter(
     prefix="/camera",
-    tags=["Camera AI"]
+    tags=["Camera AI"],
 )
 
 
 # =========================================================
-# CONFIGURATION
+# SYSTEM PROMPT
 # =========================================================
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+CAMERA_SYSTEM_PROMPT = """
+You are Aqua AI Vision.
 
-MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+Analyze the uploaded water image.
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+RETURN ONLY A VALID JSON OBJECT.
 
+Do not provide reasoning.
+Do not use <think>.
+Do not use markdown.
+Do not use code fences.
+Do not provide explanations before or after the JSON.
 
-# =========================================================
-# CHECK API KEY
-# =========================================================
-
-if not OPENROUTER_API_KEY:
-    print("WARNING: OPENROUTER_API_KEY is not configured")
-
-
-# =========================================================
-# CLIENT
-# =========================================================
-
-client = None
-
-if OPENROUTER_API_KEY:
-
-    client = OpenAI(
-        api_key=OPENROUTER_API_KEY,
-        base_url=OPENROUTER_BASE_URL
-    )
-
-
-# =========================================================
-# AI PROMPT
-# =========================================================
-
-SYSTEM_PROMPT = """
-You are Aqua AI, a water-surface visual screening system.
-
-Analyze ONLY what can reasonably be observed in the supplied image.
-
-Your task is to identify visual indicators related to:
-
-1. Oil sheen
-2. Algae
-3. Foam
-4. Floating particles or debris
-5. General water appearance
-
-IMPORTANT:
-
-This is visual screening only.
-
-Do NOT claim that oil, microplastics, chemicals,
-bacteria, heavy metals, or other pollutants are chemically
-confirmed from an image.
-
-For oil:
-Use "Possible oil sheen" when rainbow-like,
-iridescent, reflective, thin-film patterns could indicate oil.
-
-For algae:
-Look for visually apparent green, brown, or biological
-growth patterns or mats.
-
-For foam:
-Look for visible white or bubbly foam.
-
-For floating particles:
-Look for clearly visible particles, debris, suspended material,
-or floating objects.
-
-Consider lighting, reflections, glare, and image quality.
-
-Return ONLY valid JSON.
-
-Use exactly this structure:
+The response must contain EXACTLY these fields:
 
 {
-  "is_water_image": true,
-  "overall_observation": "...",
-  "oil_sheen": "Possible oil sheen / Not visually detected / Uncertain",
-  "algae": "Detected / Not visually detected / Uncertain",
-  "foam": "Detected / Not visually detected / Uncertain",
-  "floating_particles": "Detected / Not visually detected / Uncertain",
-  "water_appearance": "...",
-  "pollution_concern": "Low / Moderate / High / Uncertain",
   "confidence": 0,
-  "recommendation": "...",
-  "limitations": "Visual screening cannot chemically confirm pollution and does not replace laboratory testing."
+  "overall_observation": "",
+  "oil_sheen": "",
+  "algae": "",
+  "foam": "",
+  "floating_particles": "",
+  "water_appearance": "",
+  "pollution_concern": "",
+  "recommendation": "",
+  "limitations": ""
 }
 
-Confidence must be an integer from 0 to 100.
+RULES:
 
-Be conservative.
-Do not treat color alone as proof of pollution.
+1. Only describe characteristics visible in the photograph.
+
+2. Never invent sensor measurements.
+
+3. Never claim to measure:
+   - pH
+   - TDS
+   - temperature
+   - turbidity
+   - dissolved oxygen
+   - chemical concentration
+   - bacteria
+   - pathogens
+   - heavy metals
+   - toxins
+
+4. Never claim that the water is safe to drink.
+
+5. Do not provide medical advice or diagnosis.
+
+6. Do not claim laboratory accuracy.
+
+7. A normal photograph cannot reliably detect microplastics.
+
+8. A photograph cannot reliably determine dissolved chemicals.
+
+9. If something cannot be determined, use exactly:
+
+"Not determinable from image"
+
+10. confidence must be an integer between 0 and 100.
+
+11. Keep descriptions concise.
+
+12. Recommendation should suggest laboratory or sensor testing when appropriate.
+
+13. Return the JSON immediately.
+
+14. Do not output reasoning.
 """
 
 
 # =========================================================
-# HELPER: EXTRACT JSON
+# REQUIRED FIELDS
 # =========================================================
 
-def extract_json(text: str):
+REQUIRED_FIELDS = [
+    "confidence",
+    "overall_observation",
+    "oil_sheen",
+    "algae",
+    "foam",
+    "floating_particles",
+    "water_appearance",
+    "pollution_concern",
+    "recommendation",
+    "limitations",
+]
+
+
+# =========================================================
+# CLEAN JSON RESPONSE
+# =========================================================
+
+def clean_json_response(text: str) -> str:
 
     if not text:
-        return None
+
+        raise ValueError(
+            "Vision model returned an empty response."
+        )
 
     text = text.strip()
 
-    # Direct JSON
-    try:
-        return json.loads(text)
-    except Exception:
-        pass
+    # -----------------------------------------------------
+    # Remove <think> blocks if model accidentally returns
+    # reasoning despite the API setting.
+    # -----------------------------------------------------
 
-    # Remove markdown code fences
     text = re.sub(
-        r"```json\s*",
+        r"<think>.*?</think>",
         "",
         text,
-        flags=re.IGNORECASE
+        flags=re.DOTALL | re.IGNORECASE,
     )
 
+    # If an unfinished <think> block appears,
+    # remove everything before the first JSON object.
+    if "<think>" in text.lower():
+
+        think_start = re.search(
+            r"<think>",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        if think_start:
+
+            text = text[
+                think_start.end():
+            ]
+
+    text = text.strip()
+
+    # -----------------------------------------------------
+    # Remove markdown code fences
+    # -----------------------------------------------------
+
     text = re.sub(
-        r"```\s*",
+        r"```json",
         "",
-        text
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    text = text.replace(
+        "```",
+        "",
     )
 
     text = text.strip()
 
-    try:
-        return json.loads(text)
-    except Exception:
-        pass
+    # -----------------------------------------------------
+    # Find JSON object
+    # -----------------------------------------------------
 
-    # Find first JSON object
     start = text.find("{")
     end = text.rfind("}")
 
-    if start != -1 and end != -1 and end > start:
+    if start == -1 or end == -1 or end <= start:
 
-        candidate = text[start:end + 1]
+        raise ValueError(
+            "Vision model did not return a JSON object."
+        )
 
-        try:
-            return json.loads(candidate)
-        except Exception:
-            pass
+    json_text = text[
+        start:end + 1
+    ]
 
-    return None
+    return json_text.strip()
+
+
+# =========================================================
+# VALIDATE ANALYSIS
+# =========================================================
+
+def validate_analysis(data: dict) -> dict:
+
+    if not isinstance(data, dict):
+
+        raise ValueError(
+            "Vision response is not a JSON object."
+        )
+
+    # -----------------------------------------------------
+    # Add missing fields
+    # -----------------------------------------------------
+
+    for field in REQUIRED_FIELDS:
+
+        if field not in data:
+
+            if field == "confidence":
+
+                data[field] = 0
+
+            else:
+
+                data[field] = (
+                    "Not determinable from image"
+                )
+
+    # -----------------------------------------------------
+    # Validate confidence
+    # -----------------------------------------------------
+
+    try:
+
+        confidence = float(
+            data["confidence"]
+        )
+
+        confidence = max(
+            0,
+            min(
+                100,
+                confidence,
+            ),
+        )
+
+        data["confidence"] = int(
+            confidence
+        )
+
+    except Exception:
+
+        data["confidence"] = 0
+
+    # -----------------------------------------------------
+    # Validate text fields
+    # -----------------------------------------------------
+
+    for field in REQUIRED_FIELDS:
+
+        if field == "confidence":
+            continue
+
+        value = data.get(field)
+
+        if value is None:
+
+            value = (
+                "Not determinable from image"
+            )
+
+        data[field] = str(value).strip()
+
+        if not data[field]:
+
+            data[field] = (
+                "Not determinable from image"
+            )
+
+    # -----------------------------------------------------
+    # Return ONLY required fields
+    # -----------------------------------------------------
+
+    return {
+        field: data[field]
+        for field in REQUIRED_FIELDS
+    }
 
 
 # =========================================================
@@ -172,86 +333,135 @@ def extract_json(text: str):
 # =========================================================
 
 @router.post("/analyze")
-async def analyze_water_image(
-    image: UploadFile = File(...)
+async def analyze_camera(
+    image: UploadFile = File(...),
 ):
 
-    # -----------------------------------------------------
-    # Check API
-    # -----------------------------------------------------
+    # =====================================================
+    # CHECK API KEY
+    # =====================================================
 
-    if client is None:
+    if not GROQ_API_KEY or groq_client is None:
 
         raise HTTPException(
-            status_code=500,
-            detail="OPENROUTER_API_KEY is not configured on the server."
+            status_code=503,
+            detail=(
+                "GROQ_API_KEY is not configured."
+            ),
         )
 
-
-    # -----------------------------------------------------
-    # Check file
-    # -----------------------------------------------------
+    # =====================================================
+    # VALIDATE IMAGE TYPE
+    # =====================================================
 
     if not image.content_type:
 
         raise HTTPException(
             status_code=400,
-            detail="Image content type is missing."
+            detail="Image content type is missing.",
         )
-
 
     if not image.content_type.startswith("image/"):
 
         raise HTTPException(
             status_code=400,
-            detail="Please upload an image file."
+            detail="Only image files are allowed.",
         )
-
-
-    # -----------------------------------------------------
-    # Read image
-    # -----------------------------------------------------
-
-    image_bytes = await image.read()
-
-
-    if not image_bytes:
-
-        raise HTTPException(
-            status_code=400,
-            detail="Uploaded image is empty."
-        )
-
-
-    # -----------------------------------------------------
-    # Convert image to Base64
-    # -----------------------------------------------------
-
-    encoded_image = base64.b64encode(
-        image_bytes
-    ).decode("utf-8")
-
-
-    image_url = (
-        f"data:{image.content_type};base64,{encoded_image}"
-    )
-
-
-    # -----------------------------------------------------
-    # Call OpenRouter
-    # -----------------------------------------------------
 
     try:
 
-        response = client.chat.completions.create(
+        # =================================================
+        # READ IMAGE
+        # =================================================
 
-            model=MODEL,
+        image_bytes = await image.read()
+
+        if not image_bytes:
+
+            raise HTTPException(
+                status_code=400,
+                detail="Uploaded image is empty.",
+            )
+
+        # =================================================
+        # SIZE LIMIT
+        # =================================================
+
+        max_size = 10 * 1024 * 1024
+
+        if len(image_bytes) > max_size:
+
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    "Image is too large. "
+                    "Maximum size is 10 MB."
+                ),
+            )
+
+        # =================================================
+        # BASE64 ENCODE
+        # =================================================
+
+        base64_image = base64.b64encode(
+            image_bytes
+        ).decode("utf-8")
+
+        image_url = (
+            f"data:{image.content_type};base64,"
+            f"{base64_image}"
+        )
+
+        # =================================================
+        # LOG REQUEST
+        # =================================================
+
+        print("")
+        print("========================================")
+        print("AQUA AI VISION ANALYSIS")
+        print("========================================")
+        print(
+            "Filename:",
+            image.filename,
+        )
+        print(
+            "Content type:",
+            image.content_type,
+        )
+        print(
+            "Size:",
+            len(image_bytes),
+            "bytes",
+        )
+        print(
+            "Provider: Groq"
+        )
+        print(
+            "Model:",
+            GROQ_VISION_MODEL,
+        )
+        print(
+            "Reasoning: disabled"
+        )
+        print(
+            "JSON mode: enabled"
+        )
+        print("========================================")
+
+        # =================================================
+        # GROQ VISION REQUEST
+        # =================================================
+
+        response = groq_client.chat.completions.create(
+
+            model=GROQ_VISION_MODEL,
 
             messages=[
 
                 {
                     "role": "system",
-                    "content": SYSTEM_PROMPT
+
+                    "content": CAMERA_SYSTEM_PROMPT,
                 },
 
                 {
@@ -262,130 +472,213 @@ async def analyze_water_image(
                         {
                             "type": "text",
 
-                            "text":
+                            "text": (
                                 "Analyze this water image "
-                                "and return only the requested JSON."
+                                "and return ONLY the JSON object."
+                            ),
                         },
 
                         {
                             "type": "image_url",
 
                             "image_url": {
-                                "url": image_url
-                            }
-                        }
+                                "url": image_url,
+                            },
+                        },
 
-                    ]
-                }
+                    ],
+                },
 
             ],
 
-            temperature=0.1,
+            # -------------------------------------------------
+            # Deterministic output
+            # -------------------------------------------------
 
-            max_tokens=1000
+            temperature=0,
 
+            # -------------------------------------------------
+            # Disable Qwen reasoning
+            # -------------------------------------------------
+
+            reasoning_effort="none",
+
+            # -------------------------------------------------
+            # Force JSON response
+            # -------------------------------------------------
+
+            response_format={
+                "type": "json_object"
+            },
+
+            # -------------------------------------------------
+            # Enough tokens for the JSON
+            # -------------------------------------------------
+
+            max_tokens=700,
         )
 
+        # =================================================
+        # CHECK RESPONSE
+        # =================================================
+
+        if not response.choices:
+
+            raise ValueError(
+                "Groq returned no response choices."
+            )
+
+        raw_answer = (
+            response
+            .choices[0]
+            .message
+            .content
+        )
+
+        # =================================================
+        # LOG RAW RESPONSE
+        # =================================================
+
+        print("")
+        print("VISION RAW RESPONSE:")
+        print(raw_answer)
+        print("")
+
+        # =================================================
+        # CLEAN RESPONSE
+        # =================================================
+
+        cleaned = clean_json_response(
+            raw_answer
+        )
+
+        print("")
+        print("CLEANED JSON:")
+        print(cleaned)
+        print("")
+
+        # =================================================
+        # PARSE JSON
+        # =================================================
+
+        try:
+
+            analysis = json.loads(
+                cleaned
+            )
+
+        except json.JSONDecodeError as e:
+
+            print("")
+            print(
+                "JSON PARSE ERROR:",
+                str(e),
+            )
+
+            print(
+                "CLEANED RESPONSE:",
+                cleaned,
+            )
+
+            raise ValueError(
+                "Vision model returned invalid JSON."
+            )
+
+        # =================================================
+        # VALIDATE
+        # =================================================
+
+        analysis = validate_analysis(
+            analysis
+        )
+
+        # =================================================
+        # SUCCESS LOG
+        # =================================================
+
+        print("========================================")
+        print("VISION ANALYSIS SUCCESS")
+        print("========================================")
+
+        print(
+            json.dumps(
+                analysis,
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+
+        print("========================================")
+        print("")
+
+        # =================================================
+        # RETURN RESPONSE
+        # =================================================
+
+        return {
+
+            "success": True,
+
+            "analysis": analysis,
+
+            "filename": image.filename,
+
+            "content_type": image.content_type,
+
+            "size_bytes": len(image_bytes),
+
+            "provider": "groq",
+
+            "model": GROQ_VISION_MODEL,
+
+        }
+
+    # =====================================================
+    # HTTP ERROR
+    # =====================================================
+
+    except HTTPException:
+
+        raise
+
+    # =====================================================
+    # AI ERROR
+    # =====================================================
 
     except Exception as e:
 
+        print("")
+        print("========================================")
+        print("AQUA AI VISION ERROR")
+        print("========================================")
+
         print(
-            "OpenRouter error:",
-            repr(e)
+            "ERROR TYPE:",
+            type(e).__name__,
         )
+
+        print("")
+
+        print(
+            "ERROR:",
+            str(e),
+        )
+
+        print("")
+
+        print("TRACEBACK:")
+
+        traceback.print_exc()
+
+        print("========================================")
+        print("")
 
         raise HTTPException(
-            status_code=502,
-            detail=f"AI provider error: {str(e)}"
+
+            status_code=503,
+
+            detail=(
+                "Vision AI analysis failed. "
+                "Check the backend terminal for details."
+            ),
         )
-
-
-    # -----------------------------------------------------
-    # Get AI response
-    # -----------------------------------------------------
-
-    try:
-
-        content = response.choices[0].message.content
-
-    except Exception:
-
-        content = None
-
-
-    if not content:
-
-        raise HTTPException(
-            status_code=502,
-            detail="OpenRouter returned an empty response."
-        )
-
-
-    print(
-        "AI RAW RESPONSE:",
-        content
-    )
-
-
-    # -----------------------------------------------------
-    # Parse JSON
-    # -----------------------------------------------------
-
-    result = extract_json(content)
-
-
-    if result is None:
-
-        raise HTTPException(
-            status_code=502,
-            detail="AI returned invalid JSON."
-        )
-
-
-    # -----------------------------------------------------
-    # Add model information
-    # -----------------------------------------------------
-
-    result["model"] = MODEL
-
-
-    # -----------------------------------------------------
-    # Normalize confidence
-    # -----------------------------------------------------
-
-    confidence = result.get(
-        "confidence",
-        0
-    )
-
-    try:
-
-        confidence = int(confidence)
-
-    except Exception:
-
-        confidence = 0
-
-
-    confidence = max(
-        0,
-        min(100, confidence)
-    )
-
-
-    result["confidence"] = confidence
-
-
-    # -----------------------------------------------------
-    # Final response
-    # -----------------------------------------------------
-
-    return {
-
-        "success": True,
-
-        "model": MODEL,
-
-        "analysis": result
-
-    }

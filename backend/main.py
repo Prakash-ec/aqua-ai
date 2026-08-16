@@ -33,6 +33,7 @@ app.add_middleware(
         "http://localhost:8000",
 
         "https://vac-project-ver1.netlify.app",
+        "https://vac-project-vers2.netlify.app",
     ],
 
     allow_credentials=True,

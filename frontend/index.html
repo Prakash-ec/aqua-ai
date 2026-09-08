@@ -6,17 +6,25 @@
 
     <title>Aqua AI | Smart Water Quality Monitoring</title>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="style.css">
 </head>
 
-<body>
+<body class="quality-unknown">
 
     <!-- ================= HEADER ================= -->
 
     <header class="topbar">
 
         <div class="brand">
-            <div class="brand-icon">🌊</div>
+            <div class="brand-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
+                </svg>
+            </div>
 
             <div>
                 <h1>Aqua AI</h1>
@@ -28,14 +36,20 @@
 
             <span id="connectionDot" class="connection-dot offline" aria-hidden></span>
 
-            <div style="margin-right:14px;text-align:right;">
+            <div class="connection-copy">
                 <strong id="connectionText">Connecting...</strong>
                 <small id="connectionTime">Checking backend</small>
             </div>
 
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
-                <button id="headerRefreshButton" class="secondary-button" aria-label="Refresh readings">↻ Refresh</button>
-                <small id="headerLastUpdated" style="color:var(--muted);">Last updated: --</small>
+            <div class="connection-actions">
+                <button id="headerRefreshButton" class="secondary-button" aria-label="Refresh readings">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;">
+                        <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+                        <path d="M21 3v6h-6"/>
+                    </svg>
+                    Refresh
+                </button>
+                <small id="headerLastUpdated">Last updated: --</small>
             </div>
 
         </div>
@@ -54,52 +68,90 @@
             <nav>
 
                 <button class="nav-item active" data-page="dashboard" aria-label="Dashboard">
-                    <span>📊</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="9" rx="1"/>
+                        <rect x="14" y="3" width="7" height="5" rx="1"/>
+                        <rect x="14" y="12" width="7" height="9" rx="1"/>
+                        <rect x="3" y="16" width="7" height="5" rx="1"/>
+                    </svg>
                     <span>Dashboard</span>
                 </button>
 
                 <button class="nav-item" data-page="temperature" aria-label="Temperature">
-                    <span>🌡️</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>
+                    </svg>
                     <span>Temperature</span>
                 </button>
 
                 <button class="nav-item" data-page="ph" aria-label="pH">
-                    <span>🧪</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 3v18"/>
+                        <path d="M5 7l7-4 7 4"/>
+                        <path d="M5 17l7 4 7-4"/>
+                    </svg>
                     <span>pH</span>
                 </button>
 
                 <button class="nav-item" data-page="turbidity" aria-label="Turbidity">
-                    <span>💧</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
+                        <circle cx="12" cy="12" r="2"/>
+                    </svg>
                     <span>Turbidity</span>
                 </button>
 
                 <button class="nav-item" data-page="tds" aria-label="TDS">
-                    <span>⚡</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2v20"/>
+                        <path d="M12 2l4 4"/>
+                        <path d="M12 2L8 6"/>
+                        <path d="M12 22l4-4"/>
+                        <path d="M12 22l-4-4"/>
+                    </svg>
                     <span>TDS</span>
                 </button>
 
                 <button class="nav-item" data-page="camera" aria-label="AI Camera">
-                    <span>📷</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                        <circle cx="12" cy="13" r="4"/>
+                    </svg>
                     <span>AI Camera</span>
                 </button>
 
                 <button class="nav-item" data-page="device" aria-label="Device">
-                    <span>📡</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="2" width="20" height="8" rx="2"/>
+                        <rect x="2" y="14" width="20" height="8" rx="2"/>
+                        <line x1="6" y1="6" x2="6.01" y2="6"/>
+                        <line x1="6" y1="18" x2="6.01" y2="18"/>
+                    </svg>
                     <span>Device</span>
                 </button>
 
                 <button class="nav-item" data-page="trends" aria-label="Trends">
-                    <span>📈</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 3v18h18"/>
+                        <path d="M7 14l4-4 4 3 5-6"/>
+                    </svg>
                     <span>Trends</span>
                 </button>
 
                 <button class="nav-item" data-page="analysis" aria-label="Analysis">
-                    <span>🧾</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <path d="M14 2v6h6"/>
+                        <path d="M9 15l2-2 2 2 3-3"/>
+                    </svg>
                     <span>Analysis</span>
                 </button>
 
                 <button class="nav-item" data-page="settings" aria-label="Settings">
-                    <span>⚙️</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
                     <span>Settings</span>
                 </button>
 
@@ -110,7 +162,9 @@
 
                 <div class="system-card">
 
-                    <span class="system-icon">🤖</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
+                    </svg>
 
                     <div>
                         <strong>Aqua AI</strong>
@@ -146,7 +200,11 @@
                     </div>
 
                     <button id="refreshButton" class="secondary-button">
-                        ↻ Refresh
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;">
+                            <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+                            <path d="M21 3v6h-6"/>
+                        </svg>
+                        Refresh
                     </button>
 
                 </div>
@@ -160,7 +218,11 @@
                     <article class="sensor-card temperature-card" aria-live="polite">
 
                         <div class="sensor-top">
-                            <span class="sensor-icon" aria-hidden>🌡️</span>
+                            <span class="sensor-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>
+                                </svg>
+                            </span>
                             <span id="temperatureStatus" class="status-pill">--</span>
                         </div>
 
@@ -177,6 +239,8 @@
                             </div>
                         </div>
 
+                        <div class="sensor-visual" aria-hidden="true"></div>
+
                         <div class="sensor-footer">
                             <span>Latest</span>
                             <span id="temperatureTime">--</span>
@@ -188,7 +252,13 @@
                     <article class="sensor-card ph-card" aria-live="polite">
 
                         <div class="sensor-top">
-                            <span class="sensor-icon" aria-hidden>🧪</span>
+                            <span class="sensor-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 3v18"/>
+                                    <path d="M5 7l7-4 7 4"/>
+                                    <path d="M5 17l7 4 7-4"/>
+                                </svg>
+                            </span>
                             <span id="phStatus" class="status-pill">--</span>
                         </div>
 
@@ -204,6 +274,8 @@
                             </div>
                         </div>
 
+                        <div class="sensor-visual" aria-hidden="true"></div>
+
                         <div class="sensor-footer">
                             <span>Latest</span>
                             <span id="phTime">--</span>
@@ -215,7 +287,12 @@
                     <article class="sensor-card turbidity-card" aria-live="polite">
 
                         <div class="sensor-top">
-                            <span class="sensor-icon" aria-hidden>💧</span>
+                            <span class="sensor-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
+                                    <circle cx="12" cy="12" r="2"/>
+                                </svg>
+                            </span>
                             <span id="turbidityStatus" class="status-pill">--</span>
                         </div>
 
@@ -232,6 +309,17 @@
                             </div>
                         </div>
 
+                        <div class="sensor-visual" aria-hidden="true">
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                        </div>
+
                         <div class="sensor-footer">
                             <span>Latest</span>
                             <span id="turbidityTime">--</span>
@@ -243,7 +331,15 @@
                     <article class="sensor-card tds-card" aria-live="polite">
 
                         <div class="sensor-top">
-                            <span class="sensor-icon" aria-hidden>⚡</span>
+                            <span class="sensor-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 2v20"/>
+                                    <path d="M12 2l4 4"/>
+                                    <path d="M12 2L8 6"/>
+                                    <path d="M12 22l4-4"/>
+                                    <path d="M12 22l-4-4"/>
+                                </svg>
+                            </span>
                             <span id="tdsStatus" class="status-pill">--</span>
                         </div>
 
@@ -259,6 +355,8 @@
                                 <span id="tdsTrend" class="trend">--</span>
                             </div>
                         </div>
+
+                        <div class="sensor-visual" aria-hidden="true"></div>
 
                         <div class="sensor-footer">
                             <span>Latest</span>
@@ -289,15 +387,24 @@
 
                         </div>
 
-                        <div class="quality-content">
+                        <div class="quality-gauge-wrap">
 
-                            <div class="quality-score">
+                            <div class="quality-gauge">
 
-                                <div id="qualityScore">
-                                    --
+                                <svg class="gauge-svg" viewBox="0 0 200 200">
+                                    <circle class="gauge-track" cx="100" cy="100" r="90"/>
+                                    <circle class="gauge-progress" id="gaugeProgress" cx="100" cy="100" r="90"/>
+                                </svg>
+
+                                <div class="gauge-wave-container" aria-hidden="true">
+                                    <div class="gauge-wave"></div>
+                                    <div class="gauge-wave-2"></div>
                                 </div>
 
-                                <span>Quality Score</span>
+                                <div class="gauge-center">
+                                    <div id="qualityScore">--</div>
+                                    <span>Quality Score</span>
+                                </div>
 
                             </div>
 
@@ -483,7 +590,7 @@
 
                     <div>
                         <span class="eyebrow">PARAMETER</span>
-                        <h2>🌡️ Temperature</h2>
+                        <h2>Temperature</h2>
                         <p>Monitor water temperature over time.</p>
                     </div>
 
@@ -547,7 +654,7 @@
 
                     <div>
                         <span class="eyebrow">PARAMETER</span>
-                        <h2>🧪 pH Level</h2>
+                        <h2>pH Level</h2>
                         <p>Monitor acidity and alkalinity of water.</p>
                     </div>
 
@@ -611,7 +718,7 @@
 
                     <div>
                         <span class="eyebrow">PARAMETER</span>
-                        <h2>💧 Turbidity</h2>
+                        <h2>Turbidity</h2>
                         <p>Monitor water clarity.</p>
                     </div>
 
@@ -675,7 +782,7 @@
 
                     <div>
                         <span class="eyebrow">PARAMETER</span>
-                        <h2>⚡ TDS</h2>
+                        <h2>TDS</h2>
                         <p>Monitor total dissolved solids.</p>
                     </div>
 
@@ -742,7 +849,7 @@
                     <div>
                         <span class="eyebrow">ARTIFICIAL INTELLIGENCE</span>
 
-                        <h2>📷 AI Camera Analysis</h2>
+                        <h2>AI Camera Analysis</h2>
 
                         <p>
                             Screen water visually using AI.
@@ -758,13 +865,22 @@
                     <button
                         id="uploadModeButton"
                         class="camera-tab active">
-                        📁 Upload Image
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <path d="M17 8l-5-5-5 5"/>
+                            <path d="M12 3v12"/>
+                        </svg>
+                        Upload Image
                     </button>
 
                     <button
                         id="liveModeButton"
                         class="camera-tab">
-                        📹 Live Camera
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                            <circle cx="12" cy="13" r="4"/>
+                        </svg>
+                        Live Camera
                     </button>
 
                 </div>
@@ -800,8 +916,11 @@
 
                     <div class="upload-area" id="uploadArea" aria-label="Drop image here or click to select" tabindex="0">
 
-                        <div class="upload-icon" aria-hidden>
-                            📷
+                        <div class="upload-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                                <circle cx="12" cy="13" r="4"/>
+                            </svg>
                         </div>
 
                         <h3>Upload Water Image</h3>
@@ -852,7 +971,10 @@
                             id="cameraPlaceholder"
                             class="camera-placeholder">
 
-                            <span>📹</span>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                                <circle cx="12" cy="13" r="4"/>
+                            </svg>
 
                             <p>
                                 Camera is not active
@@ -950,22 +1072,22 @@
                     <div class="ai-findings">
 
                         <div class="finding">
-                            <span>🛢️ Oil Sheen</span>
+                            <span>Oil Sheen</span>
                             <strong id="aiOil">--</strong>
                         </div>
 
                         <div class="finding">
-                            <span>🌿 Algae</span>
+                            <span>Algae</span>
                             <strong id="aiAlgae">--</strong>
                         </div>
 
                         <div class="finding">
-                            <span>🫧 Foam</span>
+                            <span>Foam</span>
                             <strong id="aiFoam">--</strong>
                         </div>
 
                         <div class="finding">
-                            <span>🔬 Particles</span>
+                            <span>Particles</span>
                             <strong id="aiParticles">--</strong>
                         </div>
 
@@ -1019,7 +1141,7 @@
                             HARDWARE
                         </span>
 
-                        <h2>📡 Device Information</h2>
+                        <h2>Device Information</h2>
 
                         <p>
                             Information about your Aqua AI ESP32.

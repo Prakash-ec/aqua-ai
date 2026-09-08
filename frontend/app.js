@@ -9,8 +9,42 @@
    CONFIGURATION
    ========================================================= */
 
-const API_BASE =
-    "https://aqua-ai-wz4s.onrender.com";
+function normalizeApiBase(value) {
+    return String(value || "").trim().replace(/\/+$/, "");
+}
+
+
+function resolveApiBase() {
+    const configuredBase = normalizeApiBase(
+        document.documentElement.dataset.apiBase ||
+        window.AQUA_API_BASE_URL
+    );
+
+    if (configuredBase) {
+        return configuredBase;
+    }
+
+    const isHttpPage =
+        window.location.protocol === "http:" ||
+        window.location.protocol === "https:";
+
+    const isBackendHost =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname.endsWith(".onrender.com");
+
+    if (isHttpPage && isBackendHost) {
+        // Production is served by FastAPI, so API calls stay on the deployed
+        // Render service automatically. This also works for local uvicorn.
+        return window.location.origin;
+    }
+
+    // Keeps standalone Netlify/static and file previews connected to the API.
+    return "https://aqua-ai-wz4s.onrender.com";
+}
+
+
+const API_BASE = resolveApiBase();
 
 const READINGS_ENDPOINT =
     `${API_BASE}/readings/`;
@@ -1005,6 +1039,19 @@ function setStatusPill(
     element.textContent =
         status.label;
 
+    // Apply quality state class for visual styling
+    element.className = "status-pill";
+
+    if (status.level === "good") {
+        element.classList.add("good");
+    } else if (status.level === "warning") {
+        element.classList.add("warning");
+    } else if (status.level === "danger") {
+        element.classList.add("danger");
+    } else {
+        element.classList.add("unknown");
+    }
+
 }
 
 
@@ -1286,6 +1333,9 @@ function updateQuality(r) {
         "quality-badge";
 
 
+    // Determine quality state and apply to body for dynamic color system
+    let qualityState = "quality-unknown";
+
     if (score >= 80) {
 
         badge.classList.add(
@@ -1300,6 +1350,8 @@ function updateQuality(r) {
 
         message.textContent =
             "The available sensor parameters are currently within the configured monitoring ranges.";
+
+        qualityState = "quality-good";
 
     } else if (score >= 55) {
 
@@ -1316,6 +1368,8 @@ function updateQuality(r) {
         message.textContent =
             "One or more readings are outside the preferred range. Continue monitoring.";
 
+        qualityState = "quality-watch";
+
     } else {
 
         badge.classList.add(
@@ -1331,7 +1385,24 @@ function updateQuality(r) {
         message.textContent =
             "Multiple sensor parameters indicate values outside the configured monitoring ranges.";
 
+        qualityState = "quality-alert";
+
     }
+
+    // Apply quality state class to body for dynamic color system
+    document.body.classList.remove(
+        "quality-good",
+        "quality-watch",
+        "quality-alert",
+        "quality-unknown"
+    );
+
+    document.body.classList.add(
+        qualityState
+    );
+
+    // Update the gauge progress circle
+    updateGauge(score);
 
 }
 
@@ -1622,6 +1693,18 @@ function valuesFor(parameter) {
    CHART CREATOR
    ========================================================= */
 
+function getQualityChartColors() {
+
+    const style = getComputedStyle(document.body);
+
+    return {
+        border: style.getPropertyValue("--quality-primary").trim() || "#0d9488",
+        background: style.getPropertyValue("--quality-surface").trim() || "rgba(13,148,136,0.08)"
+    };
+
+}
+
+
 function createChart(
     canvasId,
     parameter,
@@ -1663,6 +1746,8 @@ function createChart(
     }
 
 
+    const qualityColors = getQualityChartColors();
+
     return new Chart(
         canvas,
         {
@@ -1687,10 +1772,10 @@ function createChart(
                             ),
 
                         borderColor:
-                            "#087f8c",
+                            qualityColors.border,
 
                         backgroundColor:
-                            "rgba(8,127,140,0.08)",
+                            qualityColors.background,
 
                         fill: true,
 
@@ -1871,8 +1956,26 @@ function updateParameterChart(
 
 
 /* =========================================================
-   CHART FILTERS & TREND HELPERS
+   QUALITY GAUGE
    ========================================================= */
+
+function updateGauge(score) {
+
+    const progress = $("gaugeProgress");
+
+    if (!progress) {
+        return;
+    }
+
+    // Circle circumference: 2 * PI * r = 2 * 3.14159 * 90 = 565.49
+    const circumference = 565.49;
+
+    // Map score (0-100) to dash offset (full circle to empty)
+    const offset = circumference - (score / 100) * circumference;
+
+    progress.style.strokeDashoffset = offset;
+
+}
 
 /* =========================================================
    CHATBOT (Dashboard)
@@ -2089,6 +2192,8 @@ function createChartFromHistory(canvasId, parameter, label, unit, history) {
     const existing = Chart.getChart(canvas);
     if (existing) existing.destroy();
 
+    const qualityColors = getQualityChartColors();
+
     const cfg = {
         type: 'line',
         data: {
@@ -2097,8 +2202,8 @@ function createChartFromHistory(canvasId, parameter, label, unit, history) {
                 {
                     label: `${label} (${unit})`,
                     data,
-                    borderColor: '#087f8c',
-                    backgroundColor: 'rgba(8,127,140,0.08)',
+                    borderColor: qualityColors.border,
+                    backgroundColor: qualityColors.background,
                     fill: true,
                     tension: 0.35,
                     pointRadius: 3,
@@ -2884,14 +2989,14 @@ function setupRefresh() {
         const button = $(buttonId);
         if (button) {
             button.disabled = true;
-            button.textContent = "↻ Loading...";
+            button.setAttribute("aria-busy", "true");
         }
         try {
             await fetchReadings();
         } finally {
             if (button) {
                 button.disabled = false;
-                button.textContent = buttonId === 'headerRefreshButton' ? '↻ Refresh' : '↻ Refresh';
+                button.removeAttribute("aria-busy");
             }
         }
     }

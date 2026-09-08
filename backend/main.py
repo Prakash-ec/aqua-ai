@@ -1,6 +1,13 @@
+import os
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
+from backend import models  # noqa: F401 - registers SQLAlchemy models
+from backend.database import Base, engine
 from backend.routes.devices import router as devices_router
 from backend.routes.readings import router as readings_router
 from backend.routes.camera import router as camera_router
@@ -23,18 +30,24 @@ app = FastAPI(
 # CORS
 # =========================================================
 
+DEFAULT_CORS_ORIGINS = {
+    "http://127.0.0.1:5500",
+    "http://localhost:5500",
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
+    "https://vac-project-ver1.netlify.app",
+    "https://vac-project-vers2.netlify.app",
+}
+
+configured_origins = {
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+}
+
 app.add_middleware(
     CORSMiddleware,
-
-    allow_origins=[
-        "http://127.0.0.1:5500",
-        "http://localhost:5500",
-        "http://127.0.0.1:8000",
-        "http://localhost:8000",
-
-        "https://vac-project-ver1.netlify.app",
-        "https://vac-project-vers2.netlify.app",
-    ],
+    allow_origins=sorted(DEFAULT_CORS_ORIGINS | configured_origins),
 
     allow_credentials=True,
 
@@ -56,29 +69,28 @@ app.include_router(ai_router)
 
 
 # =========================================================
+# FRONTEND
+# =========================================================
+
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+
+
+@app.on_event("startup")
+def initialize_database() -> None:
+    """Create the initial tables when the service starts on a fresh database."""
+
+    Base.metadata.create_all(bind=engine)
+
+
+# =========================================================
 # ROOT
 # =========================================================
 
-@app.get("/")
-def root():
+@app.get("/", include_in_schema=False)
+def dashboard():
+    """Serve the production dashboard from the same origin as the API."""
 
-    return {
-        "success": True,
-        "message": "Aqua AI backend is running",
-        "version": "1.0.0",
-
-        "endpoints": {
-            "docs": "/docs",
-            "health": "/health",
-            "devices": "/devices/",
-            "readings": "/readings/",
-            "camera": "/camera/analyze",
-            "chat": "/chat/water",
-            "ai_providers": "/ai/providers",
-            "ai_current": "/ai/current",
-            "ai_health": "/ai/health",
-        },
-    }
+    return FileResponse(FRONTEND_DIR / "index.html")
 
 
 # =========================================================
@@ -93,3 +105,11 @@ def health():
         "status": "healthy",
         "service": "Aqua AI",
     }
+
+
+# Keep this mount last: API, docs, and health routes above take precedence.
+app.mount(
+    "/",
+    StaticFiles(directory=FRONTEND_DIR, html=True),
+    name="frontend",
+)

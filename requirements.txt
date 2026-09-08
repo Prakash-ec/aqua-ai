@@ -1,7 +1,2 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-psycopg2-binary
-python-dotenv
-openai
-python-multipart
+-r backend/requirements.txt
+openai>=1.0,<3

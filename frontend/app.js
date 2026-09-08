@@ -28,9 +28,13 @@ function resolveApiBase() {
         window.location.protocol === "http:" ||
         window.location.protocol === "https:";
 
+    const isLocalBackend =
+        (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1") &&
+        window.location.port === "8000";
+
     const isBackendHost =
-        window.location.hostname === "localhost" ||
-        window.location.hostname === "127.0.0.1" ||
+        isLocalBackend ||
         window.location.hostname.endsWith(".onrender.com");
 
     if (isHttpPage && isBackendHost) {
@@ -3053,6 +3057,19 @@ async function initialize() {
     setupLiveCamera();
 
     setupRefresh();
+
+    if (window.location.protocol === "file:") {
+        setConnectionStatus(
+            false,
+            "Open the dashboard through the backend URL to connect."
+        );
+        setText("qualityTitle", "Local file preview");
+        setText(
+            "qualityMessage",
+            "Start the backend, then open http://127.0.0.1:8000 instead of this file."
+        );
+        return;
+    }
 
     await fetchAvailableAIProviders();
 

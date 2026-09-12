@@ -1,316 +1,65 @@
+"use strict";
+
 /* =========================================================
    AQUA AI FRONTEND
    ========================================================= */
 
-"use strict";
+const DEFAULT_API_BASE =
+    "https://aqua-ai-wz4s.onrender.com";
 
+let API_BASE =
+    localStorage.getItem("aqua_ai_api_base") ||
+    window.AQUA_API_BASE_URL ||
+    DEFAULT_API_BASE;
 
-/* =========================================================
-   CONFIGURATION
-   ========================================================= */
+let REFRESH_INTERVAL =
+    Number(localStorage.getItem("aqua_ai_refresh_interval")) || 15;
 
-function normalizeApiBase(value) {
-    return String(value || "").trim().replace(/\/+$/, "");
-}
+const state = {
+    initialized: false,
+    readings: [],
+    latest: null,
+    selectedPage: "dashboard",
+    selectedImage: null,
+    imagePreviewUrl: null,
+    cameraStream: null,
+    charts: {},
+    refreshTimer: null
+};
 
+const $ = (id) => document.getElementById(id);
 
-function resolveApiBase() {
-    const configuredBase = normalizeApiBase(
-        document.documentElement.dataset.apiBase ||
-        window.AQUA_API_BASE_URL
-    );
-
-    if (configuredBase) {
-        return configuredBase;
-    }
-
-    const isHttpPage =
-        window.location.protocol === "http:" ||
-        window.location.protocol === "https:";
-
-    const isLocalBackend =
-        (window.location.hostname === "localhost" ||
-        window.location.hostname === "127.0.0.1") &&
-        window.location.port === "8000";
-
-    const isBackendHost =
-        isLocalBackend ||
-        window.location.hostname.endsWith(".onrender.com");
-
-    if (isHttpPage && isBackendHost) {
-        // Production is served by FastAPI, so API calls stay on the deployed
-        // Render service automatically. This also works for local uvicorn.
-        return window.location.origin;
-    }
-
-    // Keeps standalone Netlify/static and file previews connected to the API.
-    return "https://aqua-ai-wz4s.onrender.com";
-}
-
-
-const API_BASE = resolveApiBase();
-
-const READINGS_ENDPOINT =
-    `${API_BASE}/readings/`;
-
-const CAMERA_ENDPOINT =
-    `${API_BASE}/camera/analyze`;
-
-const CHAT_ENDPOINT =
-    `${API_BASE}/chat/water`;
-
-const AI_PROVIDERS_ENDPOINT =
-   `${API_BASE}/ai/providers`;
-
+const endpoints = {
+    readings: "/readings/",
+    camera: "/camera/analyze",
+    chat: "/chat/water"
+};
 
 /* =========================================================
-   STATE
+   INITIALIZATION
    ========================================================= */
 
-let latestReading = null;
+document.addEventListener("DOMContentLoaded", init);
 
-let readingsHistory = [];
-
-let cameraStream = null;
-
-let selectedImage = null;
-
-let dashboardChart = null;
-
-let temperatureChart = null;
-
-let phChart = null;
-
-let turbidityChart = null;
-
-let tdsChart = null;
-
-const CHAT_PROVIDER_STORAGE_KEY = 'aqua_ai_chat_provider';
-const CHAT_MODEL_STORAGE_KEY = 'aqua_ai_chat_model';
-const CAMERA_PROVIDER_STORAGE_KEY = 'aqua_ai_camera_provider';
-const CAMERA_MODEL_STORAGE_KEY = 'aqua_ai_camera_model';
-
-const DEFAULT_PROVIDER_OPTION = 'automatic';
-
-/* =========================================================
-   DOM HELPERS
-   ========================================================= */
-
-function $(id) {
-    return document.getElementById(id);
-}
-
-
-function setText(id, value) {
-
-    const element = $(id);
-
-    if (element) {
-        element.textContent =
-            value ?? "--";
+function init() {
+    if (state.initialized) {
+        return;
     }
-}
 
-function readStoredSelection(key, fallback) {
-   try {
-       const stored = localStorage.getItem(key);
-       return stored ? stored : fallback;
-   } catch (error) {
-       return fallback;
-   }
-}
+    state.initialized = true;
 
-function writeStoredSelection(key, value) {
-   try {
-       localStorage.setItem(key, value);
-   } catch (error) {
-       // ignore localStorage failures silently
-   }
-}
+    setupNavigation();
+    setupRefresh();
+    setupCameraControls();
+    setupChat();
+    setupSettings();
+    setupChartControls();
+    setupImageUpload();
 
-function normalizeProviderId(value) {
-   return String(value || '').trim().toLowerCase();
-}
+    loadSettingsIntoForm();
+    loadReadings();
 
-function getAvailableProviderList() {
-   return window.__AQUA_AI_PROVIDERS__ || [];
-}
-
-function providerNameById(providerId) {
-   const providerList = getAvailableProviderList();
-   const match = providerList.find(item => normalizeProviderId(item.id) === normalizeProviderId(providerId));
-   return match ? match.name : providerId || 'Automatic';
-}
-
-function modelNameByProvider(providerId) {
-   const providerList = getAvailableProviderList();
-   const match = providerList.find(item => normalizeProviderId(item.id) === normalizeProviderId(providerId));
-   return match ? (match.model || match.default_model || '') : '';
-}
-
-function cameraModelNameByProvider(providerId) {
-   const providerList = getAvailableProviderList();
-   const match = providerList.find(item => normalizeProviderId(item.id) === normalizeProviderId(providerId));
-   if (!match) return 'Aqua AI Vision — Automatic';
-   return match.vision_model || match.model || match.default_model || 'Aqua AI Vision — Automatic';
-}
-
-function getChatProviderSelection() {
-   return readStoredSelection(CHAT_PROVIDER_STORAGE_KEY, DEFAULT_PROVIDER_OPTION);
-}
-
-function getChatModelSelection() {
-   return readStoredSelection(CHAT_MODEL_STORAGE_KEY, DEFAULT_PROVIDER_OPTION);
-}
-
-function getCameraProviderSelection() {
-   return readStoredSelection(CAMERA_PROVIDER_STORAGE_KEY, DEFAULT_PROVIDER_OPTION);
-}
-
-function getCameraModelSelection() {
-   return readStoredSelection(CAMERA_MODEL_STORAGE_KEY, 'Aqua AI Vision — Automatic');
-}
-
-function setProviderDropdown(select, options, selectedValue, labelFallback) {
-   if (!select) {
-       return;
-   }
-
-   const value = options.some(option => option.value === selectedValue)
-       ? selectedValue
-       : (options[0] ? options[0].value : labelFallback);
-
-   select.innerHTML = options.length
-       ? options.map(option => `<option value="${option.value}">${option.label}</option>`).join('')
-       : `<option value="${labelFallback}">${labelFallback}</option>`;
-
-   select.value = value;
-}
-
-function renderProviderOptions() {
-   const chatProviderSelect = $('chatProviderSelect');
-   const chatModelSelect = $('chatModelSelect');
-   const cameraProviderSelect = $('cameraProviderSelect');
-   const cameraModelSelect = $('aiModelSelector');
-   const cameraSettingsProviderSelect = $('cameraProviderSelectSetting');
-   const cameraSettingsModelSelect = $('cameraModelSelectorSetting');
-
-   const providers = getAvailableProviderList();
-   const chatOptions = [{ value: 'automatic', label: 'Automatic' }].concat(
-       providers.map(provider => ({ value: provider.id, label: provider.name }))
-   );
-
-   const visionProviders = providers.filter(provider => provider.supports_vision === true || !!provider.vision_model);
-   const cameraOptions = [{ value: 'automatic', label: 'Automatic' }].concat(
-       visionProviders.map(provider => ({ value: provider.id, label: provider.name }))
-   );
-
-   const selectedChatProvider = getChatProviderSelection();
-   const selectedCameraProvider = getCameraProviderSelection();
-
-   const chatProviderRecord = providers.find(provider => normalizeProviderId(provider.id) === normalizeProviderId(selectedChatProvider));
-   const chatModelValue = selectedChatProvider && selectedChatProvider !== 'automatic' && chatProviderRecord
-       ? (chatProviderRecord.model || chatProviderRecord.default_model || 'automatic')
-       : 'automatic';
-
-   const cameraProviderRecord = providers.find(provider => normalizeProviderId(provider.id) === normalizeProviderId(selectedCameraProvider));
-   const cameraModelValue = selectedCameraProvider && selectedCameraProvider !== 'automatic' && cameraProviderRecord
-       ? (cameraProviderRecord.vision_model || cameraProviderRecord.model || cameraProviderRecord.default_model || 'automatic')
-       : 'automatic';
-
-   const chatModelOptions = [{ value: 'automatic', label: 'Automatic' }];
-   if (chatModelValue && chatModelValue !== 'automatic') {
-       chatModelOptions.push({ value: chatModelValue, label: chatModelValue });
-   }
-
-   const cameraModelOptions = [{ value: 'automatic', label: 'Aqua AI Vision — Automatic' }];
-   if (cameraModelValue && cameraModelValue !== 'automatic') {
-       cameraModelOptions.push({ value: cameraModelValue, label: cameraModelValue });
-   }
-
-   setProviderDropdown(chatProviderSelect, chatOptions, selectedChatProvider, 'automatic');
-   setProviderDropdown(chatModelSelect, chatModelOptions, getChatModelSelection(), 'automatic');
-   setProviderDropdown(cameraProviderSelect, cameraOptions, selectedCameraProvider, 'automatic');
-   setProviderDropdown(cameraModelSelect, cameraModelOptions, getCameraModelSelection(), 'automatic');
-   setProviderDropdown(cameraSettingsProviderSelect, cameraOptions, selectedCameraProvider, 'automatic');
-   setProviderDropdown(cameraSettingsModelSelect, cameraModelOptions, getCameraModelSelection(), 'automatic');
-
-   const chatStatus = $('chatEngineStatus');
-   const chatModelStatus = $('chatModelStatus');
-   const cameraStatus = $('cameraEngineStatus');
-   const cameraSettingsStatus = $('cameraSettingsStatus');
-   const cameraCurrentText = $('cameraSettingsModelStatus');
-
-   if (chatStatus) {
-       chatStatus.textContent = 'AI providers loaded';
-   }
-   if (cameraStatus) {
-       cameraStatus.textContent = 'AI providers loaded';
-   }
-   if (cameraSettingsStatus) {
-       cameraSettingsStatus.textContent = 'AI providers loaded';
-   }
-   if (chatModelStatus) {
-       chatModelStatus.textContent = `AI Provider: ${selectedChatProvider === 'automatic' ? 'Automatic' : providerNameById(selectedChatProvider)}`;
-   }
-   if (cameraCurrentText) {
-       cameraCurrentText.textContent = `Currently using: ${cameraModelValue === 'automatic' ? 'Aqua AI Vision — Automatic' : cameraModelValue}`;
-   }
-}
-
-function updateChatAIStatusFromResponse(response) {
-   const chatStatus = $('chatEngineStatus');
-   const chatModelStatus = $('chatModelStatus');
-   const modelName = response && response.model ? response.model : 'Automatic';
-   const providerName = getProviderNameFromModel(modelName);
-
-   if (chatStatus) {
-       chatStatus.textContent = `AI Provider: ${providerName}`;
-   }
-   if (chatModelStatus) {
-       chatModelStatus.textContent = `Currently using: ${modelName}`;
-   }
-}
-
-function getProviderNameFromModel(modelName) {
-   const providers = getAvailableProviderList();
-   if (!modelName) return 'Automatic';
-   const found = providers.find(provider => provider.model === modelName || normalizeProviderId(provider.name) === normalizeProviderId(modelName));
-   return found ? found.name : 'Automatic';
-}
-
-function buildChatPayload(question) {
-   const providerSelect = $('chatProviderSelect');
-   const modelSelect = $('chatModelSelect');
-   const selectedProvider = providerSelect ? providerSelect.value : readStoredSelection(CHAT_PROVIDER_STORAGE_KEY, DEFAULT_PROVIDER_OPTION);
-   const selectedModel = modelSelect ? modelSelect.value : readStoredSelection(CHAT_MODEL_STORAGE_KEY, DEFAULT_PROVIDER_OPTION);
-   const payload = { question: question.trim() };
-
-   if (selectedProvider && selectedProvider !== 'automatic') {
-       payload.provider = selectedProvider;
-       if (selectedModel && selectedModel !== 'automatic' && selectedModel.trim()) {
-           payload.model = selectedModel.trim();
-       }
-   }
-
-   return payload;
-}
-
-function buildCameraPayload() {
-   const providerSelect = $('cameraProviderSelect');
-   const modelSelect = $('aiModelSelector');
-   const selectedProvider = providerSelect ? providerSelect.value : readStoredSelection(CAMERA_PROVIDER_STORAGE_KEY, DEFAULT_PROVIDER_OPTION);
-   const selectedModel = modelSelect ? modelSelect.value : readStoredSelection(CAMERA_MODEL_STORAGE_KEY, 'Aqua AI Vision — Automatic');
-   const payload = {};
-
-   if (selectedProvider && selectedProvider !== 'automatic') {
-       payload.provider = selectedProvider;
-   }
-   if (selectedModel && selectedModel !== 'automatic' && selectedModel.trim()) {
-       payload.model = selectedModel.trim();
-   }
-
-   return payload;
+    startAutoRefresh();
 }
 
 /* =========================================================
@@ -318,2320 +67,710 @@ function buildCameraPayload() {
    ========================================================= */
 
 function setupNavigation() {
-
-    const navButtons =
-        document.querySelectorAll(".nav-item");
-
-    navButtons.forEach(button => {
-
-        button.addEventListener(
-            "click",
-            () => {
-
-                const page =
-                    button.dataset.page;
-
-                showPage(page);
-
-            }
-        );
-
+    document.querySelectorAll(".nav-item").forEach((button) => {
+        button.addEventListener("click", () => {
+            const page = button.dataset.page;
+            showPage(page);
+        });
     });
 
-
-    const pageLinks =
-        document.querySelectorAll("[data-page-link]");
-
-    pageLinks.forEach(button => {
-
-        button.addEventListener(
-            "click",
-            () => {
-
-                showPage(
-                    button.dataset.pageLink
-                );
-
-            }
-        );
-
+    $("menuButton").addEventListener("click", () => {
+        $("sidebar").classList.toggle("open");
     });
-
 }
 
-
 function showPage(pageName) {
+    state.selectedPage = pageName;
 
-    document
-        .querySelectorAll(".page")
-        .forEach(page => {
+    document.querySelectorAll(".nav-item").forEach((button) => {
+        button.classList.toggle(
+            "active",
+            button.dataset.page === pageName
+        );
+    });
 
-            page.classList.remove(
-                "active-page"
-            );
+    document.querySelectorAll(".page").forEach((page) => {
+        page.classList.remove("active-page");
+    });
 
-        });
-
-
-    const selectedPage =
-        $(`page-${pageName}`);
+    const selectedPage = $(`page-${pageName}`);
 
     if (selectedPage) {
-
-        selectedPage.classList.add(
-            "active-page"
-        );
-
+        selectedPage.classList.add("active-page");
     }
 
+    const titleMap = {
+        dashboard: "Dashboard",
+        temperature: "Temperature",
+        ph: "pH Level",
+        turbidity: "Turbidity",
+        tds: "TDS",
+        camera: "AI Camera",
+        chat: "Water Chat",
+        device: "Device",
+        trends: "Trends",
+        analysis: "Analysis",
+        settings: "Settings"
+    };
 
-    document
-        .querySelectorAll(".nav-item")
-        .forEach(button => {
+    $("pageTitle").textContent = titleMap[pageName] || "Dashboard";
 
-            button.classList.toggle(
-                "active",
-                button.dataset.page === pageName
-            );
-
-        });
-
+    $("sidebar").classList.remove("open");
 
     if (pageName === "temperature") {
-
-        updateParameterChart(
-            "temperature"
-        );
-
+        renderParameterChart("temperature");
     }
 
     if (pageName === "ph") {
-
-        updateParameterChart(
-            "ph"
-        );
-
+        renderParameterChart("ph");
     }
 
     if (pageName === "turbidity") {
-
-        updateParameterChart(
-            "turbidity"
-        );
-
+        renderParameterChart("turbidity");
     }
 
     if (pageName === "tds") {
-
-        updateParameterChart(
-            "tds"
-        );
-
+        renderParameterChart("tds");
     }
 
+    if (pageName === "trends") {
+        renderTrendsChart();
+    }
 }
 
-
 /* =========================================================
-   CONNECTION STATUS
+   API REQUESTS
    ========================================================= */
 
-function setConnectionStatus(
-    connected,
-    message = ""
-) {
+async function apiRequest(path, options = {}) {
+    const url = `${API_BASE.replace(/\/$/, "")}${path}`;
 
-    const dot =
-        $("connectionDot");
+    const response = await fetch(url, {
+        ...options,
+        headers: {
+            Accept: "application/json",
+            ...(options.headers || {})
+        }
+    });
 
-    const text =
-        $("connectionText");
-
-    const time =
-        $("connectionTime");
-
-
-    if (!dot || !text) {
-        return;
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+            `Request failed: ${response.status} ${errorText}`
+        );
     }
 
-
-    if (connected) {
-
-        dot.classList.remove(
-            "offline"
-        );
-
-        dot.classList.add(
-            "online"
-        );
-
-        text.textContent =
-            "Backend Connected";
-
-        if (time) {
-
-            time.textContent =
-                message ||
-                "Aqua AI server online";
-
-        }
-
-    } else {
-
-        dot.classList.remove(
-            "online"
-        );
-
-        dot.classList.add(
-            "offline"
-        );
-
-        text.textContent =
-            "Backend Offline";
-
-        if (time) {
-
-            time.textContent =
-                message ||
-                "Unable to connect";
-
-        }
-
-    }
-
+    return response.json();
 }
 
-
 /* =========================================================
-   FETCH READINGS
+   LOAD SENSOR READINGS
    ========================================================= */
 
-async function fetchReadings() {
-
-    // indicate loading in header
-    const headerStamp = $("headerLastUpdated");
-    if (headerStamp) headerStamp.textContent = 'Updating...';
+async function loadReadings() {
+    setConnectionState("connecting");
 
     try {
+        const data = await apiRequest(endpoints.readings);
 
-       const response = await fetch(READINGS_ENDPOINT, { method: 'GET', headers: { Accept: 'application/json' } });
+        const readings = extractReadings(data);
 
-       if (!response.ok) {
-           throw new Error(`HTTP ${response.status}`);
-       }
+        state.readings = readings;
+        state.latest = readings.length ? readings[0] : null;
 
-       const data = await response.json();
+        renderDashboard();
+        renderAllCharts();
+        renderAnalysis();
+        renderDevice();
 
-       setConnectionStatus(true, `Updated ${new Date().toLocaleTimeString()}`);
+        setConnectionState("online");
 
-       normalizeReadings(data);
+        $("lastUpdated").textContent =
+            `Updated ${formatDateTime(new Date())}`;
+    } catch (error) {
+        console.error("Reading error:", error);
 
-       if (headerStamp) headerStamp.textContent = `Last updated: ${new Date().toLocaleString()}`;
+        setConnectionState("offline");
 
-   } catch (error) {
-
-       setConnectionStatus(false, 'Unable to reach backend');
-
-       setText('qualityTitle', 'Unable to read sensor data');
-       setText('qualityMessage', 'Check the Aqua AI backend and ESP32 connection.');
-
-       const header = $("headerLastUpdated");
-       if (header) header.textContent = 'Last update failed';
-
-   }
-
+        $("lastUpdated").textContent = "Backend unavailable";
+    }
 }
 
-async function fetchAvailableAIProviders() {
-   const chatStatus = $('chatEngineStatus');
-   const cameraStatus = $('cameraEngineStatus');
-   const cameraSettingsStatus = $('cameraSettingsStatus');
-
-   try {
-       const response = await fetch(`${API_BASE}/ai/providers`, {
-           method: 'GET',
-           headers: { Accept: 'application/json' }
-       });
-
-       if (!response.ok) {
-           throw new Error(`HTTP ${response.status}`);
-       }
-
-       const data = await response.json();
-       const providers = Array.isArray(data.providers) ? data.providers : [];
-       window.__AQUA_AI_PROVIDERS__ = providers;
-
-       if (!providers.length) {
-           throw new Error('No providers returned');
-       }
-
-       renderProviderOptions();
-
-       console.log('Aqua AI providers loaded:', data);
-       if (chatStatus) chatStatus.textContent = 'AI providers loaded';
-       if (cameraStatus) cameraStatus.textContent = 'AI providers loaded';
-       if (cameraSettingsStatus) cameraSettingsStatus.textContent = 'AI providers loaded';
-
-   } catch (error) {
-       console.error('Failed to load Aqua AI providers:', error);
-       window.__AQUA_AI_PROVIDERS__ = [];
-       renderProviderOptions();
-
-       if (chatStatus) {
-           chatStatus.textContent = 'Unable to load AI providers';
-       }
-       if (cameraStatus) {
-           cameraStatus.textContent = 'Unable to load AI providers';
-       }
-       if (cameraSettingsStatus) {
-           cameraSettingsStatus.textContent = 'Unable to load AI providers';
-       }
-   }
-}
-
-/* =========================================================
-   NORMALIZE READINGS
-   ========================================================= */
-
-function normalizeReadings(data) {
-
-    let rows = [];
-
+function extractReadings(data) {
+    let values = [];
 
     if (Array.isArray(data)) {
-
-        rows = data;
-
-    } else if (
-        data &&
-        Array.isArray(data.readings)
-    ) {
-
-        rows = data.readings;
-
-    } else if (
-        data &&
-        Array.isArray(data.data)
-    ) {
-
-        rows = data.data;
-
-    } else if (
-        data &&
-        data.reading
-    ) {
-
-        rows = [data.reading];
-
-    } else if (
-        data &&
-        typeof data === "object"
-    ) {
-
-        rows = [data];
-
+        values = data;
+    } else if (Array.isArray(data.readings)) {
+        values = data.readings;
+    } else if (Array.isArray(data.data)) {
+        values = data.data;
+    } else if (data.latest) {
+        values = [data.latest];
+    } else if (data.id || data.reading_id) {
+        values = [data];
     }
 
-
-    rows = rows.filter(
-        item =>
-            item &&
-            typeof item === "object"
-    );
-
-
-    if (!rows.length) {
-
-        console.warn(
-            "No readings found."
-        );
-
-        return;
-    }
-
-
-    rows = rows.map(
-        normalizeReading
-    );
-
-
-    rows.sort(
-        (a, b) =>
-            getTimestamp(b) -
-            getTimestamp(a)
-    );
-
-
-    readingsHistory =
-        rows;
-
-
-    latestReading =
-        rows[0];
-
-
-    updateDashboard();
-
-    updateCharts();
-
-    updateReadingsTable();
-
+    return values
+        .map(normalizeReading)
+        .filter((reading) => reading !== null)
+        .sort((a, b) => {
+            return new Date(b.recordedAt) - new Date(a.recordedAt);
+        });
 }
 
-
-/* =========================================================
-   NORMALIZE SINGLE READING
-   ========================================================= */
-
-function normalizeReading(row) {
-
-    return {
-
-        id:
-            row.id ??
-            row.reading_id ??
-            row.readingId ??
-            null,
-
-        device_id:
-            row.device_id ??
-            row.deviceId ??
-            null,
-
-        temperature:
-            numberOrNull(
-                row.temperature
-            ),
-
-        ph:
-            numberOrNull(
-                row.ph ??
-                row.pH
-            ),
-
-        turbidity:
-            numberOrNull(
-                row.turbidity
-            ),
-
-        tds:
-            numberOrNull(
-                row.tds ??
-                row.TDS
-            ),
-
-        recorded_at:
-            row.recorded_at ??
-            row.recordedAt ??
-            row.timestamp ??
-            row.created_at ??
-            null,
-
-        location:
-            row.location ??
-            null,
-
-        device_name:
-            row.device_name ??
-            row.deviceName ??
-            null
-
-    };
-
-}
-
-
-/* =========================================================
-   NUMBER HELPER
-   ========================================================= */
-
-function numberOrNull(value) {
-
-    if (
-        value === null ||
-        value === undefined ||
-        value === ""
-    ) {
-
+function normalizeReading(item) {
+    if (!item || typeof item !== "object") {
         return null;
-
     }
 
-
-    const number =
-        Number(value);
-
-
-    return Number.isFinite(number)
-        ? number
-        : null;
-
-}
-
-
-/* =========================================================
-   TIMESTAMP
-   ========================================================= */
-
-function getTimestamp(reading) {
-
-    if (!reading) {
-        return 0;
-    }
-
-
-    const value =
-        reading.recorded_at;
-
-
-    if (!value) {
-        return 0;
-    }
-
-
-    const timestamp =
-        new Date(value).getTime();
-
-
-    return Number.isFinite(timestamp)
-        ? timestamp
-        : 0;
-
-}
-
-
-/* =========================================================
-   FORMAT TIME
-   ========================================================= */
-
-function formatTime(value) {
-
-    if (!value) {
-        return "--";
-    }
-
-
-    const date =
-        new Date(value);
-
-
-    if (Number.isNaN(
-        date.getTime()
-    )) {
-
-        return String(value);
-
-    }
-
-
-    return date.toLocaleString();
-
-}
-
-
-/* =========================================================
-   DASHBOARD
-   ========================================================= */
-
-function updateDashboard() {
-
-    if (!latestReading) {
-        return;
-    }
-
-
-    const r =
-        latestReading;
-
-
-    setText(
-        "temperatureValue",
-        formatNumber(r.temperature)
+    const temperature = firstNumber(
+        item.temperature,
+        item.temperature_c,
+        item.temp
     );
 
-    setText(
-        "phValue",
-        formatNumber(r.ph)
+    const ph = firstNumber(
+        item.ph,
+        item.pH,
+        item.ph_value
     );
 
-    setText(
-        "turbidityValue",
-        formatNumber(r.turbidity)
+    const turbidity = firstNumber(
+        item.turbidity,
+        item.turbidity_ntu
     );
 
-    setText(
-        "tdsValue",
-        formatNumber(r.tds)
+    const tds = firstNumber(
+        item.tds,
+        item.tds_value,
+        item.total_dissolved_solids
     );
 
-
-    setText(
-        "temperatureTime",
-        formatTime(r.recorded_at)
-    );
-
-    setText(
-        "phTime",
-        formatTime(r.recorded_at)
-    );
-
-    setText(
-        "turbidityTime",
-        formatTime(r.recorded_at)
-    );
-
-    setText(
-        "tdsTime",
-        formatTime(r.recorded_at)
-    );
-
-
-    setText(
-        "temperatureDetail",
-        `${formatNumber(r.temperature)} °C`
-    );
-
-    setText(
-        "phDetail",
-        formatNumber(r.ph)
-    );
-
-    setText(
-        "turbidityDetail",
-        `${formatNumber(r.turbidity)} NTU`
-    );
-
-    setText(
-        "tdsDetail",
-        `${formatNumber(r.tds)} ppm`
-    );
-
-
-    updateParameterStatus(
-        r
-    );
-
-
-    updateDeviceInformation(
-        r
-    );
-
-
-    updateQuality(
-        r
-    );
-
-    // update trend indicators based on the most recent two readings
-    updateTrendIndicators();
-
-    // header last-updated stamp
-    const last = $("headerLastUpdated");
-    if (last) last.textContent = `Last updated: ${new Date().toLocaleString()}`;
-
-}
-
-
-/* =========================================================
-   FORMAT NUMBER
-   ========================================================= */
-
-function formatNumber(value) {
-
-    if (
-        value === null ||
-        value === undefined ||
-        !Number.isFinite(Number(value))
-    ) {
-
-        return "--";
-
-    }
-
-
-    return Number(value)
-        .toFixed(2)
-        .replace(/\.00$/, "");
-
-}
-
-
-/* =========================================================
-   PARAMETER STATUS
-   ========================================================= */
-
-function updateParameterStatus(r) {
-
-    const temperatureStatus =
-        temperatureState(
-            r.temperature
-        );
-
-    const phStatus =
-        phState(
-            r.ph
-        );
-
-    const turbidityStatus =
-        turbidityState(
-            r.turbidity
-        );
-
-    const tdsStatus =
-        tdsState(
-            r.tds
-        );
-
-
-    setStatusPill(
-        "temperatureStatus",
-        temperatureStatus
-    );
-
-    setStatusPill(
-        "phStatus",
-        phStatus
-    );
-
-    setStatusPill(
-        "turbidityStatus",
-        turbidityStatus
-    );
-
-    setStatusPill(
-        "tdsStatus",
-        tdsStatus
-    );
-
-
-    setText(
-        "temperatureDetailStatus",
-        temperatureStatus
-    );
-
-    setText(
-        "phDetailStatus",
-        phStatus
-    );
-
-    setText(
-        "turbidityDetailStatus",
-        turbidityStatus
-    );
-
-    setText(
-        "tdsDetailStatus",
-        tdsStatus
-    );
-
-}
-
-
-function setStatusPill(
-    id,
-    status
-) {
-
-    const element =
-        $(id);
-
-    if (!element) {
-        return;
-    }
-
-
-    element.textContent =
-        status.label;
-
-    // Apply quality state class for visual styling
-    element.className = "status-pill";
-
-    if (status.level === "good") {
-        element.classList.add("good");
-    } else if (status.level === "warning") {
-        element.classList.add("warning");
-    } else if (status.level === "danger") {
-        element.classList.add("danger");
-    } else {
-        element.classList.add("unknown");
-    }
-
-}
-
-
-/* =========================================================
-   PARAMETER LOGIC
-   ========================================================= */
-
-function temperatureState(value) {
-
-    if (value === null) {
-
-        return {
-            label: "NO DATA",
-            level: "unknown"
-        };
-
-    }
-
-
-    if (
-        value >= 20 &&
-        value <= 30
-    ) {
-
-        return {
-            label: "NORMAL",
-            level: "good"
-        };
-
-    }
-
-
-    if (
-        value >= 15 &&
-        value <= 35
-    ) {
-
-        return {
-            label: "WATCH",
-            level: "warning"
-        };
-
-    }
-
+    const recordedAt =
+        item.recorded_at ||
+        item.recordedAt ||
+        item.timestamp ||
+        item.created_at ||
+        new Date().toISOString();
 
     return {
-        label: "HIGH",
-        level: "danger"
+        id: item.id || item.reading_id || item.readingId || "--",
+        deviceId: item.device_id || item.deviceId || "--",
+        temperature,
+        ph,
+        turbidity,
+        tds,
+        recordedAt,
+        location: item.location || item.device_location || "Unknown"
     };
-
 }
 
+function firstNumber(...values) {
+    for (const value of values) {
+        if (value !== null && value !== undefined && value !== "") {
+            const number = Number(value);
 
-function phState(value) {
-
-    if (value === null) {
-
-        return {
-            label: "NO DATA",
-            level: "unknown"
-        };
-
-    }
-
-
-    if (
-        value >= 6.5 &&
-        value <= 8.5
-    ) {
-
-        return {
-            label: "NORMAL",
-            level: "good"
-        };
-
-    }
-
-
-    if (
-        value >= 6 &&
-        value <= 9
-    ) {
-
-        return {
-            label: "WATCH",
-            level: "warning"
-        };
-
-    }
-
-
-    return {
-        label: "ABNORMAL",
-        level: "danger"
-    };
-
-}
-
-
-function turbidityState(value) {
-
-    if (value === null) {
-
-        return {
-            label: "NO DATA",
-            level: "unknown"
-        };
-
-    }
-
-
-    if (value <= 5) {
-
-        return {
-            label: "CLEAR",
-            level: "good"
-        };
-
-    }
-
-
-    if (value <= 10) {
-
-        return {
-            label: "WATCH",
-            level: "warning"
-        };
-
-    }
-
-
-    return {
-        label: "HIGH",
-        level: "danger"
-    };
-
-}
-
-
-function tdsState(value) {
-
-    if (value === null) {
-
-        return {
-            label: "NO DATA",
-            level: "unknown"
-        };
-
-    }
-
-
-    if (value <= 300) {
-
-        return {
-            label: "GOOD",
-            level: "good"
-        };
-
-    }
-
-
-    if (value <= 600) {
-
-        return {
-            label: "WATCH",
-            level: "warning"
-        };
-
-    }
-
-
-    return {
-        label: "HIGH",
-        level: "danger"
-    };
-
-}
-
-
-/* =========================================================
-   QUALITY SCORE
-   ========================================================= */
-
-function updateQuality(r) {
-
-    const states = [
-
-        temperatureState(
-            r.temperature
-        ),
-
-        phState(
-            r.ph
-        ),
-
-        turbidityState(
-            r.turbidity
-        ),
-
-        tdsState(
-            r.tds
-        )
-
-    ];
-
-
-    let score = 100;
-
-
-    states.forEach(
-        state => {
-
-            if (
-                state.level === "warning"
-            ) {
-
-                score -= 15;
-
+            if (Number.isFinite(number)) {
+                return number;
             }
-
-            if (
-                state.level === "danger"
-            ) {
-
-                score -= 30;
-
-            }
-
-            if (
-                state.level === "unknown"
-            ) {
-
-                score -= 20;
-
-            }
-
         }
-    );
-
-
-    score =
-        Math.max(
-            0,
-            Math.min(
-                100,
-                score
-            )
-        );
-
-
-    setText(
-        "qualityScore",
-        score
-    );
-
-
-    const badge =
-        $("qualityBadge");
-
-    const title =
-        $("qualityTitle");
-
-    const message =
-        $("qualityMessage");
-
-
-    if (
-        !badge ||
-        !title ||
-        !message
-    ) {
-
-        return;
-
     }
 
-
-    badge.className =
-        "quality-badge";
-
-
-    // Determine quality state and apply to body for dynamic color system
-    let qualityState = "quality-unknown";
-
-    if (score >= 80) {
-
-        badge.classList.add(
-            "good"
-        );
-
-        badge.textContent =
-            "GOOD";
-
-        title.textContent =
-            "Water parameters look good";
-
-        message.textContent =
-            "The available sensor parameters are currently within the configured monitoring ranges.";
-
-        qualityState = "quality-good";
-
-    } else if (score >= 55) {
-
-        badge.classList.add(
-            "warning"
-        );
-
-        badge.textContent =
-            "WATCH";
-
-        title.textContent =
-            "Some parameters need attention";
-
-        message.textContent =
-            "One or more readings are outside the preferred range. Continue monitoring.";
-
-        qualityState = "quality-watch";
-
-    } else {
-
-        badge.classList.add(
-            "danger"
-        );
-
-        badge.textContent =
-            "ALERT";
-
-        title.textContent =
-            "Water quality requires attention";
-
-        message.textContent =
-            "Multiple sensor parameters indicate values outside the configured monitoring ranges.";
-
-        qualityState = "quality-alert";
-
-    }
-
-    // Apply quality state class to body for dynamic color system
-    document.body.classList.remove(
-        "quality-good",
-        "quality-watch",
-        "quality-alert",
-        "quality-unknown"
-    );
-
-    document.body.classList.add(
-        qualityState
-    );
-
-    // Update the gauge progress circle
-    updateGauge(score);
-
+    return null;
 }
 
-
 /* =========================================================
-   DEVICE
+   DASHBOARD RENDERING
    ========================================================= */
 
-function updateDeviceInformation(r) {
+function renderDashboard() {
+    const latest = state.latest;
 
-    setText(
-        "deviceId",
-        r.device_id
-    );
-
-    setText(
-        "readingId",
-        r.id
-    );
-
-    setText(
-        "recordedAt",
-        formatTime(r.recorded_at)
-    );
-
-    setText(
-        "updatedAt",
-        new Date().toLocaleString()
-    );
-
-
-    setText(
-        "dashboardDeviceId",
-        r.device_id
-    );
-
-    setText(
-        "dashboardReadingId",
-        r.id
-    );
-
-    setText(
-        "dashboardLocation",
-        r.location || "Coimbatore"
-    );
-
-    setText(
-        "dashboardUpdated",
-        formatTime(r.recorded_at)
-    );
-
-    setText(
-        "deviceName",
-        r.device_name ||
-        "Aqua ESP32"
-    );
-
-    setText(
-        "deviceLocation",
-        r.location ||
-        "Coimbatore"
-    );
-
-
-    const badge =
-        $("deviceStatusBadge");
-
-
-    if (badge) {
-
-        badge.className =
-            "quality-badge good";
-
-        badge.textContent =
-            "ONLINE";
-
-    }
-
-
-    setText(
-        "backendStatusText",
-        "Backend Connected"
-    );
-
-    setText(
-        "backendStatusMessage",
-        "Connected to Aqua AI Render server."
-    );
-
-}
-
-
-/* =========================================================
-   READINGS TABLE
-   ========================================================= */
-
-function updateReadingsTable() {
-
-    const tbody =
-        $("readingsTableBody");
-
-
-    if (!tbody) {
+    if (!latest) {
         return;
     }
 
+    setText("temperatureValue", formatNumber(latest.temperature));
+    setText("phValue", formatNumber(latest.ph));
+    setText("turbidityValue", formatNumber(latest.turbidity));
+    setText("tdsValue", formatNumber(latest.tds));
 
-    if (!readingsHistory.length) {
+    setText("temperatureStatus", temperatureStatus(latest.temperature));
+    setText("phStatus", phStatus(latest.ph));
+    setText("turbidityStatus", turbidityStatus(latest.turbidity));
+    setText("tdsStatus", tdsStatus(latest.tds));
 
-        tbody.innerHTML = `
+    setText("temperatureTrend", getTrend("temperature"));
+    setText("phTrend", getTrend("ph"));
+    setText("turbidityTrend", getTrend("turbidity"));
+    setText("tdsTrend", getTrend("tds"));
+
+    setText("dashboardDeviceId", latest.deviceId);
+    setText("dashboardReadingId", `Reading ${latest.id}`);
+    setText("dashboardLocation", latest.location);
+    setText("deviceLocationDetails", latest.location);
+    setText("deviceReadingDetails", latest.id);
+    setText("dashboardUpdated", formatDateTime(latest.recordedAt));
+
+    const score = calculateQualityScore(latest);
+
+    setText("qualityScore", score);
+
+    $("qualityMeterFill").style.width = `${score}%`;
+
+    const quality = getQualityInfo(score);
+
+    setText("qualityTitle", quality.title);
+    setText("qualityMessage", quality.message);
+
+    const qualityBadge = $("deviceStatusBadge");
+    qualityBadge.textContent = quality.badge;
+    qualityBadge.className = `status-badge ${quality.className}`;
+
+    renderRecentTable();
+}
+
+function renderRecentTable() {
+    const body = $("readingsTableBody");
+
+    body.innerHTML = "";
+
+    if (!state.readings.length) {
+        body.innerHTML = `
             <tr>
-                <td colspan="6" class="empty-table">
-                    No readings available.
-                </td>
+                <td colspan="5">No readings available.</td>
             </tr>
         `;
-
         return;
     }
 
+    state.readings.slice(0, 10).forEach((reading) => {
+        const row = document.createElement("tr");
 
-    const rows =
-        readingsHistory
-            .slice(0, 10)
-            .map(
-                reading => {
+        row.innerHTML = `
+            <td>${escapeHtml(formatDateTime(reading.recordedAt))}</td>
+            <td>${escapeHtml(formatNumber(reading.temperature))} °C</td>
+            <td>${escapeHtml(formatNumber(reading.ph))}</td>
+            <td>${escapeHtml(formatNumber(reading.turbidity))} NTU</td>
+            <td>${escapeHtml(formatNumber(reading.tds))} mg/L</td>
+        `;
 
-                    return `
-                        <tr>
-                            <td>
-                                ${escapeHTML(
-                                    reading.id
-                                )}
-                            </td>
-
-                            <td>
-                                ${formatNumber(
-                                    reading.temperature
-                                )} °C
-                            </td>
-
-                            <td>
-                                ${formatNumber(
-                                    reading.ph
-                                )}
-                            </td>
-
-                            <td>
-                                ${formatNumber(
-                                    reading.turbidity
-                                )} NTU
-                            </td>
-
-                            <td>
-                                ${formatNumber(
-                                    reading.tds
-                                )} ppm
-                            </td>
-
-                            <td>
-                                ${escapeHTML(
-                                    formatTime(
-                                        reading.recorded_at
-                                    )
-                                )}
-                            </td>
-                        </tr>
-                    `;
-
-                }
-            )
-            .join("");
-
-
-    tbody.innerHTML =
-        rows;
-
+        body.appendChild(row);
+    });
 }
-
 
 /* =========================================================
-   ESCAPE HTML
+   QUALITY CALCULATION
    ========================================================= */
 
-function escapeHTML(value) {
+function calculateQualityScore(reading) {
+    const scores = [];
 
-    if (
-        value === null ||
-        value === undefined
-    ) {
-
-        return "--";
-
+    if (reading.temperature !== null) {
+        const difference = Math.abs(reading.temperature - 25);
+        scores.push(Math.max(0, 100 - difference * 4));
     }
 
-
-    return String(value)
-        .replace(
-            /&/g,
-            "&amp;"
-        )
-        .replace(
-            /</g,
-            "&lt;"
-        )
-        .replace(
-            />/g,
-            "&gt;"
-        )
-        .replace(
-            /"/g,
-            "&quot;"
-        )
-        .replace(
-            /'/g,
-            "&#039;"
-        );
-
-}
-
-
-/* =========================================================
-   CHART DATA
-   ========================================================= */
-
-function historyLabels() {
-
-    return readingsHistory
-        .slice()
-        .reverse()
-        .map(
-            reading =>
-                formatShortTime(
-                    reading.recorded_at
-                )
-        );
-
-}
-
-
-function formatShortTime(value) {
-
-    if (!value) {
-        return "--";
+    if (reading.ph !== null) {
+        const difference = Math.abs(reading.ph - 7);
+        scores.push(Math.max(0, 100 - difference * 25));
     }
 
-
-    const date =
-        new Date(value);
-
-
-    if (
-        Number.isNaN(
-            date.getTime()
-        )
-    ) {
-
-        return "--";
-
+    if (reading.turbidity !== null) {
+        scores.push(Math.max(0, 100 - reading.turbidity * 5));
     }
 
+    if (reading.tds !== null) {
+        scores.push(Math.max(0, 100 - Math.max(0, reading.tds - 300) * 0.15));
+    }
 
-    return date.toLocaleTimeString(
-        [],
-        {
-            hour: "2-digit",
-            minute: "2-digit"
-        }
+    if (!scores.length) {
+        return 0;
+    }
+
+    return Math.round(
+        scores.reduce((sum, value) => sum + value, 0) / scores.length
     );
-
 }
 
+function getQualityInfo(score) {
+    if (score >= 80) {
+        return {
+            title: "Water quality looks good",
+            message: "The available sensor values are within a generally acceptable range.",
+            badge: "GOOD CONDITION",
+            className: "good"
+        };
+    }
 
-function valuesFor(parameter) {
-
-    return readingsHistory
-        .slice()
-        .reverse()
-        .map(
-            reading =>
-                reading[parameter]
-        );
-
-}
-
-
-/* =========================================================
-   CHART CREATOR
-   ========================================================= */
-
-function getQualityChartColors() {
-
-    const style = getComputedStyle(document.body);
+    if (score >= 55) {
+        return {
+            title: "Water quality needs attention",
+            message: "Some sensor values may need monitoring or further investigation.",
+            badge: "NEEDS ATTENTION",
+            className: "warning"
+        };
+    }
 
     return {
-        border: style.getPropertyValue("--quality-primary").trim() || "#0d9488",
-        background: style.getPropertyValue("--quality-surface").trim() || "rgba(13,148,136,0.08)"
+        title: "Water quality alert",
+        message: "One or more sensor values may be outside the expected range.",
+        badge: "ALERT",
+        className: "danger"
+    };
+}
+
+/* =========================================================
+   SENSOR STATUS
+   ========================================================= */
+
+function temperatureStatus(value) {
+    if (value === null) return "No data";
+    if (value >= 15 && value <= 35) return "Normal range";
+    return "Check temperature";
+}
+
+function phStatus(value) {
+    if (value === null) return "No data";
+    if (value >= 6.5 && value <= 8.5) return "Acceptable range";
+    return "Check pH level";
+}
+
+function turbidityStatus(value) {
+    if (value === null) return "No data";
+    if (value <= 5) return "Clear condition";
+    return "High turbidity";
+}
+
+function tdsStatus(value) {
+    if (value === null) return "No data";
+    if (value <= 300) return "Low dissolved solids";
+    if (value <= 600) return "Moderate dissolved solids";
+    return "High dissolved solids";
+}
+
+function getTrend(parameter) {
+    if (state.readings.length < 2) {
+        return "Not enough data";
+    }
+
+    const latest = state.readings[0][parameter];
+    const previous = state.readings[1][parameter];
+
+    if (latest === null || previous === null) {
+        return "No trend available";
+    }
+
+    const difference = latest - previous;
+
+    if (Math.abs(difference) < 0.01) {
+        return "→ Stable";
+    }
+
+    return difference > 0
+        ? `↑ Increased by ${Math.abs(difference).toFixed(2)}`
+        : `↓ Decreased by ${Math.abs(difference).toFixed(2)}`;
+}
+
+/* =========================================================
+   CHARTS
+   ========================================================= */
+
+function setupChartControls() {
+    $("chartMetric").addEventListener("change", renderDashboardChart);
+}
+
+function renderAllCharts() {
+    renderDashboardChart();
+    renderParameterChart("temperature");
+    renderParameterChart("ph");
+    renderParameterChart("turbidity");
+    renderParameterChart("tds");
+    renderTrendsChart();
+}
+
+function getChartData(parameter) {
+    const values = [...state.readings].reverse();
+
+    return {
+        labels: values.map((reading) =>
+            new Date(reading.recordedAt).toLocaleTimeString()
+        ),
+        values: values.map((reading) => reading[parameter])
+    };
+}
+
+function renderDashboardChart() {
+    const selected = $("chartMetric").value;
+
+    const datasets = [];
+
+    const parameters = selected === "all"
+        ? ["temperature", "ph", "turbidity", "tds"]
+        : [selected];
+
+    parameters.forEach((parameter) => {
+        const chartData = getChartData(parameter);
+
+        datasets.push({
+            label: parameter.toUpperCase(),
+            data: chartData.values,
+            borderWidth: 2,
+            tension: 0.35,
+            fill: false
+        });
+    });
+
+    createChart("dashboardChart", {
+        type: "line",
+        data: {
+            labels: state.readings
+                .slice()
+                .reverse()
+                .map((reading) =>
+                    new Date(reading.recordedAt).toLocaleTimeString()
+                ),
+            datasets
+        },
+        options: chartOptions()
+    });
+}
+
+function renderParameterChart(parameter) {
+    const canvasId = `${parameter}Chart`;
+
+    const chartData = getChartData(parameter);
+
+    createChart(canvasId, {
+        type: "line",
+        data: {
+            labels: chartData.labels,
+            datasets: [
+                {
+                    label: parameter.toUpperCase(),
+                    data: chartData.values,
+                    borderWidth: 3,
+                    tension: 0.35,
+                    fill: false
+                }
+            ]
+        },
+        options: chartOptions()
+    });
+
+    const latest = state.latest;
+
+    if (!latest) {
+        return;
+    }
+
+    const pageValueMap = {
+        temperature: `${formatNumber(latest.temperature)} °C`,
+        ph: formatNumber(latest.ph),
+        turbidity: `${formatNumber(latest.turbidity)} NTU`,
+        tds: `${formatNumber(latest.tds)} mg/L`
     };
 
+    setText(`${parameter}PageValue`, pageValueMap[parameter]);
+
+    const statusMap = {
+        temperature: temperatureStatus(latest.temperature),
+        ph: phStatus(latest.ph),
+        turbidity: turbidityStatus(latest.turbidity),
+        tds: tdsStatus(latest.tds)
+    };
+
+    setText(`${parameter}PageStatus`, statusMap[parameter]);
 }
 
-
-function createChart(
-    canvasId,
-    parameter,
-    label,
-    unit
-) {
-
-    const canvas =
-        $(canvasId);
-
-
-    if (!canvas) {
-        return null;
-    }
-
-
-    if (
-        typeof Chart ===
-        "undefined"
-    ) {
-
-        console.warn(
-            "Chart.js not loaded."
+function renderTrendsChart() {
+    const labels = state.readings
+        .slice()
+        .reverse()
+        .map((reading) =>
+            new Date(reading.recordedAt).toLocaleTimeString()
         );
 
-        return null;
-
-    }
-
-
-    const existing =
-        Chart.getChart(canvas);
-
-
-    if (existing) {
-
-        existing.destroy();
-
-    }
-
-
-    const qualityColors = getQualityChartColors();
-
-    return new Chart(
-        canvas,
-        {
-
-            type: "line",
-
-            data: {
-
-                labels:
-                    historyLabels(),
-
-                datasets: [
-
-                    {
-
-                        label:
-                            `${label} (${unit})`,
-
-                        data:
-                            valuesFor(
-                                parameter
-                            ),
-
-                        borderColor:
-                            qualityColors.border,
-
-                        backgroundColor:
-                            qualityColors.background,
-
-                        fill: true,
-
-                        tension: 0.35,
-
-                        pointRadius: 3,
-
-                        pointHoverRadius: 5
-
-                    }
-
-                ]
-
-            },
-
-            options: {
-
-                responsive: true,
-
-                maintainAspectRatio:
-                    false,
-
-                interaction: {
-
-                    intersect: false,
-
-                    mode: "index"
-
-                },
-
-                plugins: {
-
-                    legend: {
-
-                        display: true
-
-                    }
-
-                },
-
-                scales: {
-
-                    y: {
-
-                        beginAtZero:
-                            false,
-
-                        grid: {
-
-                            color:
-                                "#edf1f4"
-
-                        }
-
-                    },
-
-                    x: {
-
-                        grid: {
-
-                            display:
-                                false
-
-                        }
-
-                    }
-
-                }
-
-            }
-
-        }
-    );
-
-}
-
-
-/* =========================================================
-   UPDATE CHARTS
-   ========================================================= */
-
-function updateCharts() {
-
-    if (!readingsHistory.length) {
-        return;
-    }
-
-
-    dashboardChart =
-        createChart(
-            "dashboardChart",
-            "temperature",
-            "Temperature",
-            "°C"
-        );
-
-
-    updateParameterChart(
-        "temperature"
-    );
-
-    updateParameterChart(
-        "ph"
-    );
-
-    updateParameterChart(
-        "turbidity"
-    );
-
-    updateParameterChart(
-        "tds"
-    );
-
-}
-
-
-function updateParameterChart(
-    parameter
-) {
-
-    if (!readingsHistory.length) {
-        return;
-    }
-
-
-    if (parameter === "temperature") {
-
-        temperatureChart =
-            createChart(
-                "temperatureChart",
-                "temperature",
-                "Temperature",
-                "°C"
-            );
-
-    }
-
-
-    if (parameter === "ph") {
-
-        phChart =
-            createChart(
-                "phChart",
-                "ph",
-                "pH",
-                "pH"
-            );
-
-    }
-
-
-    if (parameter === "turbidity") {
-
-        turbidityChart =
-            createChart(
-                "turbidityChart",
-                "turbidity",
-                "Turbidity",
-                "NTU"
-            );
-
-    }
-
-
-    if (parameter === "tds") {
-
-        tdsChart =
-            createChart(
-                "tdsChart",
-                "tds",
-                "TDS",
-                "ppm"
-            );
-
-    }
-
-}
-
-
-/* =========================================================
-   QUALITY GAUGE
-   ========================================================= */
-
-function updateGauge(score) {
-
-    const progress = $("gaugeProgress");
-
-    if (!progress) {
-        return;
-    }
-
-    // Circle circumference: 2 * PI * r = 2 * 3.14159 * 90 = 565.49
-    const circumference = 565.49;
-
-    // Map score (0-100) to dash offset (full circle to empty)
-    const offset = circumference - (score / 100) * circumference;
-
-    progress.style.strokeDashoffset = offset;
-
-}
-
-/* =========================================================
-   CHATBOT (Dashboard)
-   ========================================================= */
-
-const CHAT_SESSION_KEY = 'aqua_ai_chat_history';
-
-function loadChatHistory() {
-    try {
-        const raw = sessionStorage.getItem(CHAT_SESSION_KEY);
-        return raw ? JSON.parse(raw) : [];
-    } catch (e) {
-        return [];
-    }
-}
-
-function saveChatHistory(history) {
-    try {
-        // keep last 20 messages to limit storage
-        const truncated = history.slice(-40);
-        sessionStorage.setItem(CHAT_SESSION_KEY, JSON.stringify(truncated));
-    } catch (e) {
-        // ignore
-    }
-}
-
-function renderConversation() {
-    const container = $('chatMessages');
-    if (!container) return;
-    const history = loadChatHistory();
-    container.innerHTML = history.map(item => {
-        const who = item.role === 'user' ? 'user' : 'ai';
-        const time = item.time || '';
-        const meta = item.role === 'user' ? 'You' : 'Aqua AI';
-        const text = escapeHTML(item.text).replace(/\n/g, '<br>');
-        if (who === 'user') {
-            return `<div class="chat-message user"><div class="meta">${meta} ${time}</div><div class="bubble">${text}</div></div>`;
-        } else {
-            return `<div class="chat-message ai"><div class="meta">${meta} ${time}</div><div class="bubble">${text}</div></div>`;
-        }
-    }).join('');
-
-    // scroll to bottom
-    container.scrollTop = container.scrollHeight;
-}
-
-async function sendChatMessage(text) {
-    const input = $('chatInput');
-    const sendBtn = $('chatSendButton');
-    const loading = $('chatLoading');
-    if (!text || !text.trim()) return;
-
-    // update history with user message
-    const history = loadChatHistory();
-    const userMsg = { role: 'user', text: text.trim(), time: new Date().toLocaleString() };
-    history.push(userMsg);
-    saveChatHistory(history);
-    renderConversation();
-
-    // show loading
-    sendBtn.disabled = true;
-    loading.classList.remove('hidden');
-
-    try {
-        const payload = buildChatPayload(text);
-
-        const response = await fetch(CHAT_ENDPOINT, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-            const errText = await response.text().catch(() => '');
-            throw new Error(errText || `HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
-        if (!data || !data.success) {
-            const msg = data && data.answer ? data.answer : 'AI did not return a valid response.';
-            throw new Error(msg);
-        }
-
-        const aiMsg = { role: 'ai', text: data.answer || 'No answer', time: new Date().toLocaleString(), model: data.model };
-        updateChatAIStatusFromResponse(data);
-        const newHistory = loadChatHistory();
-        newHistory.push(aiMsg);
-        saveChatHistory(newHistory);
-        renderConversation();
-
-    } catch (error) {
-        const historyErr = loadChatHistory();
-        historyErr.push({ role: 'ai', text: 'Error: Unable to get answer. ' + (error.message || ''), time: new Date().toLocaleString() });
-        saveChatHistory(historyErr);
-        renderConversation();
-    } finally {
-        sendBtn.disabled = false;
-        loading.classList.add('hidden');
-        if (input) input.focus();
-    }
-}
-
-function setupChat() {
-    const input = $('chatInput');
-    const sendBtn = $('chatSendButton');
-    const providerSelect = $('chatProviderSelect');
-    const modelSelect = $('chatModelSelect');
-
-    renderConversation();
-
-    providerSelect?.addEventListener('change', () => {
-        const selectedProvider = providerSelect.value;
-        writeStoredSelection(CHAT_PROVIDER_STORAGE_KEY, selectedProvider);
-
-        if (selectedProvider === 'automatic') {
-            writeStoredSelection(CHAT_MODEL_STORAGE_KEY, 'automatic');
-            if (modelSelect) modelSelect.value = 'automatic';
-        } else {
-            const providerModel = modelNameByProvider(selectedProvider) || 'automatic';
-            writeStoredSelection(CHAT_MODEL_STORAGE_KEY, providerModel);
-            if (modelSelect) modelSelect.value = providerModel;
-        }
-
-        renderProviderOptions();
-    });
-
-    modelSelect?.addEventListener('change', () => {
-        writeStoredSelection(CHAT_MODEL_STORAGE_KEY, modelSelect.value);
-    });
-
-    if (sendBtn) {
-        sendBtn.addEventListener('click', () => {
-            const val = input ? input.value : '';
-            if (val && val.trim()) {
-                if (input) input.value = '';
-                sendChatMessage(val);
-            }
-        });
-    }
-
-    if (input) {
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                const val = input.value;
-                if (val && val.trim()) {
-                    input.value = '';
-                    sendChatMessage(val);
-                }
-            }
-        });
-    }
-}
-
-/* =========================================================
-   CHART FILTERS & TREND HELPERS
-   ========================================================= */
-
-function computeTrend(parameter) {
-    if (!readingsHistory || readingsHistory.length < 2) return "--";
-    const latest = numberOrNull(readingsHistory[0][parameter]);
-    const prev = numberOrNull(readingsHistory[1][parameter]);
-    if (latest === null || prev === null) return "--";
-    if (prev === 0) return "--";
-    const pct = ((latest - prev) / Math.abs(prev)) * 100;
-    const arrow = pct > 0 ? '↑' : pct < 0 ? '↓' : '→';
-    return `${arrow} ${Math.abs(pct).toFixed(1)}%`;
-}
-
-function updateTrendIndicators() {
-    try {
-        setText('temperatureTrend', computeTrend('temperature'));
-        setText('phTrend', computeTrend('ph'));
-        setText('turbidityTrend', computeTrend('turbidity'));
-        setText('tdsTrend', computeTrend('tds'));
-    } catch (e) {
-        // silent fail - non-critical UI enhancement
-    }
-}
-
-function filterHistoryByRange(rangeKey) {
-    if (!readingsHistory || readingsHistory.length === 0) return [];
-    const now = Date.now();
-    let cutoff = 0;
-    switch (rangeKey) {
-        case '1H': cutoff = now - 1000 * 60 * 60; break;
-        case '6H': cutoff = now - 1000 * 60 * 60 * 6; break;
-        case '24H': cutoff = now - 1000 * 60 * 60 * 24; break;
-        case '7D': cutoff = now - 1000 * 60 * 60 * 24 * 7; break;
-        case '30D': cutoff = now - 1000 * 60 * 60 * 24 * 30; break;
-        default: cutoff = 0;
-    }
-
-    if (cutoff === 0) return readingsHistory.slice();
-
-    return readingsHistory.filter(r => {
-        const ts = getTimestamp(r);
-        return ts >= cutoff;
-    });
-}
-
-function createChartFromHistory(canvasId, parameter, label, unit, history) {
-    const canvas = $(canvasId);
-    if (!canvas) return null;
-    if (typeof Chart === 'undefined') return null;
-
-    const source = history || readingsHistory || [];
-    const labels = source.slice().reverse().map(r => formatShortTime(r.recorded_at));
-    const data = source.slice().reverse().map(r => r[parameter]);
-
-    const existing = Chart.getChart(canvas);
-    if (existing) existing.destroy();
-
-    const qualityColors = getQualityChartColors();
-
-    const cfg = {
-        type: 'line',
+    createChart("trendsChart", {
+        type: "line",
         data: {
             labels,
             datasets: [
                 {
-                    label: `${label} (${unit})`,
-                    data,
-                    borderColor: qualityColors.border,
-                    backgroundColor: qualityColors.background,
-                    fill: true,
-                    tension: 0.35,
-                    pointRadius: 3,
-                    pointHoverRadius: 5
+                    label: "Temperature",
+                    data: state.readings.slice().reverse().map((r) => r.temperature),
+                    borderWidth: 2,
+                    tension: 0.35
+                },
+                {
+                    label: "pH",
+                    data: state.readings.slice().reverse().map((r) => r.ph),
+                    borderWidth: 2,
+                    tension: 0.35
+                },
+                {
+                    label: "Turbidity",
+                    data: state.readings.slice().reverse().map((r) => r.turbidity),
+                    borderWidth: 2,
+                    tension: 0.35
+                },
+                {
+                    label: "TDS",
+                    data: state.readings.slice().reverse().map((r) => r.tds),
+                    borderWidth: 2,
+                    tension: 0.35
                 }
             ]
         },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { intersect: false, mode: 'index' },
-            plugins: { legend: { display: true } },
-            scales: {
-                y: { beginAtZero: false, grid: { color: '#edf1f4' } },
-                x: { grid: { display: false } }
+        options: chartOptions()
+    });
+}
+
+function createChart(canvasId, configuration) {
+    const canvas = $(canvasId);
+
+    if (!canvas) {
+        return;
+    }
+
+    if (state.charts[canvasId]) {
+        state.charts[canvasId].destroy();
+    }
+
+    state.charts[canvasId] = new Chart(canvas, configuration);
+}
+
+function chartOptions() {
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+            intersect: false,
+            mode: "index"
+        },
+        plugins: {
+            legend: {
+                display: true
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: false,
+                grid: {
+                    color: "#e8eef3"
+                }
+            },
+            x: {
+                grid: {
+                    display: false
+                }
             }
         }
     };
-
-    return new Chart(canvas, cfg);
-}
-
-function applyDashboardTimeFilter(filterKey) {
-    const history = filterHistoryByRange(filterKey);
-    // update dashboard quick chart (temperature) using filtered history if available
-    dashboardChart = createChartFromHistory('dashboardChart', 'temperature', 'Temperature', '°C', history);
-    // update trends page charts if user navigates there
-    createChartFromHistory('trendsTemperatureChart', 'temperature', 'Temperature', '°C', history);
-    createChartFromHistory('trendsPhChart', 'ph', 'pH', 'pH', history);
-    createChartFromHistory('trendsTurbidityChart', 'turbidity', 'Turbidity', 'NTU', history);
-    createChartFromHistory('trendsTdsChart', 'tds', 'TDS', 'ppm', history);
 }
 
 /* =========================================================
-   CAMERA MODE
-   ========================================================= */
-
-function setupCameraModes() {
-
-    const uploadButton =
-        $("uploadModeButton");
-
-    const liveButton =
-        $("liveModeButton");
-
-
-    uploadButton?.addEventListener(
-        "click",
-        () => {
-
-            uploadButton.classList.add(
-                "active"
-            );
-
-            liveButton.classList.remove(
-                "active"
-            );
-
-
-            $("uploadMode")
-                ?.classList.add(
-                    "active"
-                );
-
-            $("liveMode")
-                ?.classList.remove(
-                    "active"
-                );
-
-        }
-    );
-
-
-    liveButton?.addEventListener(
-        "click",
-        () => {
-
-            liveButton.classList.add(
-                "active"
-            );
-
-            uploadButton.classList.remove(
-                "active"
-            );
-
-
-            $("liveMode")
-                ?.classList.add(
-                    "active"
-                );
-
-            $("uploadMode")
-                ?.classList.remove(
-                    "active"
-                );
-
-        }
-    );
-
-}
-
-
-/* =========================================================
-   IMAGE UPLOAD
+   CAMERA UPLOAD
    ========================================================= */
 
 function setupImageUpload() {
+    $("imageInput").addEventListener("change", (event) => {
+        const file = event.target.files[0];
 
-    const input = $("imageInput");
-    const uploadArea = $("uploadArea");
-    const previewContainer = $("imagePreviewContainer");
-    const previewImage = $("imagePreview");
-    const clearBtn = $("clearImageButton");
-    const modelSelect = $("aiModelSelector");
-    const providerSelect = $("cameraProviderSelect");
-    const settingsProviderSelect = $("cameraProviderSelectSetting");
-    const settingsModelSelect = $("cameraModelSelectorSetting");
-
-    providerSelect?.addEventListener('change', () => {
-        const value = providerSelect.value;
-        writeStoredSelection(CAMERA_PROVIDER_STORAGE_KEY, value);
-
-        if (value === 'automatic') {
-            writeStoredSelection(CAMERA_MODEL_STORAGE_KEY, 'Aqua AI Vision — Automatic');
-            if (modelSelect) modelSelect.value = 'automatic';
-            if (settingsModelSelect) settingsModelSelect.value = 'automatic';
-            if (settingsProviderSelect) settingsProviderSelect.value = value;
-            renderProviderOptions();
+        if (!file) {
             return;
         }
 
-        const providerModel = cameraModelNameByProvider(value);
-        writeStoredSelection(CAMERA_MODEL_STORAGE_KEY, providerModel);
-        if (modelSelect) modelSelect.value = providerModel;
-        if (settingsModelSelect) settingsModelSelect.value = providerModel;
-        if (settingsProviderSelect) settingsProviderSelect.value = value;
-        renderProviderOptions();
-    });
+        state.selectedImage = file;
 
-    modelSelect?.addEventListener('change', () => {
-        writeStoredSelection(CAMERA_MODEL_STORAGE_KEY, modelSelect.value);
-        if (settingsModelSelect) settingsModelSelect.value = modelSelect.value;
-    });
-
-    settingsProviderSelect?.addEventListener('change', () => {
-        const value = settingsProviderSelect.value;
-        writeStoredSelection(CAMERA_PROVIDER_STORAGE_KEY, value);
-        if (providerSelect) providerSelect.value = value;
-        if (value === 'automatic') {
-            writeStoredSelection(CAMERA_MODEL_STORAGE_KEY, 'Aqua AI Vision — Automatic');
-            if (settingsModelSelect) settingsModelSelect.value = 'automatic';
-            if (modelSelect) modelSelect.value = 'automatic';
-            renderProviderOptions();
-            return;
+        if (state.imagePreviewUrl) {
+            URL.revokeObjectURL(state.imagePreviewUrl);
         }
-        const providerModel = cameraModelNameByProvider(value);
-        writeStoredSelection(CAMERA_MODEL_STORAGE_KEY, providerModel);
-        if (settingsModelSelect) settingsModelSelect.value = providerModel;
-        if (modelSelect) modelSelect.value = providerModel;
-        renderProviderOptions();
+
+        state.imagePreviewUrl = URL.createObjectURL(file);
+
+        $("imagePreview").src = state.imagePreviewUrl;
+        $("imagePreviewContainer").classList.remove("hidden");
+        $("uploadArea").classList.add("hidden");
     });
 
-    settingsModelSelect?.addEventListener('change', () => {
-        writeStoredSelection(CAMERA_MODEL_STORAGE_KEY, settingsModelSelect.value);
-        if (modelSelect) modelSelect.value = settingsModelSelect.value;
-    });
-
-    if (!input || !uploadArea) return;
-
-    input.addEventListener('change', event => {
-        const file = event.target.files?.[0];
-        handleSelectedFile(file);
-    });
-
-    // drag and drop support
-    uploadArea.addEventListener('dragover', ev => {
-        ev.preventDefault();
-        uploadArea.classList.add('dragover');
-    });
-    uploadArea.addEventListener('dragleave', ev => {
-        uploadArea.classList.remove('dragover');
-    });
-    uploadArea.addEventListener('drop', ev => {
-        ev.preventDefault();
-        uploadArea.classList.remove('dragover');
-        const file = ev.dataTransfer.files?.[0];
-        handleSelectedFile(file);
-    });
-
-    function handleSelectedFile(file) {
-        if (!file) return;
-        if (!file.type.startsWith('image/')) {
-            showAIError('Please select an image file.');
-            return;
-        }
-        selectedImage = file;
-        const url = URL.createObjectURL(file);
-        if (previewImage) previewImage.src = url;
-        if (previewContainer) previewContainer.classList.remove('hidden');
-        clearAIResult();
-    }
-
-    $("analyzeUploadButton")?.addEventListener('click', () => {
-        if (!selectedImage) {
-            showAIError('Please select an image first.');
-            return;
-        }
-        analyzeImage(selectedImage);
-    });
-
-    clearBtn?.addEventListener('click', () => {
-        selectedImage = null;
-        if (previewImage) previewImage.src = '';
-        previewContainer?.classList.add('hidden');
-        clearAIError();
-        clearAIResult();
-        $("imageInput").value = '';
-    });
-
+    $("clearImageButton").addEventListener("click", clearSelectedImage);
 }
 
+function clearSelectedImage() {
+    state.selectedImage = null;
+
+    if (state.imagePreviewUrl) {
+        URL.revokeObjectURL(state.imagePreviewUrl);
+        state.imagePreviewUrl = null;
+    }
+
+    $("imageInput").value = "";
+    $("imagePreview").src = "";
+    $("imagePreviewContainer").classList.add("hidden");
+    $("uploadArea").classList.remove("hidden");
+}
 
 /* =========================================================
    LIVE CAMERA
    ========================================================= */
 
-function setupLiveCamera() {
+function setupCameraControls() {
+    $("uploadModeButton").addEventListener("click", () => {
+        $("uploadModeButton").classList.add("active");
+        $("liveModeButton").classList.remove("active");
 
-    $("startCameraButton")
-        ?.addEventListener(
-            "click",
-            startCamera
-        );
+        $("uploadMode").classList.remove("hidden");
+        $("liveMode").classList.add("hidden");
+    });
 
+    $("liveModeButton").addEventListener("click", () => {
+        $("liveModeButton").classList.add("active");
+        $("uploadModeButton").classList.remove("active");
 
-    $("captureButton")
-        ?.addEventListener(
-            "click",
-            captureAndAnalyze
-        );
+        $("liveMode").classList.remove("hidden");
+        $("uploadMode").classList.add("hidden");
+    });
 
-
-    $("stopCameraButton")
-        ?.addEventListener(
-            "click",
-            stopCamera
-        );
-
+    $("startCameraButton").addEventListener("click", startCamera);
+    $("captureCameraButton").addEventListener("click", captureCamera);
+    $("stopCameraButton").addEventListener("click", stopCamera);
+    $("analyzeImageButton").addEventListener("click", analyzeImage);
 }
-
 
 async function startCamera() {
-
     try {
+        state.cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: "environment"
+            },
+            audio: false
+        });
 
-        clearAIError();
+        $("cameraVideo").srcObject = state.cameraStream;
 
-
-        if (
-            !navigator.mediaDevices ||
-            !navigator.mediaDevices.getUserMedia
-        ) {
-
-            throw new Error(
-                "Camera access is not supported by this browser."
-            );
-
-        }
-
-
-        cameraStream =
-            await navigator.mediaDevices
-                .getUserMedia(
-                    {
-                        video: {
-                            facingMode:
-                                "environment"
-                        },
-
-                        audio: false
-                    }
-                );
-
-
-        const video =
-            $("cameraVideo");
-
-
-        video.srcObject =
-            cameraStream;
-
-
-        video.style.display =
-            "block";
-
-
-        $("cameraPlaceholder")
-            ?.classList.add(
-                "hidden"
-            );
-
-
-        $("captureButton").disabled =
-            false;
-
-        $("stopCameraButton").disabled =
-            false;
-
-        $("startCameraButton").disabled =
-            true;
-
-
+        $("startCameraButton").disabled = true;
+        $("captureCameraButton").disabled = false;
+        $("stopCameraButton").disabled = false;
     } catch (error) {
-
-        console.error(
-            "Camera error:",
-            error
-        );
-
-
-        showAIError(
-            `Camera error: ${error.message}`
-        );
-
+        showCameraError("Unable to access the camera. Check browser permissions.");
+        console.error(error);
     }
-
 }
 
+function captureCamera() {
+    const video = $("cameraVideo");
+    const canvas = $("cameraCanvas");
 
-function stopCamera() {
-
-    if (cameraStream) {
-
-        cameraStream
-            .getTracks()
-            .forEach(
-                track =>
-                    track.stop()
-            );
-
-        cameraStream =
-            null;
-
-    }
-
-
-    const video =
-        $("cameraVideo");
-
-
-    if (video) {
-
-        video.srcObject =
-            null;
-
-        video.style.display =
-            "none";
-
-    }
-
-
-    $("cameraPlaceholder")
-        ?.classList.remove(
-            "hidden"
-        );
-
-
-    $("captureButton").disabled =
-        true;
-
-    $("stopCameraButton").disabled =
-        true;
-
-    $("startCameraButton").disabled =
-        false;
-
-}
-
-
-async function captureAndAnalyze() {
-
-    const video =
-        $("cameraVideo");
-
-    const canvas =
-        $("cameraCanvas");
-
-
-    if (
-        !video ||
-        !canvas
-    ) {
-
+    if (!state.cameraStream) {
         return;
-
     }
 
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
 
-    if (
-        video.videoWidth === 0 ||
-        video.videoHeight === 0
-    ) {
-
-        showAIError(
-            "Camera image is not ready."
-        );
-
-        return;
-
-    }
-
-
-    canvas.width =
-        video.videoWidth;
-
-    canvas.height =
-        video.videoHeight;
-
-
-    const context =
-        canvas.getContext(
-            "2d"
-        );
-
+    const context = canvas.getContext("2d");
 
     context.drawImage(
         video,
@@ -2641,463 +780,356 @@ async function captureAndAnalyze() {
         canvas.height
     );
 
-
-    canvas.toBlob(
-        blob => {
-
-            if (!blob) {
-
-                showAIError(
-                    "Unable to capture camera image."
-                );
-
-                return;
-
-            }
-
-
-            const file =
-                new File(
-                    [blob],
-                    "camera-capture.jpg",
-                    {
-                        type:
-                            "image/jpeg"
-                    }
-                );
-
-
-            analyzeImage(
-                file
-            );
-
-        },
-        "image/jpeg",
-        0.88
-    );
-
-}
-
-
-/* =========================================================
-   AI ANALYSIS
-   ========================================================= */
-
-async function analyzeImage(
-    file
-) {
-
-    clearAIError();
-
-    showAILoading(true);
-
-    clearAIResult();
-
-
-    try {
-
-        const formData =
-            new FormData();
-
-
-        formData.append(
-            "image",
-            file
-        );
-
-        const cameraRequest = buildCameraPayload();
-        if (cameraRequest.provider) {
-            formData.append("provider", cameraRequest.provider);
-        }
-        if (cameraRequest.model) {
-            formData.append("model", cameraRequest.model);
+    canvas.toBlob((blob) => {
+        if (!blob) {
+            return;
         }
 
-
-        console.log(
-            "Sending image to:",
-            CAMERA_ENDPOINT
-        );
-
-
-        const response =
-            await fetch(
-                CAMERA_ENDPOINT,
-                {
-                    method: "POST",
-                    body: formData
-                }
-            );
-
-
-        console.log(
-            "AI HTTP status:",
-            response.status
-        );
-
-
-        let data;
-
-
-        try {
-
-            data =
-                await response.json();
-
-        } catch {
-
-            throw new Error(
-                "Server returned an invalid response."
-            );
-
-        }
-
-
-        console.log(
-            "AI response:",
-            data
-        );
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                data.detail ||
-                `AI request failed (${response.status})`
-            );
-
-        }
-
-
-        if (!data.success) {
-
-            throw new Error(
-                "AI analysis was not successful."
-            );
-
-        }
-
-
-        const analysis =
-            data.analysis ||
-            data;
-
-
-        displayAIResult(
-            analysis
-        );
-
-
-    } catch (error) {
-
-        console.error(
-            "AI analysis error:",
-            error
-        );
-
-
-        showAIError(
-            error.message ||
-            "Unable to analyze image."
-        );
-
-    } finally {
-
-        showAILoading(false);
-
-    }
-
-}
-
-
-/* =========================================================
-   DISPLAY AI RESULT
-   ========================================================= */
-
-function displayAIResult(
-    result
-) {
-
-    $("aiResult")
-        ?.classList.remove(
-            "hidden"
-        );
-
-    const providerLabel = result && result.provider ? result.provider : 'Automatic';
-    const modelLabel = result && result.model ? result.model : 'Aqua AI Vision — Automatic';
-
-    const cameraStatus = $('cameraEngineStatus');
-    const cameraSettingsStatus = $('cameraSettingsStatus');
-    const cameraCurrentText = $('cameraSettingsModelStatus');
-
-    if (cameraStatus) {
-        cameraStatus.textContent = `AI Provider: ${providerLabel === 'automatic' ? 'Automatic' : providerLabel}`;
-    }
-    if (cameraSettingsStatus) {
-        cameraSettingsStatus.textContent = `AI Provider: ${providerLabel === 'automatic' ? 'Automatic' : providerLabel}`;
-    }
-    if (cameraCurrentText) {
-        cameraCurrentText.textContent = `Currently using: ${modelLabel}`;
-    }
-
-    setText(
-        "aiConfidence",
-        `${result.confidence ?? 0}%`
-    );
-
-
-    setText(
-        "aiObservation",
-        result.overall_observation ||
-        "--"
-    );
-
-
-    setText(
-        "aiOil",
-        result.oil_sheen ||
-        "--"
-    );
-
-
-    setText(
-        "aiAlgae",
-        result.algae ||
-        "--"
-    );
-
-
-    setText(
-        "aiFoam",
-        result.foam ||
-        "--"
-    );
-
-
-    setText(
-        "aiParticles",
-        result.floating_particles ||
-        "--"
-    );
-
-
-    setText(
-        "aiAppearance",
-        result.water_appearance ||
-        "--"
-    );
-
-
-    setText(
-        "aiConcern",
-        result.pollution_concern ||
-        "--"
-    );
-
-
-    setText(
-        "aiRecommendation",
-        result.recommendation ||
-        "--"
-    );
-
-
-    setText(
-        "aiLimitations",
-        result.limitations ||
-        "--"
-    );
-
-
-    $("aiResult")
-        ?.scrollIntoView(
+        state.selectedImage = new File(
+            [blob],
+            "camera-capture.jpg",
             {
-                behavior:
-                    "smooth",
-                block:
-                    "start"
+                type: "image/jpeg"
             }
         );
 
+        showCameraError("");
+        analyzeImage();
+    }, "image/jpeg", 0.9);
 }
 
+function stopCamera() {
+    if (state.cameraStream) {
+        state.cameraStream.getTracks().forEach((track) => track.stop());
+        state.cameraStream = null;
+    }
 
-/* =========================================================
-   AI UI
-   ========================================================= */
+    $("cameraVideo").srcObject = null;
 
-function showAILoading(
-    visible
-) {
-
-    $("aiLoading")
-        ?.classList.toggle(
-            "hidden",
-            !visible
-        );
-
+    $("startCameraButton").disabled = false;
+    $("captureCameraButton").disabled = true;
+    $("stopCameraButton").disabled = true;
 }
 
+function showCameraError(message) {
+    const element = $("aiError");
 
-function showAIError(
-    message
-) {
-
-    const box =
-        $("aiError");
-
-
-    if (!box) {
+    if (!message) {
+        element.textContent = "";
+        element.classList.add("hidden");
         return;
     }
 
+    element.textContent = message;
+    element.classList.remove("hidden");
+}
 
-    box.textContent =
-        message;
+/* =========================================================
+   AI IMAGE ANALYSIS
+   ========================================================= */
 
+async function analyzeImage() {
+    if (!state.selectedImage) {
+        showCameraError("Please select or capture an image first.");
+        return;
+    }
 
-    box.classList.remove(
-        "hidden"
+    const formData = new FormData();
+
+    formData.append("image", state.selectedImage);
+
+    const provider = $("cameraProviderSelect").value;
+    const model = $("aiModelSelector").value.trim();
+
+    if (provider) {
+        formData.append("provider", provider);
+    }
+
+    if (model) {
+        formData.append("model", model);
+    }
+
+    $("aiLoading").classList.remove("hidden");
+    $("aiResult").classList.add("hidden");
+    showCameraError("");
+
+    try {
+        const result = await apiRequest(endpoints.camera, {
+            method: "POST",
+            body: formData,
+            headers: {}
+        });
+
+        const answer =
+            result.analysis ||
+            result.result ||
+            result.response ||
+            result.message ||
+            result.text ||
+            JSON.stringify(result, null, 2);
+
+        $("aiResultText").textContent = answer;
+        $("aiResult").classList.remove("hidden");
+    } catch (error) {
+        console.error("Camera analysis error:", error);
+        showCameraError(error.message);
+    } finally {
+        $("aiLoading").classList.add("hidden");
+    }
+}
+
+/* =========================================================
+   WATER CHAT
+   ========================================================= */
+
+function setupChat() {
+    $("chatForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const input = $("chatInput");
+        const question = input.value.trim();
+
+        if (!question) {
+            return;
+        }
+
+        addChatMessage(question, "user");
+
+        input.value = "";
+
+        const loadingMessage = addChatMessage(
+            "Thinking...",
+            "assistant"
+        );
+
+        try {
+            const result = await apiRequest(endpoints.chat, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    question,
+                    message: question,
+                    prompt: question
+                })
+            });
+
+            const answer =
+                result.answer ||
+                result.response ||
+                result.message ||
+                result.reply ||
+                JSON.stringify(result, null, 2);
+
+            loadingMessage.textContent = answer;
+        } catch (error) {
+            loadingMessage.textContent =
+                "Unable to contact the water assistant. Please check the backend.";
+            console.error("Chat error:", error);
+        }
+
+        scrollChatToBottom();
+    });
+}
+
+function addChatMessage(message, type) {
+    const element = document.createElement("div");
+
+    element.className = `chat-message ${type}`;
+    element.textContent = message;
+
+    $("chatMessages").appendChild(element);
+
+    scrollChatToBottom();
+
+    return element;
+}
+
+function scrollChatToBottom() {
+    const container = $("chatMessages");
+
+    container.scrollTop = container.scrollHeight;
+}
+
+/* =========================================================
+   DEVICE INFORMATION
+   ========================================================= */
+
+function renderDevice() {
+    const latest = state.latest;
+
+    if (!latest) {
+        return;
+    }
+
+    setText("devicePageId", latest.deviceId);
+    setText("devicePageName", "Aqua AI Device");
+    setText("devicePageType", "ESP32");
+    setText("devicePageLocation", latest.location);
+    setText("devicePageStatus", "Connected");
+}
+
+/* =========================================================
+   ANALYSIS PAGE
+   ========================================================= */
+
+function renderAnalysis() {
+    const latest = state.latest;
+
+    if (!latest) {
+        return;
+    }
+
+    const score = calculateQualityScore(latest);
+    const quality = getQualityInfo(score);
+
+    setText(
+        "analysisSummary",
+        `${quality.title}. Current calculated score: ${score}/100.`
     );
 
+    $("analysisContent").innerHTML = `
+        <p><strong>Temperature:</strong> ${formatNumber(latest.temperature)} °C — ${escapeHtml(temperatureStatus(latest.temperature))}</p>
+        <p><strong>pH:</strong> ${formatNumber(latest.ph)} — ${escapeHtml(phStatus(latest.ph))}</p>
+        <p><strong>Turbidity:</strong> ${formatNumber(latest.turbidity)} NTU — ${escapeHtml(turbidityStatus(latest.turbidity))}</p>
+        <p><strong>TDS:</strong> ${formatNumber(latest.tds)} mg/L — ${escapeHtml(tdsStatus(latest.tds))}</p>
+        <br>
+        <p>This score is an indicative frontend interpretation and should not replace certified laboratory water testing.</p>
+    `;
 }
 
+/* =========================================================
+   SETTINGS
+   ========================================================= */
 
-function clearAIError() {
+function setupSettings() {
+    $("saveSettingsButton").addEventListener("click", () => {
+        const newApiBase = $("apiBaseInput").value.trim();
+        const newInterval = Number($("refreshIntervalInput").value);
 
-    $("aiError")
-        ?.classList.add(
-            "hidden"
+        if (!newApiBase) {
+            $("settingsMessage").textContent =
+                "Please enter a valid backend URL.";
+            return;
+        }
+
+        if (!Number.isFinite(newInterval) || newInterval < 5) {
+            $("settingsMessage").textContent =
+                "Refresh interval must be at least 5 seconds.";
+            return;
+        }
+
+        API_BASE = newApiBase.replace(/\/$/, "");
+        REFRESH_INTERVAL = newInterval;
+
+        localStorage.setItem("aqua_ai_api_base", API_BASE);
+        localStorage.setItem(
+            "aqua_ai_refresh_interval",
+            String(REFRESH_INTERVAL)
         );
 
+        $("settingsMessage").textContent =
+            "Settings saved successfully.";
+
+        startAutoRefresh();
+        loadReadings();
+    });
 }
 
-
-function clearAIResult() {
-
-    $("aiResult")
-        ?.classList.add(
-            "hidden"
-        );
-
+function loadSettingsIntoForm() {
+    $("apiBaseInput").value = API_BASE;
+    $("refreshIntervalInput").value = REFRESH_INTERVAL;
 }
-
 
 /* =========================================================
    REFRESH
    ========================================================= */
 
 function setupRefresh() {
-
-    async function doRefresh(buttonId) {
-        const button = $(buttonId);
-        if (button) {
-            button.disabled = true;
-            button.setAttribute("aria-busy", "true");
-        }
-        try {
-            await fetchReadings();
-        } finally {
-            if (button) {
-                button.disabled = false;
-                button.removeAttribute("aria-busy");
-            }
-        }
-    }
-
-    $("refreshButton")?.addEventListener("click", () => doRefresh('refreshButton'));
-
-    // header refresh button (new)
-    $("headerRefreshButton")?.addEventListener("click", () => doRefresh('headerRefreshButton'));
-
-    // Time filter buttons (dashboard)
-    document.querySelectorAll('.time-filter').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.time-filter').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            const filter = btn.dataset.filter;
-            applyDashboardTimeFilter(filter);
-        });
-    });
-
+    $("refreshButton").addEventListener("click", loadReadings);
 }
-
-
-/* =========================================================
-   AUTO REFRESH
-   ========================================================= */
 
 function startAutoRefresh() {
-
-    setInterval(
-        fetchReadings,
-        15000
-    );
-
-}
-
-
-/* =========================================================
-   INITIALIZATION
-   ========================================================= */
-
-async function initialize() {
-
-    console.log(
-        "Aqua AI frontend starting..."
-    );
-
-
-    setupNavigation();
-
-    setupCameraModes();
-
-    setupImageUpload();
-
-    setupLiveCamera();
-
-    setupRefresh();
-
-    if (window.location.protocol === "file:") {
-        setConnectionStatus(
-            false,
-            "Open the dashboard through the backend URL to connect."
-        );
-        setText("qualityTitle", "Local file preview");
-        setText(
-            "qualityMessage",
-            "Start the backend, then open http://127.0.0.1:8000 instead of this file."
-        );
-        return;
+    if (state.refreshTimer) {
+        clearInterval(state.refreshTimer);
     }
 
-    await fetchAvailableAIProviders();
-
-    renderProviderOptions();
-
-    await fetchReadings();
-
-    // initialize chat panel
-    setupChat();
-
-    // apply a sensible default time filter if there is data
-    applyDashboardTimeFilter('24H');
-
-    startAutoRefresh();
-
-
-    console.log(
-        "Aqua AI frontend ready."
+    state.refreshTimer = setInterval(
+        loadReadings,
+        REFRESH_INTERVAL * 1000
     );
-
 }
 
-
 /* =========================================================
-   START
+   CONNECTION STATUS
    ========================================================= */
 
-document.addEventListener(
-    "DOMContentLoaded",
-    initialize
-);
+function setConnectionState(status) {
+    const dot = $("connectionDot");
+    const text = $("connectionText");
+    const subtext = $("connectionSubtext");
+
+    dot.classList.remove("online", "offline");
+
+    if (status === "online") {
+        dot.classList.add("online");
+        text.textContent = "Backend online";
+        subtext.textContent = "Sensor data available";
+    } else if (status === "offline") {
+        dot.classList.add("offline");
+        text.textContent = "Backend offline";
+        subtext.textContent = "Unable to load readings";
+    } else {
+        text.textContent = "Connecting...";
+        subtext.textContent = "Checking backend";
+    }
+}
+
+/* =========================================================
+   UTILITIES
+   ========================================================= */
+
+function setText(id, value) {
+    const element = $(id);
+
+    if (element) {
+        element.textContent =
+            value === null || value === undefined
+                ? "--"
+                : String(value);
+    }
+}
+
+function formatNumber(value) {
+    if (value === null || value === undefined) {
+        return "--";
+    }
+
+    const number = Number(value);
+
+    if (!Number.isFinite(number)) {
+        return "--";
+    }
+
+    return number.toFixed(2);
+}
+
+function formatDateTime(value) {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return "--";
+    }
+
+    return date.toLocaleString();
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}

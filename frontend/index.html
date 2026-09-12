@@ -11,1424 +11,543 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="style.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
-<body class="quality-unknown">
+<body>
+<div class="app">
 
-    <!-- ================= HEADER ================= -->
-
-    <header class="topbar">
-
+    <aside class="sidebar" id="sidebar">
         <div class="brand">
-            <div class="brand-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
-                </svg>
-            </div>
-
+            <div class="brand-logo">💧</div>
             <div>
                 <h1>Aqua AI</h1>
-                <p>Smart Water Quality Monitoring</p>
+                <p>Water Intelligence</p>
             </div>
         </div>
 
-        <div class="connection">
+        <nav class="navigation">
+            <button class="nav-item active" data-page="dashboard">
+                <span>▦</span> Dashboard
+            </button>
 
-            <span id="connectionDot" class="connection-dot offline" aria-hidden></span>
+            <button class="nav-item" data-page="temperature">
+                <span>🌡</span> Temperature
+            </button>
 
-            <div class="connection-copy">
-                <strong id="connectionText">Connecting...</strong>
-                <small id="connectionTime">Checking backend</small>
+            <button class="nav-item" data-page="ph">
+                <span>⚗</span> pH Level
+            </button>
+
+            <button class="nav-item" data-page="turbidity">
+                <span>🌫</span> Turbidity
+            </button>
+
+            <button class="nav-item" data-page="tds">
+                <span>💧</span> TDS
+            </button>
+
+            <button class="nav-item" data-page="camera">
+                <span>📷</span> AI Camera
+            </button>
+
+            <button class="nav-item" data-page="chat">
+                <span>💬</span> Water Chat
+            </button>
+
+            <button class="nav-item" data-page="device">
+                <span>🔌</span> Device
+            </button>
+
+            <button class="nav-item" data-page="trends">
+                <span>📈</span> Trends
+            </button>
+
+            <button class="nav-item" data-page="analysis">
+                <span>🧠</span> Analysis
+            </button>
+
+            <button class="nav-item" data-page="settings">
+                <span>⚙</span> Settings
+            </button>
+        </nav>
+
+        <div class="sidebar-bottom">
+            <div class="connection-card">
+                <span class="connection-dot" id="connectionDot"></span>
+                <div>
+                    <strong id="connectionText">Connecting...</strong>
+                    <small id="connectionSubtext">Checking backend</small>
+                </div>
             </div>
-
-            <div class="connection-actions">
-                <button id="headerRefreshButton" class="secondary-button" aria-label="Refresh readings">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;">
-                        <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
-                        <path d="M21 3v6h-6"/>
-                    </svg>
-                    Refresh
-                </button>
-                <small id="headerLastUpdated">Last updated: --</small>
-            </div>
-
         </div>
+    </aside>
 
-    </header>
+    <main class="main-content">
 
+        <header class="topbar">
+            <button class="menu-button" id="menuButton">☰</button>
 
-    <!-- ================= LAYOUT ================= -->
+            <div>
+                <p class="eyebrow">SMART WATER MONITORING</p>
+                <h2 id="pageTitle">Dashboard</h2>
+            </div>
 
-    <div class="app-layout">
+            <div class="topbar-actions">
+                <span class="last-updated" id="lastUpdated">Not updated</span>
+                <button class="refresh-button" id="refreshButton">↻ Refresh</button>
+            </div>
+        </header>
 
-        <!-- SIDEBAR -->
+        <section class="page active-page" id="page-dashboard">
 
-        <aside class="sidebar">
+            <div class="hero-card">
+                <div>
+                    <p class="eyebrow">CURRENT WATER CONDITION</p>
+                    <h3 id="qualityTitle">Waiting for sensor data</h3>
+                    <p id="qualityMessage">
+                        Connect your device or load the latest sensor readings.
+                    </p>
 
-            <nav>
-
-                <button class="nav-item active" data-page="dashboard" aria-label="Dashboard">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="3" y="3" width="7" height="9" rx="1"/>
-                        <rect x="14" y="3" width="7" height="5" rx="1"/>
-                        <rect x="14" y="12" width="7" height="9" rx="1"/>
-                        <rect x="3" y="16" width="7" height="5" rx="1"/>
-                    </svg>
-                    <span>Dashboard</span>
-                </button>
-
-                <button class="nav-item" data-page="temperature" aria-label="Temperature">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>
-                    </svg>
-                    <span>Temperature</span>
-                </button>
-
-                <button class="nav-item" data-page="ph" aria-label="pH">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12 3v18"/>
-                        <path d="M5 7l7-4 7 4"/>
-                        <path d="M5 17l7 4 7-4"/>
-                    </svg>
-                    <span>pH</span>
-                </button>
-
-                <button class="nav-item" data-page="turbidity" aria-label="Turbidity">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
-                        <circle cx="12" cy="12" r="2"/>
-                    </svg>
-                    <span>Turbidity</span>
-                </button>
-
-                <button class="nav-item" data-page="tds" aria-label="TDS">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12 2v20"/>
-                        <path d="M12 2l4 4"/>
-                        <path d="M12 2L8 6"/>
-                        <path d="M12 22l4-4"/>
-                        <path d="M12 22l-4-4"/>
-                    </svg>
-                    <span>TDS</span>
-                </button>
-
-                <button class="nav-item" data-page="camera" aria-label="AI Camera">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                        <circle cx="12" cy="13" r="4"/>
-                    </svg>
-                    <span>AI Camera</span>
-                </button>
-
-                <button class="nav-item" data-page="device" aria-label="Device">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="2" y="2" width="20" height="8" rx="2"/>
-                        <rect x="2" y="14" width="20" height="8" rx="2"/>
-                        <line x1="6" y1="6" x2="6.01" y2="6"/>
-                        <line x1="6" y1="18" x2="6.01" y2="18"/>
-                    </svg>
-                    <span>Device</span>
-                </button>
-
-                <button class="nav-item" data-page="trends" aria-label="Trends">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M3 3v18h18"/>
-                        <path d="M7 14l4-4 4 3 5-6"/>
-                    </svg>
-                    <span>Trends</span>
-                </button>
-
-                <button class="nav-item" data-page="analysis" aria-label="Analysis">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                        <path d="M14 2v6h6"/>
-                        <path d="M9 15l2-2 2 2 3-3"/>
-                    </svg>
-                    <span>Analysis</span>
-                </button>
-
-                <button class="nav-item" data-page="settings" aria-label="Settings">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="3"/>
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                    </svg>
-                    <span>Settings</span>
-                </button>
-
-            </nav>
-
-
-            <div class="sidebar-bottom">
-
-                <div class="system-card">
-
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
-                    </svg>
-
-                    <div>
-                        <strong>Aqua AI</strong>
-                        <small>AI Water Analysis</small>
+                    <div class="hero-meta">
+                        <span id="deviceStatusBadge" class="status-badge neutral">DEVICE UNKNOWN</span>
+                        <span id="dashboardLocation">Location unavailable</span>
                     </div>
-
                 </div>
+
+                <div class="quality-score">
+                    <div class="score-circle">
+                        <strong id="qualityScore">--</strong>
+                        <span>/100</span>
+                    </div>
+                    <div class="quality-meter">
+                        <div id="qualityMeterFill"></div>
+                    </div>
+                    <small>Water quality score</small>
+                </div>
+            </div>
+
+            <div class="section-heading">
+                <div>
+                    <h3>Live sensor readings</h3>
+                    <p>Latest values received from your water monitoring device.</p>
+                </div>
+                <span class="status-badge neutral" id="dashboardReadingId">Reading --</span>
+            </div>
+
+            <div class="metrics-grid">
+
+                <article class="metric-card temperature-card">
+                    <div class="metric-top">
+                        <span class="metric-icon">🌡</span>
+                        <span class="metric-label">Temperature</span>
+                    </div>
+                    <div class="metric-value">
+                        <strong id="temperatureValue">--</strong>
+                        <span>°C</span>
+                    </div>
+                    <p id="temperatureStatus">Waiting for data</p>
+                    <small id="temperatureTrend">No trend available</small>
+                </article>
+
+                <article class="metric-card ph-card">
+                    <div class="metric-top">
+                        <span class="metric-icon">⚗</span>
+                        <span class="metric-label">pH Level</span>
+                    </div>
+                    <div class="metric-value">
+                        <strong id="phValue">--</strong>
+                        <span>pH</span>
+                    </div>
+                    <p id="phStatus">Waiting for data</p>
+                    <small id="phTrend">No trend available</small>
+                </article>
+
+                <article class="metric-card turbidity-card">
+                    <div class="metric-top">
+                        <span class="metric-icon">🌫</span>
+                        <span class="metric-label">Turbidity</span>
+                    </div>
+                    <div class="metric-value">
+                        <strong id="turbidityValue">--</strong>
+                        <span>NTU</span>
+                    </div>
+                    <p id="turbidityStatus">Waiting for data</p>
+                    <small id="turbidityTrend">No trend available</small>
+                </article>
+
+                <article class="metric-card tds-card">
+                    <div class="metric-top">
+                        <span class="metric-icon">💧</span>
+                        <span class="metric-label">TDS</span>
+                    </div>
+                    <div class="metric-value">
+                        <strong id="tdsValue">--</strong>
+                        <span>mg/L</span>
+                    </div>
+                    <p id="tdsStatus">Waiting for data</p>
+                    <small id="tdsTrend">No trend available</small>
+                </article>
 
             </div>
 
-        </aside>
-
-
-        <!-- MAIN CONTENT -->
-
-        <main class="main-content">
-
-
-            <!-- ================= DASHBOARD ================= -->
-
-            <section id="page-dashboard" class="page active-page">
-
-                <div class="page-header">
-
-                    <div>
-                        <span class="eyebrow">LIVE MONITORING</span>
-
-                        <h2>Water Quality Overview</h2>
-
-                        <p>
-                            Real-time water readings from your ESP32 device.
-                        </p>
-                    </div>
-
-                    <button id="refreshButton" class="secondary-button">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;">
-                            <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
-                            <path d="M21 3v6h-6"/>
-                        </svg>
-                        Refresh
-                    </button>
-
-                </div>
-
-
-                <!-- SENSOR CARDS -->
-
-                <div class="sensor-grid">
-
-
-                    <article class="sensor-card temperature-card" aria-live="polite">
-
-                        <div class="sensor-top">
-                            <span class="sensor-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>
-                                </svg>
-                            </span>
-                            <span id="temperatureStatus" class="status-pill">--</span>
-                        </div>
-
-                        <p class="sensor-title">Temperature</p>
-
-                        <div class="sensor-value">
-                            <div>
-                                <span id="temperatureValue">--</span>
-                                <small>°C</small>
-                            </div>
-
-                            <div class="sensor-trend">
-                                <span id="temperatureTrend" class="trend">--</span>
-                            </div>
-                        </div>
-
-                        <div class="sensor-visual" aria-hidden="true"></div>
-
-                        <div class="sensor-footer">
-                            <span>Latest</span>
-                            <span id="temperatureTime">--</span>
-                        </div>
-
-                    </article>
-
-
-                    <article class="sensor-card ph-card" aria-live="polite">
-
-                        <div class="sensor-top">
-                            <span class="sensor-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M12 3v18"/>
-                                    <path d="M5 7l7-4 7 4"/>
-                                    <path d="M5 17l7 4 7-4"/>
-                                </svg>
-                            </span>
-                            <span id="phStatus" class="status-pill">--</span>
-                        </div>
-
-                        <p class="sensor-title">pH Level</p>
-
-                        <div class="sensor-value">
-                            <div>
-                                <span id="phValue">--</span>
-                            </div>
-
-                            <div class="sensor-trend">
-                                <span id="phTrend" class="trend">--</span>
-                            </div>
-                        </div>
-
-                        <div class="sensor-visual" aria-hidden="true"></div>
-
-                        <div class="sensor-footer">
-                            <span>Latest</span>
-                            <span id="phTime">--</span>
-                        </div>
-
-                    </article>
-
-
-                    <article class="sensor-card turbidity-card" aria-live="polite">
-
-                        <div class="sensor-top">
-                            <span class="sensor-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
-                                    <circle cx="12" cy="12" r="2"/>
-                                </svg>
-                            </span>
-                            <span id="turbidityStatus" class="status-pill">--</span>
-                        </div>
-
-                        <p class="sensor-title">Turbidity</p>
-
-                        <div class="sensor-value">
-                            <div>
-                                <span id="turbidityValue">--</span>
-                                <small>NTU</small>
-                            </div>
-
-                            <div class="sensor-trend">
-                                <span id="turbidityTrend" class="trend">--</span>
-                            </div>
-                        </div>
-
-                        <div class="sensor-visual" aria-hidden="true">
-                            <span class="particle"></span>
-                            <span class="particle"></span>
-                            <span class="particle"></span>
-                            <span class="particle"></span>
-                            <span class="particle"></span>
-                            <span class="particle"></span>
-                            <span class="particle"></span>
-                            <span class="particle"></span>
-                        </div>
-
-                        <div class="sensor-footer">
-                            <span>Latest</span>
-                            <span id="turbidityTime">--</span>
-                        </div>
-
-                    </article>
-
-
-                    <article class="sensor-card tds-card" aria-live="polite">
-
-                        <div class="sensor-top">
-                            <span class="sensor-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M12 2v20"/>
-                                    <path d="M12 2l4 4"/>
-                                    <path d="M12 2L8 6"/>
-                                    <path d="M12 22l4-4"/>
-                                    <path d="M12 22l-4-4"/>
-                                </svg>
-                            </span>
-                            <span id="tdsStatus" class="status-pill">--</span>
-                        </div>
-
-                        <p class="sensor-title">TDS</p>
-
-                        <div class="sensor-value">
-                            <div>
-                                <span id="tdsValue">--</span>
-                                <small>ppm</small>
-                            </div>
-
-                            <div class="sensor-trend">
-                                <span id="tdsTrend" class="trend">--</span>
-                            </div>
-                        </div>
-
-                        <div class="sensor-visual" aria-hidden="true"></div>
-
-                        <div class="sensor-footer">
-                            <span>Latest</span>
-                            <span id="tdsTime">--</span>
-                        </div>
-
-                    </article>
-
-                </div>
-
-
-                <!-- QUALITY SUMMARY -->
-
-                <div class="dashboard-two-column">
-
-                    <div class="panel quality-panel">
-
-                        <div class="panel-header">
-
-                            <div>
-                                <span class="eyebrow">ASSESSMENT</span>
-                                <h3>Water Quality Status</h3>
-                            </div>
-
-                            <span id="qualityBadge" class="quality-badge unknown">
-                                WAITING
-                            </span>
-
-                        </div>
-
-                        <div class="quality-gauge-wrap">
-
-                            <div class="quality-gauge">
-
-                                <svg class="gauge-svg" viewBox="0 0 200 200">
-                                    <circle class="gauge-track" cx="100" cy="100" r="90"/>
-                                    <circle class="gauge-progress" id="gaugeProgress" cx="100" cy="100" r="90"/>
-                                </svg>
-
-                                <div class="gauge-wave-container" aria-hidden="true">
-                                    <div class="gauge-wave"></div>
-                                    <div class="gauge-wave-2"></div>
-                                </div>
-
-                                <div class="gauge-center">
-                                    <div id="qualityScore">--</div>
-                                    <span>Quality Score</span>
-                                </div>
-
-                            </div>
-
-                            <div class="quality-message">
-
-                                <h4 id="qualityTitle">
-                                    Waiting for sensor data
-                                </h4>
-
-                                <p id="qualityMessage">
-                                    Aqua AI is waiting for readings from your ESP32.
-                                </p>
-
-                            </div>
-
-                        </div>
-
-                    </div>
-
-
-                    <!-- DEVICE -->
-
-                    <div class="panel">
-
-                        <div class="panel-header">
-
-                            <div>
-                                <span class="eyebrow">DEVICE</span>
-                                <h3>ESP32 Status</h3>
-                            </div>
-
-                            <span id="deviceStatusBadge" class="quality-badge unknown">
-                                UNKNOWN
-                            </span>
-
-                        </div>
-
-                        <div class="device-mini-grid">
-
-                            <div>
-                                <span>Device ID</span>
-                                <strong id="dashboardDeviceId">--</strong>
-                            </div>
-
-                            <div>
-                                <span>Reading ID</span>
-                                <strong id="dashboardReadingId">--</strong>
-                            </div>
-
-                            <div>
-                                <span>Location</span>
-                                <strong id="dashboardLocation">--</strong>
-                            </div>
-
-                            <div>
-                                <span>Last Updated</span>
-                                <strong id="dashboardUpdated">--</strong>
-                            </div>
-
-                        </div>
-
-                    </div>
-
-                </div>
-
-
-                <!-- QUICK TREND -->
-
-                <div class="panel">
-
+            <div class="content-grid">
+                <section class="panel large-panel">
                     <div class="panel-header">
-
                         <div>
-                            <span class="eyebrow">HISTORY</span>
-                            <h3>Water Parameter Trends</h3>
+                            <h3>Sensor trends</h3>
+                            <p>Recent water-quality readings</p>
                         </div>
 
-                        <div style="display:flex;align-items:center;gap:12px;">
-                            <div class="time-filters" role="tablist" aria-label="Time filters">
-                                <button class="text-button time-filter active" data-filter="1H">1H</button>
-                                <button class="text-button time-filter" data-filter="6H">6H</button>
-                                <button class="text-button time-filter" data-filter="24H">24H</button>
-                                <button class="text-button time-filter" data-filter="7D">7D</button>
-                                <button class="text-button time-filter" data-filter="30D">30D</button>
-                            </div>
-
-                            <button class="text-button" data-page-link="temperature">View Details →</button>
-                        </div>
-
+                        <select id="chartMetric">
+                            <option value="all">All parameters</option>
+                            <option value="temperature">Temperature</option>
+                            <option value="ph">pH</option>
+                            <option value="turbidity">Turbidity</option>
+                            <option value="tds">TDS</option>
+                        </select>
                     </div>
 
                     <div class="chart-container">
                         <canvas id="dashboardChart"></canvas>
                     </div>
+                </section>
 
-                </div>
-
-
-                <!-- RECENT READINGS -->
-
-                <div class="panel">
-
-                    <div class="panel-header">
-
-                        <div>
-                            <span class="eyebrow">HISTORY</span>
-                            <h3>Recent Sensor Readings</h3>
-                        </div>
-
-                    </div>
-
-                    <div class="table-wrapper">
-
-                        <table>
-
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Temperature</th>
-                                    <th>pH</th>
-                                    <th>Turbidity</th>
-                                    <th>TDS</th>
-                                    <th>Time</th>
-                                </tr>
-                            </thead>
-
-                            <tbody id="readingsTableBody">
-
-                                <tr>
-                                    <td colspan="6" class="empty-table">
-                                        Loading readings...
-                                    </td>
-                                </tr>
-
-                            </tbody>
-
-                        </table>
-
-                    </div>
-
-                </div>
-
-                <!-- CHATBOT PANEL -->
-                <div class="panel" id="waterChatPanel">
-
+                <section class="panel">
                     <div class="panel-header">
                         <div>
-                            <span class="eyebrow">ASSISTANT</span>
-                            <h3>Water Quality Chat</h3>
+                            <h3>Device details</h3>
+                            <p>Connected sensor information</p>
                         </div>
                     </div>
 
-                    <div class="chat-container" id="waterChat">
-
-                        <div class="chat-messages" id="chatMessages" aria-live="polite">
-                            <!-- Messages will appear here -->
-                        </div>
-
-                        <div class="chat-controls">
-
-                            <textarea id="chatInput" placeholder="Ask about current water readings, e.g. 'What do my current water quality readings indicate?'" aria-label="Type your question" rows="2"></textarea>
-
-                            <div class="chat-actions">
-                                <button id="chatSendButton" class="primary-button">Send</button>
-                                <div id="chatLoading" class="chat-loading hidden">AI is thinking...</div>
-                            </div>
-
-                        </div>
-
-                    </div>
-
-                </div>
-
-            </section>
-
-
-            <!-- ================= PARAMETER PAGES ================= -->
-
-
-            <section id="page-temperature" class="page">
-
-                <div class="page-header">
-
-                    <div>
-                        <span class="eyebrow">PARAMETER</span>
-                        <h2>Temperature</h2>
-                        <p>Monitor water temperature over time.</p>
-                    </div>
-
-                </div>
-
-                <div class="parameter-overview">
-
-                    <div class="large-value-card">
-
-                        <span>Current Temperature</span>
-
-                        <strong id="temperatureDetail">
-                            -- °C
-                        </strong>
-
-                        <span id="temperatureDetailStatus">
-                            Waiting...
-                        </span>
-
-                    </div>
-
-                    <div class="parameter-info">
-
-                        <h3>Temperature Monitoring</h3>
-
-                        <p>
-                            Temperature can influence dissolved oxygen,
-                            biological activity and overall water conditions.
-                        </p>
-
-                        <div class="range-info">
-
-                            <span>Monitoring Range</span>
-
-                            <strong>0°C – 50°C</strong>
-
-                        </div>
-
-                    </div>
-
-                </div>
-
-                <div class="panel">
-
-                    <div class="panel-header">
-                        <h3>Temperature Trend</h3>
-                    </div>
-
-                    <div class="large-chart">
-                        <canvas id="temperatureChart"></canvas>
-                    </div>
-
-                </div>
-
-            </section>
-
-
-            <section id="page-ph" class="page">
-
-                <div class="page-header">
-
-                    <div>
-                        <span class="eyebrow">PARAMETER</span>
-                        <h2>pH Level</h2>
-                        <p>Monitor acidity and alkalinity of water.</p>
-                    </div>
-
-                </div>
-
-                <div class="parameter-overview">
-
-                    <div class="large-value-card">
-
-                        <span>Current pH</span>
-
-                        <strong id="phDetail">
-                            --
-                        </strong>
-
-                        <span id="phDetailStatus">
-                            Waiting...
-                        </span>
-
-                    </div>
-
-                    <div class="parameter-info">
-
-                        <h3>pH Monitoring</h3>
-
-                        <p>
-                            pH indicates whether water is acidic,
-                            neutral or alkaline.
-                        </p>
-
-                        <div class="range-info">
-
-                            <span>Reference Range</span>
-
-                            <strong>6.5 – 8.5</strong>
-
-                        </div>
-
-                    </div>
-
-                </div>
-
-                <div class="panel">
-
-                    <div class="panel-header">
-                        <h3>pH Trend</h3>
-                    </div>
-
-                    <div class="large-chart">
-                        <canvas id="phChart"></canvas>
-                    </div>
-
-                </div>
-
-            </section>
-
-
-            <section id="page-turbidity" class="page">
-
-                <div class="page-header">
-
-                    <div>
-                        <span class="eyebrow">PARAMETER</span>
-                        <h2>Turbidity</h2>
-                        <p>Monitor water clarity.</p>
-                    </div>
-
-                </div>
-
-                <div class="parameter-overview">
-
-                    <div class="large-value-card">
-
-                        <span>Current Turbidity</span>
-
-                        <strong id="turbidityDetail">
-                            -- NTU
-                        </strong>
-
-                        <span id="turbidityDetailStatus">
-                            Waiting...
-                        </span>
-
-                    </div>
-
-                    <div class="parameter-info">
-
-                        <h3>Turbidity Monitoring</h3>
-
-                        <p>
-                            Turbidity indicates the amount of suspended
-                            material affecting water clarity.
-                        </p>
-
-                        <div class="range-info">
-
-                            <span>Lower is generally better</span>
-
-                            <strong>NTU</strong>
-
-                        </div>
-
-                    </div>
-
-                </div>
-
-                <div class="panel">
-
-                    <div class="panel-header">
-                        <h3>Turbidity Trend</h3>
-                    </div>
-
-                    <div class="large-chart">
-                        <canvas id="turbidityChart"></canvas>
-                    </div>
-
-                </div>
-
-            </section>
-
-
-            <section id="page-tds" class="page">
-
-                <div class="page-header">
-
-                    <div>
-                        <span class="eyebrow">PARAMETER</span>
-                        <h2>TDS</h2>
-                        <p>Monitor total dissolved solids.</p>
-                    </div>
-
-                </div>
-
-                <div class="parameter-overview">
-
-                    <div class="large-value-card">
-
-                        <span>Current TDS</span>
-
-                        <strong id="tdsDetail">
-                            -- ppm
-                        </strong>
-
-                        <span id="tdsDetailStatus">
-                            Waiting...
-                        </span>
-
-                    </div>
-
-                    <div class="parameter-info">
-
-                        <h3>TDS Monitoring</h3>
-
-                        <p>
-                            Total dissolved solids provide an indication
-                            of dissolved substances in water.
-                        </p>
-
-                        <div class="range-info">
-
-                            <span>Measured in</span>
-
-                            <strong>ppm</strong>
-
-                        </div>
-
-                    </div>
-
-                </div>
-
-                <div class="panel">
-
-                    <div class="panel-header">
-                        <h3>TDS Trend</h3>
-                    </div>
-
-                    <div class="large-chart">
-                        <canvas id="tdsChart"></canvas>
-                    </div>
-
-                </div>
-
-            </section>
-
-
-            <!-- ================= AI CAMERA ================= -->
-
-            <section id="page-camera" class="page">
-
-                <div class="page-header">
-
-                    <div>
-                        <span class="eyebrow">ARTIFICIAL INTELLIGENCE</span>
-
-                        <h2>AI Camera Analysis</h2>
-
-                        <p>
-                            Screen water visually using AI.
-                        </p>
-
-                    </div>
-
-                </div>
-
-
-                <div class="camera-tabs">
-
-                    <button
-                        id="uploadModeButton"
-                        class="camera-tab active">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                            <path d="M17 8l-5-5-5 5"/>
-                            <path d="M12 3v12"/>
-                        </svg>
-                        Upload Image
-                    </button>
-
-                    <button
-                        id="liveModeButton"
-                        class="camera-tab">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                            <circle cx="12" cy="13" r="4"/>
-                        </svg>
-                        Live Camera
-                    </button>
-
-                </div>
-
-
-                <!-- UPLOAD -->
-
-                <div id="uploadMode" class="camera-mode active">
-
-                    <div class="ai-engine-controls">
-                        <div class="ai-engine-header">
-                            <span class="eyebrow">AI VISION ENGINE</span>
-                        </div>
-
-                        <div class="ai-engine-row">
-                            <label for="cameraProviderSelect">Provider</label>
-                            <select id="cameraProviderSelect" aria-label="Camera provider selector">
-                                <option value="automatic">Automatic</option>
-                            </select>
-                        </div>
-
-                        <div class="ai-engine-row">
-                            <label for="aiModelSelector">Model</label>
-                            <select id="aiModelSelector" aria-label="Camera model selector">
-                                <option value="automatic">Aqua AI Vision — Automatic</option>
-                            </select>
-                        </div>
-
-                        <div id="cameraEngineStatus" class="ai-engine-status">
-                            Loading AI providers...
-                        </div>
-                    </div>
-
-                    <div class="upload-area" id="uploadArea" aria-label="Drop image here or click to select" tabindex="0">
-
-                        <div class="upload-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                                <circle cx="12" cy="13" r="4"/>
-                            </svg>
-                        </div>
-
-                        <h3>Upload Water Image</h3>
-
-                        <p>
-                            Drag & drop an image or choose a photo for AI analysis.
-                        </p>
-
-                        <label for="imageInput" class="primary-button" role="button" aria-label="Choose image file">
-                            Choose Image
-                        </label>
-
-                        <input
-                            type="file"
-                            id="imageInput"
-                            accept="image/*"
-                            hidden>
-
-                    </div>
-
-                    <div id="imagePreviewContainer" class="image-preview-container hidden" aria-live="polite">
-
-                        <img id="imagePreview" alt="Water preview">
-
-                        <div style="display:flex;gap:10px;justify-content:center;margin-top:8px;">
-                            <button id="analyzeUploadButton" class="primary-button">Analyze Image</button>
-                            <button id="clearImageButton" class="secondary-button">Clear</button>
-                        </div>
-
-                    </div>
-
-                </div>
-
-
-                <!-- LIVE CAMERA -->
-
-                <div id="liveMode" class="camera-mode">
-
-                    <div class="live-camera-container">
-
-                        <video
-                            id="cameraVideo"
-                            autoplay
-                            playsinline>
-                        </video>
-
-                        <div
-                            id="cameraPlaceholder"
-                            class="camera-placeholder">
-
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                                <circle cx="12" cy="13" r="4"/>
-                            </svg>
-
-                            <p>
-                                Camera is not active
-                            </p>
-
-                        </div>
-
-                    </div>
-
-                    <div class="camera-controls">
-
-                        <button
-                            id="startCameraButton"
-                            class="primary-button">
-                            ▶ Start Camera
-                        </button>
-
-                        <button
-                            id="captureButton"
-                            class="secondary-button"
-                            disabled>
-                            📸 Capture & Analyze
-                        </button>
-
-                        <button
-                            id="stopCameraButton"
-                            class="danger-button"
-                            disabled>
-                            ■ Stop
-                        </button>
-
-                    </div>
-
-                    <canvas
-                        id="cameraCanvas"
-                        hidden>
-                    </canvas>
-
-                </div>
-
-
-                <!-- AI RESULT -->
-
-                <div
-                    id="aiLoading"
-                    class="ai-loading hidden">
-
-                    <div class="loader"></div>
-
-                    <strong>AI is analyzing the image...</strong>
-
-                    <p>
-                        Please wait.
-                    </p>
-
-                </div>
-
-
-                <div
-                    id="aiResult"
-                    class="ai-result hidden">
-
-                    <div class="ai-result-header">
-
+                    <div class="details-list">
                         <div>
-
-                            <span class="eyebrow">
-                                AI SCREENING
-                            </span>
-
-                            <h3>Analysis Result</h3>
-
+                            <span>Device ID</span>
+                            <strong id="dashboardDeviceId">--</strong>
                         </div>
-
-                        <div
-                            id="aiConfidence"
-                            class="confidence">
-                            --%
-                        </div>
-
-                    </div>
-
-
-                    <div class="ai-observation">
-
-                        <span>Overall Observation</span>
-
-                        <p id="aiObservation">
-                            --
-                        </p>
-
-                    </div>
-
-
-                    <div class="ai-findings">
-
-                        <div class="finding">
-                            <span>Oil Sheen</span>
-                            <strong id="aiOil">--</strong>
-                        </div>
-
-                        <div class="finding">
-                            <span>Algae</span>
-                            <strong id="aiAlgae">--</strong>
-                        </div>
-
-                        <div class="finding">
-                            <span>Foam</span>
-                            <strong id="aiFoam">--</strong>
-                        </div>
-
-                        <div class="finding">
-                            <span>Particles</span>
-                            <strong id="aiParticles">--</strong>
-                        </div>
-
-                    </div>
-
-
-                    <div class="ai-detail-grid">
-
                         <div>
-                            <span>Water Appearance</span>
-                            <p id="aiAppearance">--</p>
+                            <span>Location</span>
+                            <strong id="deviceLocationDetails">--</strong>
                         </div>
-
                         <div>
-                            <span>Pollution Concern</span>
-                            <p id="aiConcern">--</p>
+                            <span>Reading ID</span>
+                            <strong id="deviceReadingDetails">--</strong>
                         </div>
-
                         <div>
-                            <span>Recommendation</span>
-                            <p id="aiRecommendation">--</p>
+                            <span>Last recorded</span>
+                            <strong id="dashboardUpdated">--</strong>
                         </div>
-
-                        <div>
-                            <span>Limitations</span>
-                            <p id="aiLimitations">--</p>
-                        </div>
-
                     </div>
+                </section>
+            </div>
 
+            <section class="panel">
+                <div class="panel-header">
+                    <div>
+                        <h3>Recent readings</h3>
+                        <p>Latest data received from the backend</p>
+                    </div>
                 </div>
 
-
-                <div
-                    id="aiError"
-                    class="error-box hidden">
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Temperature</th>
+                            <th>pH</th>
+                            <th>Turbidity</th>
+                            <th>TDS</th>
+                        </tr>
+                        </thead>
+                        <tbody id="readingsTableBody">
+                        <tr>
+                            <td colspan="5">No readings available.</td>
+                        </tr>
+                        </tbody>
+                    </table>
                 </div>
-
             </section>
+        </section>
 
+        <section class="page" id="page-temperature">
+            <div class="page-intro">
+                <p class="eyebrow">SENSOR PARAMETER</p>
+                <h3>Temperature monitoring</h3>
+                <p>Monitor water temperature and recent changes.</p>
+            </div>
 
-            <!-- ================= DEVICE ================= -->
+            <div class="single-value-card">
+                <span>Current temperature</span>
+                <strong id="temperaturePageValue">-- °C</strong>
+                <p id="temperaturePageStatus">No data</p>
+            </div>
 
-            <section id="page-device" class="page">
+            <section class="panel">
+                <h3>Temperature history</h3>
+                <div class="chart-container">
+                    <canvas id="temperatureChart"></canvas>
+                </div>
+            </section>
+        </section>
 
-                <div class="page-header">
+        <section class="page" id="page-ph">
+            <div class="page-intro">
+                <p class="eyebrow">SENSOR PARAMETER</p>
+                <h3>pH monitoring</h3>
+                <p>Track the acidity or alkalinity of the water.</p>
+            </div>
+
+            <div class="single-value-card">
+                <span>Current pH</span>
+                <strong id="phPageValue">--</strong>
+                <p id="phPageStatus">No data</p>
+            </div>
+
+            <section class="panel">
+                <h3>pH history</h3>
+                <div class="chart-container">
+                    <canvas id="phChart"></canvas>
+                </div>
+            </section>
+        </section>
+
+        <section class="page" id="page-turbidity">
+            <div class="page-intro">
+                <p class="eyebrow">SENSOR PARAMETER</p>
+                <h3>Turbidity monitoring</h3>
+                <p>Monitor suspended particles and water clarity.</p>
+            </div>
+
+            <div class="single-value-card">
+                <span>Current turbidity</span>
+                <strong id="turbidityPageValue">-- NTU</strong>
+                <p id="turbidityPageStatus">No data</p>
+            </div>
+
+            <section class="panel">
+                <h3>Turbidity history</h3>
+                <div class="chart-container">
+                    <canvas id="turbidityChart"></canvas>
+                </div>
+            </section>
+        </section>
+
+        <section class="page" id="page-tds">
+            <div class="page-intro">
+                <p class="eyebrow">SENSOR PARAMETER</p>
+                <h3>TDS monitoring</h3>
+                <p>Track the total dissolved solids in the water.</p>
+            </div>
+
+            <div class="single-value-card">
+                <span>Current TDS</span>
+                <strong id="tdsPageValue">-- mg/L</strong>
+                <p id="tdsPageStatus">No data</p>
+            </div>
+
+            <section class="panel">
+                <h3>TDS history</h3>
+                <div class="chart-container">
+                    <canvas id="tdsChart"></canvas>
+                </div>
+            </section>
+        </section>
+
+        <section class="page" id="page-camera">
+            <div class="page-intro">
+                <p class="eyebrow">ARTIFICIAL INTELLIGENCE</p>
+                <h3>AI water image analysis</h3>
+                <p>Upload a water image or use your camera for visual analysis.</p>
+            </div>
+
+            <div class="camera-tabs">
+                <button class="tab-button active" id="uploadModeButton">Upload image</button>
+                <button class="tab-button" id="liveModeButton">Live camera</button>
+            </div>
+
+            <section class="panel camera-panel">
+
+                <div id="uploadMode">
+                    <label class="upload-area" id="uploadArea" for="imageInput">
+                        <span class="upload-icon">📷</span>
+                        <strong>Choose a water image</strong>
+                        <small>PNG, JPG or JPEG files</small>
+                        <input type="file" id="imageInput" accept="image/*">
+                    </label>
+
+                    <div class="image-preview-container hidden" id="imagePreviewContainer">
+                        <img id="imagePreview" alt="Selected water image">
+                        <button class="secondary-button" id="clearImageButton">Remove image</button>
+                    </div>
+                </div>
+
+                <div id="liveMode" class="hidden">
+                    <video id="cameraVideo" autoplay playsinline></video>
+                    <canvas id="cameraCanvas" class="hidden"></canvas>
+
+                    <div class="camera-actions">
+                        <button class="primary-button" id="startCameraButton">Start camera</button>
+                        <button class="secondary-button" id="captureCameraButton" disabled>Capture</button>
+                        <button class="secondary-button" id="stopCameraButton" disabled>Stop camera</button>
+                    </div>
+                </div>
+
+                <div class="form-grid">
+                    <div>
+                        <label for="cameraProviderSelect">AI provider</label>
+                        <select id="cameraProviderSelect">
+                            <option value="">Automatic</option>
+                            <option value="groq">Groq</option>
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="deepseek">DeepSeek</option>
+                        </select>
+                    </div>
 
                     <div>
-
-                        <span class="eyebrow">
-                            HARDWARE
-                        </span>
-
-                        <h2>Device Information</h2>
-
-                        <p>
-                            Information about your Aqua AI ESP32.
-                        </p>
-
+                        <label for="aiModelSelector">Model</label>
+                        <input id="aiModelSelector" type="text" placeholder="Optional model name">
                     </div>
-
                 </div>
 
+                <button class="primary-button full-width" id="analyzeImageButton">
+                    Analyze water image
+                </button>
 
-                <div class="device-info-grid">
+                <div class="loading-message hidden" id="aiLoading">
+                    Analyzing image. Please wait...
+                </div>
 
-                    <div class="info-card">
+                <div class="error-message hidden" id="aiError"></div>
 
+                <div class="ai-result hidden" id="aiResult">
+                    <h3>AI analysis result</h3>
+                    <div id="aiResultText"></div>
+                </div>
+            </section>
+        </section>
+
+        <section class="page" id="page-chat">
+            <div class="page-intro">
+                <p class="eyebrow">AI ASSISTANT</p>
+                <h3>Water quality chatbot</h3>
+                <p>Ask questions about your sensor readings and water quality.</p>
+            </div>
+
+            <section class="panel chat-panel">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="chat-message assistant">
+                        Hello! I can help you understand your current water-quality readings.
+                    </div>
+                </div>
+
+                <form class="chat-form" id="chatForm">
+                    <textarea id="chatInput" placeholder="Ask about your water readings..." rows="2"></textarea>
+                    <button class="primary-button" type="submit">Send</button>
+                </form>
+            </section>
+        </section>
+
+        <section class="page" id="page-device">
+            <div class="page-intro">
+                <p class="eyebrow">HARDWARE</p>
+                <h3>Device information</h3>
+                <p>Information about your connected ESP32 water sensor.</p>
+            </div>
+
+            <section class="panel">
+                <div class="details-list">
+                    <div>
                         <span>Device ID</span>
-
-                        <strong id="deviceId">
-                            --
-                        </strong>
-
+                        <strong id="devicePageId">--</strong>
                     </div>
-
-                    <div class="info-card">
-
-                        <span>Device Name</span>
-
-                        <strong id="deviceName">
-                            --
-                        </strong>
-
+                    <div>
+                        <span>Device name</span>
+                        <strong id="devicePageName">--</strong>
                     </div>
-
-                    <div class="info-card">
-
+                    <div>
+                        <span>Device type</span>
+                        <strong id="devicePageType">--</strong>
+                    </div>
+                    <div>
                         <span>Location</span>
-
-                        <strong id="deviceLocation">
-                            --
-                        </strong>
-
+                        <strong id="devicePageLocation">--</strong>
                     </div>
-
-                    <div class="info-card">
-
-                        <span>Reading ID</span>
-
-                        <strong id="readingId">
-                            --
-                        </strong>
-
-                    </div>
-
-                    <div class="info-card">
-
-                        <span>Recorded At</span>
-
-                        <strong id="recordedAt">
-                            --
-                        </strong>
-
-                    </div>
-
-                    <div class="info-card">
-
-                        <span>Dashboard Updated</span>
-
-                        <strong id="updatedAt">
-                            --
-                        </strong>
-
-                    </div>
-
-                </div>
-
-
-                <div class="panel">
-
-                    <div class="panel-header">
-
-                        <div>
-
-                            <span class="eyebrow">
-                                SYSTEM
-                            </span>
-
-                            <h3>Backend Connection</h3>
-
-                        </div>
-
-                    </div>
-
-                    <div class="backend-status">
-
-                        <div
-                            id="backendStatusIcon"
-                            class="backend-icon">
-                            ●
-                        </div>
-
-                        <div>
-
-                            <strong id="backendStatusText">
-                                Checking backend...
-                            </strong>
-
-                            <p id="backendStatusMessage">
-                                Connecting to Aqua AI server.
-                            </p>
-
-                        </div>
-
-                    </div>
-
-                </div>
-
-            </section>
-
-
-            <!-- Additional pages -->
-
-            <section id="page-trends" class="page">
-
-                <div class="page-header">
                     <div>
-                        <span class="eyebrow">TRENDS</span>
-                        <h2>Detailed Trends</h2>
-                        <p>Interactive charts with recent readings. Use the time filters in the dashboard for quick selection.</p>
+                        <span>Status</span>
+                        <strong id="devicePageStatus">--</strong>
                     </div>
                 </div>
-
-                <div class="panel">
-                    <div class="panel-header">
-                        <div>
-                            <h3>Temperature Trend</h3>
-                        </div>
-                    </div>
-                    <div class="large-chart">
-                        <canvas id="trendsTemperatureChart"></canvas>
-                    </div>
-                </div>
-
-                <div class="panel">
-                    <div class="panel-header">
-                        <div>
-                            <h3>pH Trend</h3>
-                        </div>
-                    </div>
-                    <div class="large-chart">
-                        <canvas id="trendsPhChart"></canvas>
-                    </div>
-                </div>
-
-                <div class="panel">
-                    <div class="panel-header">
-                        <div>
-                            <h3>Turbidity Trend</h3>
-                        </div>
-                    </div>
-                    <div class="large-chart">
-                        <canvas id="trendsTurbidityChart"></canvas>
-                    </div>
-                </div>
-
-                <div class="panel">
-                    <div class="panel-header">
-                        <div>
-                            <h3>TDS Trend</h3>
-                        </div>
-                    </div>
-                    <div class="large-chart">
-                        <canvas id="trendsTdsChart"></canvas>
-                    </div>
-                </div>
-
             </section>
+        </section>
 
-            <section id="page-analysis" class="page">
-                <div class="page-header">
+        <section class="page" id="page-trends">
+            <div class="page-intro">
+                <p class="eyebrow">DATA EXPLORATION</p>
+                <h3>Water-quality trends</h3>
+                <p>Compare the recent sensor parameters.</p>
+            </div>
+
+            <section class="panel">
+                <h3>Trend overview</h3>
+                <div class="chart-container">
+                    <canvas id="trendsChart"></canvas>
+                </div>
+            </section>
+        </section>
+
+        <section class="page" id="page-analysis">
+            <div class="page-intro">
+                <p class="eyebrow">INTELLIGENT ANALYSIS</p>
+                <h3>Water-quality analysis</h3>
+                <p id="analysisSummary">Waiting for sensor data.</p>
+            </div>
+
+            <section class="panel">
+                <h3>Current interpretation</h3>
+                <div id="analysisContent" class="analysis-content">
+                    No analysis available yet.
+                </div>
+            </section>
+        </section>
+
+        <section class="page" id="page-settings">
+            <div class="page-intro">
+                <p class="eyebrow">APPLICATION SETTINGS</p>
+                <h3>Settings</h3>
+                <p>Configure the frontend connection and refresh interval.</p>
+            </div>
+
+            <section class="panel settings-panel">
+                <div class="form-grid">
                     <div>
-                        <span class="eyebrow">ANALYSIS</span>
-                        <h2>Analysis & Reports</h2>
-                        <p>Generated analysis and exportable reports will appear here.</p>
+                        <label for="apiBaseInput">Backend API URL</label>
+                        <input id="apiBaseInput" type="url">
                     </div>
-                </div>
 
-                <div class="panel">
-                    <p>Reports coming soon. This section is prepared to receive backend-generated analysis and CSV/JSON exports.</p>
-                </div>
-            </section>
-
-            <section id="page-settings" class="page">
-                <div class="page-header">
                     <div>
-                        <span class="eyebrow">SETTINGS</span>
-                        <h2>Application Settings</h2>
-                        <p>Configure display options, units, and AI model preferences.</p>
+                        <label for="refreshIntervalInput">Refresh interval in seconds</label>
+                        <input id="refreshIntervalInput" type="number" min="5" max="3600">
                     </div>
                 </div>
 
-                <div class="panel">
-                    <div class="panel-header">
-                        <h3>AI CHAT ENGINE</h3>
-                    </div>
+                <button class="primary-button" id="saveSettingsButton">
+                    Save settings
+                </button>
 
-                    <div class="ai-engine-controls">
-                        <div class="ai-engine-row">
-                            <label for="chatProviderSelect">Provider</label>
-                            <select id="chatProviderSelect" aria-label="Chat provider selector">
-                                <option value="automatic">Automatic (Recommended)</option>
-                            </select>
-                        </div>
-
-                        <div class="ai-engine-row">
-                            <label for="chatModelSelect">Model</label>
-                            <select id="chatModelSelect" aria-label="Chat model selector">
-                                <option value="automatic">Automatic</option>
-                            </select>
-                        </div>
-
-                        <div id="chatEngineStatus" class="ai-engine-status">
-                            AI providers loaded
-                        </div>
-
-                        <div id="chatModelStatus" class="ai-engine-meta">
-                            Currently using: Automatic
-                        </div>
-                    </div>
-                </div>
-
-                <div class="panel">
-                    <div class="panel-header">
-                        <h3>AI VISION ENGINE</h3>
-                    </div>
-
-                    <div class="ai-engine-controls">
-                        <div class="ai-engine-row">
-                            <label for="cameraProviderSelectSetting">Provider</label>
-                            <select id="cameraProviderSelectSetting" aria-label="Camera provider selector settings">
-                                <option value="automatic">Automatic</option>
-                            </select>
-                        </div>
-
-                        <div class="ai-engine-row">
-                            <label for="cameraModelSelectorSetting">Model</label>
-                            <select id="cameraModelSelectorSetting" aria-label="Camera model selector settings">
-                                <option value="automatic">Aqua AI Vision — Automatic</option>
-                            </select>
-                        </div>
-
-                        <div id="cameraSettingsStatus" class="ai-engine-status">
-                            AI Provider: Automatic
-                        </div>
-
-                        <div id="cameraSettingsModelStatus" class="ai-engine-meta">
-                            Currently using: Aqua AI Vision — Automatic
-                        </div>
-                    </div>
-                </div>
+                <p class="settings-message" id="settingsMessage"></p>
             </section>
+        </section>
 
-        </main>
+        <footer class="footer">
+            Aqua AI · Smart Water Quality Monitoring
+        </footer>
 
-    </div>
+    </main>
+</div>
 
-
-    <!-- ================= FOOTER ================= -->
-
-    <footer class="footer">
-
-        <span>
-            Aqua AI © 2026
-        </span>
-
-        <span>
-            Smart Water Quality Monitoring System
-        </span>
-
-    </footer>
-
-
-    <!-- CHART.JS -->
-
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-    <!-- APPLICATION -->
-
-    <script src="app.js"></script>
-
+<script src="app.js"></script>
 </body>
 </html>

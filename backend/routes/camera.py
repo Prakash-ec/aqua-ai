@@ -1,55 +1,22 @@
-import os
 import json
-import base64
-import traceback
 import re
+from typing import Any
 
 from fastapi import (
     APIRouter,
-    UploadFile,
+    Depends,
     File,
     Form,
     HTTPException,
+    UploadFile,
 )
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
-from dotenv import load_dotenv
-from openai import OpenAI
-
-
-# =========================================================
-# LOAD ENVIRONMENT
-# =========================================================
-
-load_dotenv()
-
-
-# =========================================================
-# GROQ CONFIGURATION
-# =========================================================
-
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-GROQ_VISION_MODEL = "qwen/qwen3.6-27b"
-
-
-# =========================================================
-# GROQ CLIENT
-# =========================================================
-
-groq_client = None
-
-if GROQ_API_KEY:
-
-    groq_client = OpenAI(
-        api_key=GROQ_API_KEY,
-        base_url="https://api.groq.com/openai/v1",
-    )
-
-    print("GROQ_API_KEY loaded successfully")
-
-else:
-
-    print("WARNING: GROQ_API_KEY is not configured")
+from backend.agents.camera_agent import CameraAgent
+from backend.database import get_db
+from backend.models import CameraPrediction, Device
+from backend.services.ai_provider import ask_vision_ai
 
 
 # =========================================================
@@ -61,276 +28,419 @@ router = APIRouter(
     tags=["Camera AI"],
 )
 
+camera_agent = CameraAgent()
+
+
+# =========================================================
+# CONFIGURATION
+# =========================================================
+
+MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
+
+ALLOWED_CONTENT_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+}
+
+ALLOWED_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+}
+
 
 # =========================================================
 # SYSTEM PROMPT
 # =========================================================
 
-CAMERA_SYSTEM_PROMPT = """
-You are Aqua AI Vision.
+SYSTEM_PROMPT = """
+You are Aqua AI, an assistant for visible water-quality image screening.
 
-Analyze the uploaded water image.
+Analyze only visible indicators such as:
 
-RETURN ONLY A VALID JSON OBJECT.
+- Foam
+- Algae-like growth
+- Unusual water coloration
+- Floating particles
+- Suspended materials
+- Possible microplastic-like particles
+- Oil-like surface layers
+- Visible waste
+- Possible contamination indicators
 
-Do not provide reasoning.
-Do not use <think>.
-Do not use markdown.
-Do not use code fences.
-Do not provide explanations before or after the JSON.
+Important rules:
 
-The response must contain EXACTLY these fields:
+- Do not claim that contamination is confirmed from an image alone.
+- Do not claim that particles are definitely microplastics.
+- Use cautious language such as "possible" or "visible indication".
+- If the image is unclear, say so.
+- This is visual screening, not laboratory testing.
+- Return only one valid JSON object.
+- Do not use Markdown code fences.
+
+Use exactly this structure:
 
 {
-  "confidence": 0,
-  "overall_observation": "",
-  "oil_sheen": "",
-  "algae": "",
-  "foam": "",
-  "floating_particles": "",
-  "water_appearance": "",
-  "pollution_concern": "",
-  "recommendation": "",
-  "limitations": ""
+    "overall_observation": "Short description of visible water conditions",
+    "water_color": "Description of visible water color",
+    "foam_detected": false,
+    "algae_detected": false,
+    "particles_detected": false,
+    "possible_microplastics": false,
+    "oil_layer_detected": false,
+    "risk_level": "Low",
+    "confidence": 0.75,
+    "recommendation": "Suggested next action",
+    "limitations": "Explain the limitations of image-based analysis"
 }
 
-RULES:
+Rules:
 
-1. Only describe characteristics visible in the photograph.
-
-2. Never invent sensor measurements.
-
-3. Never claim to measure:
-   - pH
-   - TDS
-   - temperature
-   - turbidity
-   - dissolved oxygen
-   - chemical concentration
-   - bacteria
-   - pathogens
-   - heavy metals
-   - toxins
-
-4. Never claim that the water is safe to drink.
-
-5. Do not provide medical advice or diagnosis.
-
-6. Do not claim laboratory accuracy.
-
-7. A normal photograph cannot reliably detect microplastics.
-
-8. A photograph cannot reliably determine dissolved chemicals.
-
-9. If something cannot be determined, use exactly:
-
-"Not determinable from image"
-
-10. confidence must be an integer between 0 and 100.
-
-11. Keep descriptions concise.
-
-12. Recommendation should suggest laboratory or sensor testing when appropriate.
-
-13. Return the JSON immediately.
-
-14. Do not output reasoning.
+- Boolean fields must be true or false.
+- confidence must be a number from 0 to 1.
+- risk_level must be exactly Low, Medium, or High.
 """
 
 
 # =========================================================
-# REQUIRED FIELDS
+# FILE HELPERS
 # =========================================================
 
-REQUIRED_FIELDS = [
-    "confidence",
-    "overall_observation",
-    "oil_sheen",
-    "algae",
-    "foam",
-    "floating_particles",
-    "water_appearance",
-    "pollution_concern",
-    "recommendation",
-    "limitations",
-]
+def get_safe_filename(filename: str | None) -> str:
+    """
+    Create a safe filename for metadata storage.
+    The actual image is not stored on the server.
+    """
 
+    if not filename:
+        return "uploaded_image"
 
-# =========================================================
-# CLEAN JSON RESPONSE
-# =========================================================
+    filename = filename.replace("\\", "/")
+    filename = filename.split("/")[-1]
 
-def clean_json_response(text: str) -> str:
-
-    if not text:
-
-        raise ValueError(
-            "Vision model returned an empty response."
-        )
-
-    text = text.strip()
-
-    # -----------------------------------------------------
-    # Remove <think> blocks if model accidentally returns
-    # reasoning despite the API setting.
-    # -----------------------------------------------------
-
-    text = re.sub(
-        r"<think>.*?</think>",
-        "",
-        text,
-        flags=re.DOTALL | re.IGNORECASE,
+    filename = re.sub(
+        r"[^a-zA-Z0-9._-]",
+        "_",
+        filename,
     )
 
-    # If an unfinished <think> block appears,
-    # remove everything before the first JSON object.
-    if "<think>" in text.lower():
+    return filename[:255] or "uploaded_image"
 
-        think_start = re.search(
-            r"<think>",
-            text,
-            flags=re.IGNORECASE,
+
+def validate_image_signature(
+    image_bytes: bytes,
+    content_type: str,
+) -> bool:
+    """
+    Perform basic image-signature validation.
+    """
+
+    if content_type == "image/jpeg":
+        return image_bytes.startswith(b"\xff\xd8\xff")
+
+    if content_type == "image/png":
+        return image_bytes.startswith(
+            b"\x89PNG\r\n\x1a\n"
         )
 
-        if think_start:
+    if content_type == "image/webp":
+        return (
+            len(image_bytes) >= 12
+            and image_bytes[:4] == b"RIFF"
+            and image_bytes[8:12] == b"WEBP"
+        )
 
-            text = text[
-                think_start.end():
-            ]
+    return False
 
-    text = text.strip()
 
-    # -----------------------------------------------------
-    # Remove markdown code fences
-    # -----------------------------------------------------
+async def read_and_validate_image(
+    image: UploadFile,
+) -> tuple[bytes, str, str]:
+    """
+    Validate the uploaded image and return:
 
-    text = re.sub(
-        r"```json",
+    image_bytes, content_type, safe_filename
+    """
+
+    content_type = (
+        image.content_type or ""
+    ).strip().lower()
+
+    safe_filename = get_safe_filename(
+        image.filename
+    )
+
+    extension = ""
+
+    if "." in safe_filename:
+        extension = (
+            "."
+            + safe_filename.rsplit(".", 1)[-1].lower()
+        )
+
+    if content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported image type. Upload JPG, PNG, or WEBP.",
+        )
+
+    if extension and extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported image extension. Upload JPG, PNG, or WEBP.",
+        )
+
+    image_bytes = await image.read(
+        MAX_IMAGE_SIZE_BYTES + 1
+    )
+
+    if not image_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded image is empty.",
+        )
+
+    if len(image_bytes) > MAX_IMAGE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="Image size must not exceed 10 MB.",
+        )
+
+    if not validate_image_signature(
+        image_bytes=image_bytes,
+        content_type=content_type,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="The uploaded file does not appear to be a valid image.",
+        )
+
+    return image_bytes, content_type, safe_filename
+
+
+# =========================================================
+# JSON HELPERS
+# =========================================================
+
+def extract_json_from_response(
+    raw_response: str,
+) -> dict[str, Any]:
+    """
+    Extract one JSON object from the AI response.
+    """
+
+    if not isinstance(raw_response, str):
+        raise ValueError("AI response must be text.")
+
+    cleaned = raw_response.strip()
+
+    if not cleaned:
+        raise ValueError("AI returned an empty response.")
+
+    cleaned = re.sub(
+        r"^```(?:json)?\s*",
         "",
-        text,
+        cleaned,
         flags=re.IGNORECASE,
     )
 
-    text = text.replace(
-        "```",
+    cleaned = re.sub(
+        r"\s*```$",
         "",
-    )
+        cleaned,
+    ).strip()
 
-    text = text.strip()
+    start_index = cleaned.find("{")
+    end_index = cleaned.rfind("}")
 
-    # -----------------------------------------------------
-    # Find JSON object
-    # -----------------------------------------------------
-
-    start = text.find("{")
-    end = text.rfind("}")
-
-    if start == -1 or end == -1 or end <= start:
-
+    if start_index == -1 or end_index == -1:
         raise ValueError(
-            "Vision model did not return a JSON object."
+            "AI response did not contain a JSON object."
         )
 
-    json_text = text[
-        start:end + 1
+    if end_index <= start_index:
+        raise ValueError(
+            "AI response contained an invalid JSON range."
+        )
+
+    json_text = cleaned[
+        start_index:end_index + 1
     ]
 
-    return json_text.strip()
-
-
-# =========================================================
-# VALIDATE ANALYSIS
-# =========================================================
-
-def validate_analysis(data: dict) -> dict:
-
-    if not isinstance(data, dict):
-
-        raise ValueError(
-            "Vision response is not a JSON object."
-        )
-
-    # -----------------------------------------------------
-    # Add missing fields
-    # -----------------------------------------------------
-
-    for field in REQUIRED_FIELDS:
-
-        if field not in data:
-
-            if field == "confidence":
-
-                data[field] = 0
-
-            else:
-
-                data[field] = (
-                    "Not determinable from image"
-                )
-
-    # -----------------------------------------------------
-    # Validate confidence
-    # -----------------------------------------------------
-
     try:
+        parsed = json.loads(json_text)
 
-        confidence = float(
-            data["confidence"]
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"Could not parse AI JSON response: {error}"
+        ) from error
+
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            "AI response must be a JSON object."
         )
 
-        confidence = max(
-            0,
-            min(
-                100,
-                confidence,
-            ),
-        )
+    return parsed
 
-        data["confidence"] = int(
-            confidence
-        )
 
-    except Exception:
+# =========================================================
+# NORMALIZATION HELPERS
+# =========================================================
 
-        data["confidence"] = 0
+def normalize_boolean(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
 
-    # -----------------------------------------------------
-    # Validate text fields
-    # -----------------------------------------------------
+    if isinstance(value, (int, float)):
+        return bool(value)
 
-    for field in REQUIRED_FIELDS:
+    if isinstance(value, str):
+        return value.strip().lower() in {
+            "true",
+            "yes",
+            "1",
+            "detected",
+            "present",
+        }
 
-        if field == "confidence":
-            continue
+    return False
 
-        value = data.get(field)
 
-        if value is None:
+def normalize_text(
+    value: Any,
+    default: str,
+    max_length: int = 2000,
+) -> str:
+    if value is None:
+        return default
 
-            value = (
-                "Not determinable from image"
-            )
+    text = str(value).strip()
 
-        data[field] = str(value).strip()
+    if not text:
+        return default
 
-        if not data[field]:
+    return text[:max_length]
 
-            data[field] = (
-                "Not determinable from image"
-            )
 
-    # -----------------------------------------------------
-    # Return ONLY required fields
-    # -----------------------------------------------------
+def normalize_confidence(value: Any) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        confidence = 0.0
+
+    if confidence != confidence:
+        confidence = 0.0
+
+    return max(
+        0.0,
+        min(1.0, confidence),
+    )
+
+
+def normalize_risk_level(value: Any) -> str:
+    risk = str(value or "").strip().lower()
+
+    risk_map = {
+        "low": "Low",
+        "medium": "Medium",
+        "moderate": "Medium",
+        "high": "High",
+    }
+
+    return risk_map.get(risk, "Unknown")
+
+
+def normalize_analysis(
+    analysis: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Ensure a stable camera-analysis response schema.
+    """
 
     return {
-        field: data[field]
-        for field in REQUIRED_FIELDS
+        "overall_observation": normalize_text(
+            analysis.get("overall_observation"),
+            "No clear visual observation was returned.",
+        ),
+        "water_color": normalize_text(
+            analysis.get("water_color"),
+            "Not clearly determined.",
+        ),
+        "foam_detected": normalize_boolean(
+            analysis.get("foam_detected")
+        ),
+        "algae_detected": normalize_boolean(
+            analysis.get("algae_detected")
+        ),
+        "particles_detected": normalize_boolean(
+            analysis.get("particles_detected")
+        ),
+        "possible_microplastics": normalize_boolean(
+            analysis.get("possible_microplastics")
+        ),
+        "oil_layer_detected": normalize_boolean(
+            analysis.get("oil_layer_detected")
+        ),
+        "risk_level": normalize_risk_level(
+            analysis.get("risk_level")
+        ),
+        "confidence": normalize_confidence(
+            analysis.get("confidence")
+        ),
+        "recommendation": normalize_text(
+            analysis.get("recommendation"),
+            "Use additional sensor measurements or laboratory testing.",
+        ),
+        "limitations": normalize_text(
+            analysis.get("limitations"),
+            (
+                "Image analysis cannot confirm contamination "
+                "or replace laboratory water-quality testing."
+            ),
+        ),
     }
 
 
 # =========================================================
-# CAMERA ANALYSIS
+# DEVICE VALIDATION
+# =========================================================
+
+def validate_device_id(
+    device_id: int | None,
+    db: Session,
+) -> int | None:
+    """
+    Validate an optional device ID.
+    """
+
+    if device_id is None:
+        return None
+
+    if device_id < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="device_id must be a positive integer.",
+        )
+
+    device = (
+        db.query(Device)
+        .filter(Device.id == device_id)
+        .first()
+    )
+
+    if device is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Device with ID {device_id} was not found.",
+        )
+
+    return device_id
+
+
+# =========================================================
+# CAMERA ANALYSIS ENDPOINT
 # =========================================================
 
 @router.post("/analyze")
@@ -338,368 +448,206 @@ async def analyze_camera(
     image: UploadFile = File(...),
     provider: str | None = Form(None),
     model: str | None = Form(None),
+    device_id: int | None = Form(None),
+    db: Session = Depends(get_db),
 ):
-
-    # =====================================================
-    # DETERMINE VISION MODEL
-    # =====================================================
-
-    selected_provider = (provider or "").strip().lower()
-    selected_model = (model or "").strip()
-    effective_provider = "groq"
-    effective_model = GROQ_VISION_MODEL
-
-    if selected_provider in {"groq", "automatic", ""}:
-        effective_provider = "groq"
-    else:
-        effective_provider = "groq"
-
-    if selected_model and selected_model != "automatic":
-        effective_model = selected_model
-
-    # =====================================================
-    # CHECK API KEY
-    # =====================================================
-
-    if not GROQ_API_KEY or groq_client is None:
-
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "GROQ_API_KEY is not configured."
-            ),
-        )
-
-    # =====================================================
-    # VALIDATE IMAGE TYPE
-    # =====================================================
-
-    if not image.content_type:
-
-        raise HTTPException(
-            status_code=400,
-            detail="Image content type is missing.",
-        )
-
-    if not image.content_type.startswith("image/"):
-
-        raise HTTPException(
-            status_code=400,
-            detail="Only image files are allowed.",
-        )
+    """
+    Analyze an uploaded water image using the vision provider service.
+    """
 
     try:
+        # -------------------------------------------------
+        # Validate optional device
+        # -------------------------------------------------
 
-        # =================================================
-        # READ IMAGE
-        # =================================================
-
-        image_bytes = await image.read()
-
-        if not image_bytes:
-
-            raise HTTPException(
-                status_code=400,
-                detail="Uploaded image is empty.",
-            )
-
-        # =================================================
-        # SIZE LIMIT
-        # =================================================
-
-        max_size = 10 * 1024 * 1024
-
-        if len(image_bytes) > max_size:
-
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    "Image is too large. "
-                    "Maximum size is 10 MB."
-                ),
-            )
-
-        # =================================================
-        # BASE64 ENCODE
-        # =================================================
-
-        base64_image = base64.b64encode(
-            image_bytes
-        ).decode("utf-8")
-
-        image_url = (
-            f"data:{image.content_type};base64,"
-            f"{base64_image}"
+        validated_device_id = validate_device_id(
+            device_id=device_id,
+            db=db,
         )
 
-        # =================================================
-        # LOG REQUEST
-        # =================================================
+        # -------------------------------------------------
+        # Read and validate image
+        # -------------------------------------------------
 
-        print("")
-        print("========================================")
-        print("AQUA AI VISION ANALYSIS")
-        print("========================================")
-        print(
-            "Filename:",
-            image.filename,
-        )
-        print(
-            "Content type:",
-            image.content_type,
-        )
-        print(
-            "Size:",
-            len(image_bytes),
-            "bytes",
-        )
-        print(
-            "Provider:",
-            effective_provider,
-        )
-        print(
-            "Model:",
-            effective_model,
-        )
-        print(
-            "Reasoning: disabled"
-        )
-        print(
-            "JSON mode: enabled"
-        )
-        print("========================================")
-
-        # =================================================
-        # GROQ VISION REQUEST
-        # =================================================
-
-        response = groq_client.chat.completions.create(
-
-            model=effective_model,
-
-            messages=[
-
-                {
-                    "role": "system",
-
-                    "content": CAMERA_SYSTEM_PROMPT,
-                },
-
-                {
-                    "role": "user",
-
-                    "content": [
-
-                        {
-                            "type": "text",
-
-                            "text": (
-                                "Analyze this water image "
-                                "and return ONLY the JSON object."
-                            ),
-                        },
-
-                        {
-                            "type": "image_url",
-
-                            "image_url": {
-                                "url": image_url,
-                            },
-                        },
-
-                    ],
-                },
-
-            ],
-
-            # -------------------------------------------------
-            # Deterministic output
-            # -------------------------------------------------
-
-            temperature=0,
-
-            # -------------------------------------------------
-            # Disable Qwen reasoning
-            # -------------------------------------------------
-
-            reasoning_effort="none",
-
-            # -------------------------------------------------
-            # Force JSON response
-            # -------------------------------------------------
-
-            response_format={
-                "type": "json_object"
-            },
-
-            # -------------------------------------------------
-            # Enough tokens for the JSON
-            # -------------------------------------------------
-
-            max_tokens=700,
+        image_bytes, content_type, safe_filename = (
+            await read_and_validate_image(image)
         )
 
-        # =================================================
-        # CHECK RESPONSE
-        # =================================================
+        # -------------------------------------------------
+        # Call the new vision-provider interface
+        # -------------------------------------------------
 
-        if not response.choices:
+        provider_response = ask_vision_ai(
+            image_bytes=image_bytes,
+            prompt=SYSTEM_PROMPT,
+            provider=provider,
+            model=model,
+            content_type=content_type,
+        )
 
+        if not isinstance(provider_response, dict):
             raise ValueError(
-                "Groq returned no response choices."
+                "Vision provider returned an invalid response."
             )
 
-        raw_answer = (
-            response
-            .choices[0]
-            .message
-            .content
+        raw_response = provider_response.get("answer")
+
+        if not isinstance(raw_response, str):
+            raise ValueError(
+                "Vision provider did not return text analysis."
+            )
+
+        used_provider = provider_response.get(
+            "provider",
+            "unknown",
         )
 
-        # =================================================
-        # LOG RAW RESPONSE
-        # =================================================
-
-        print("")
-        print("VISION RAW RESPONSE:")
-        print(raw_answer)
-        print("")
-
-        # =================================================
-        # CLEAN RESPONSE
-        # =================================================
-
-        cleaned = clean_json_response(
-            raw_answer
+        used_model = provider_response.get(
+            "model",
+            "unknown",
         )
 
-        print("")
-        print("CLEANED JSON:")
-        print(cleaned)
-        print("")
+        # -------------------------------------------------
+        # Parse and normalize AI result
+        # -------------------------------------------------
 
-        # =================================================
-        # PARSE JSON
-        # =================================================
+        raw_analysis = extract_json_from_response(
+            raw_response
+        )
+
+        analysis = normalize_analysis(
+            raw_analysis
+        )
+
+        # -------------------------------------------------
+        # Generate camera-agent response
+        # -------------------------------------------------
 
         try:
-
-            analysis = json.loads(
-                cleaned
+            agent_answer = camera_agent.answer(
+                analysis
             )
 
-        except json.JSONDecodeError as e:
-
-            print("")
+        except Exception as agent_error:
             print(
-                "JSON PARSE ERROR:",
-                str(e),
+                "[CAMERA AGENT ERROR]",
+                str(agent_error),
             )
 
-            print(
-                "CLEANED RESPONSE:",
-                cleaned,
-            )
+            agent_answer = {
+                "summary": analysis[
+                    "overall_observation"
+                ],
+                "risk_level": analysis[
+                    "risk_level"
+                ],
+                "recommendations": [
+                    analysis["recommendation"]
+                ],
+            }
 
-            raise ValueError(
-                "Vision model returned invalid JSON."
-            )
+        # -------------------------------------------------
+        # Save prediction
+        # -------------------------------------------------
 
-        # =================================================
-        # VALIDATE
-        # =================================================
-
-        analysis = validate_analysis(
-            analysis
-        )
-
-        # =================================================
-        # SUCCESS LOG
-        # =================================================
-
-        print("========================================")
-        print("VISION ANALYSIS SUCCESS")
-        print("========================================")
-
-        print(
-            json.dumps(
+        prediction = CameraPrediction(
+            device_id=validated_device_id,
+            image_path=safe_filename,
+            prediction=analysis[
+                "overall_observation"
+            ],
+            confidence=analysis[
+                "confidence"
+            ],
+            details=json.dumps(
                 analysis,
-                indent=2,
                 ensure_ascii=False,
-            )
-        )
-
-        print("========================================")
-        print("")
-
-        # =================================================
-        # RETURN RESPONSE
-        # =================================================
-
-        return {
-
-            "success": True,
-
-            "analysis": analysis,
-
-            "filename": image.filename,
-
-            "content_type": image.content_type,
-
-            "size_bytes": len(image_bytes),
-
-            "provider": effective_provider,
-
-            "model": effective_model,
-
-        }
-
-    # =====================================================
-    # HTTP ERROR
-    # =====================================================
-
-    except HTTPException:
-
-        raise
-
-    # =====================================================
-    # AI ERROR
-    # =====================================================
-
-    except Exception as e:
-
-        print("")
-        print("========================================")
-        print("AQUA AI VISION ERROR")
-        print("========================================")
-
-        print(
-            "ERROR TYPE:",
-            type(e).__name__,
-        )
-
-        print("")
-
-        print(
-            "ERROR:",
-            str(e),
-        )
-
-        print("")
-
-        print("TRACEBACK:")
-
-        traceback.print_exc()
-
-        print("========================================")
-        print("")
-
-        raise HTTPException(
-
-            status_code=503,
-
-            detail=(
-                "Vision AI analysis failed. "
-                "Check the backend terminal for details."
             ),
         )
+
+        db.add(prediction)
+        db.commit()
+        db.refresh(prediction)
+
+        # -------------------------------------------------
+        # Return result
+        # -------------------------------------------------
+
+        return {
+            "success": True,
+            "message": "Image analyzed successfully.",
+            "prediction_id": prediction.id,
+            "analysis": analysis,
+            "agent_answer": agent_answer,
+            "metadata": {
+                "filename": safe_filename,
+                "content_type": content_type,
+                "provider_requested": (
+                    provider.strip()
+                    if provider
+                    else "automatic"
+                ),
+                "model_requested": (
+                    model.strip()
+                    if model
+                    else None
+                ),
+                "provider_used": used_provider,
+                "model_used": used_model,
+                "device_id": validated_device_id,
+                "image_size_bytes": len(image_bytes),
+            },
+        }
+
+    except HTTPException:
+        raise
+
+    except SQLAlchemyError as database_error:
+        db.rollback()
+
+        print(
+            "[CAMERA DATABASE ERROR]",
+            str(database_error),
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "The image was analyzed, but the result "
+                "could not be saved."
+            ),
+        ) from database_error
+
+    except ValueError as parsing_error:
+        db.rollback()
+
+        print(
+            "[CAMERA RESPONSE ERROR]",
+            type(parsing_error).__name__ + ":",
+            str(parsing_error),
+        )
+
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The AI vision provider returned an invalid "
+                "analysis response and is temporarily unavailable. "
+                "Please try again later."
+            ),
+        ) from parsing_error
+
+    except Exception as error:
+        db.rollback()
+
+        print(
+            "[CAMERA ANALYSIS ERROR]",
+            str(error),
+        )
+
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Camera AI analysis is currently unavailable. "
+                "Please try again later."
+            ),
+        ) from error

@@ -1,14 +1,13 @@
-from fastapi import APIRouter, HTTPException
+from typing import Any
+
+from fastapi import APIRouter
 
 from backend.services.ai_provider import (
     PROVIDERS,
     get_available_providers,
+    get_available_vision_providers,
 )
 
-
-# =========================================================
-# ROUTER
-# =========================================================
 
 router = APIRouter(
     prefix="/ai",
@@ -17,98 +16,170 @@ router = APIRouter(
 
 
 # =========================================================
-# CURRENT PROVIDER
+# SAFE PROVIDER INFORMATION
 # =========================================================
 
-CURRENT_PROVIDER = "groq"
+def provider_info(
+    provider_id: str,
+    provider: dict[str, Any],
+) -> dict[str, Any]:
+    """Return safe provider information without exposing API keys."""
+
+    client_available = provider.get("client") is not None
+
+    return {
+        "id": provider_id,
+        "name": provider.get("name", provider_id),
+        "model": provider.get("model"),
+        "vision_model": provider.get("vision_model"),
+        "available": client_available,
+        "supports_text": bool(
+            provider.get("supports_text", True)
+        ),
+        "supports_vision": bool(
+            provider.get("supports_vision", False)
+        ),
+    }
 
 
 # =========================================================
-# PROVIDERS
+# AVAILABLE PROVIDERS
 # =========================================================
 
 @router.get("/providers")
-def providers():
+def list_ai_providers():
+    """
+    Return configured AI providers.
 
-    available = get_available_providers()
+    API keys are never returned.
+    """
 
-    provider_list = []
+    text_providers = get_available_providers()
+    vision_providers = get_available_vision_providers()
 
-    for provider in available:
-        provider_id = provider["id"]
-        config = PROVIDERS.get(provider_id)
+    text_ids = {
+        provider.get("id")
+        for provider in text_providers
+        if isinstance(provider, dict)
+    }
 
-        provider_list.append({
-            **provider,
-            "supports_vision": provider_id == "groq",
-            "vision_model": (
-                "qwen/qwen3.6-27b"
-                if provider_id == "groq"
-                else None
-            ),
-            "default_model": config["model"] if config else provider["model"],
-        })
+    vision_ids = {
+        provider.get("id")
+        for provider in vision_providers
+        if isinstance(provider, dict)
+    }
+
+    providers = []
+
+    for provider_id, provider in PROVIDERS.items():
+        if not isinstance(provider, dict):
+            continue
+
+        item = provider_info(
+            provider_id=provider_id,
+            provider=provider,
+        )
+
+        item["text_available"] = (
+            provider_id in text_ids
+        )
+
+        item["vision_available"] = (
+            provider_id in vision_ids
+        )
+
+        providers.append(item)
 
     return {
         "success": True,
-        "current": CURRENT_PROVIDER,
-        "providers": provider_list,
+        "providers": providers,
+        "text_providers": [
+            provider.get("id")
+            for provider in text_providers
+            if isinstance(provider, dict)
+        ],
+        "vision_providers": [
+            provider.get("id")
+            for provider in vision_providers
+            if isinstance(provider, dict)
+        ],
     }
 
 
 # =========================================================
-# CURRENT
+# CURRENT AI CONFIGURATION
 # =========================================================
 
 @router.get("/current")
-def current_provider():
+def current_ai_configuration():
+    """
+    Return the default configured AI provider information.
+    """
 
-    provider = PROVIDERS.get(
-        CURRENT_PROVIDER
+    available_text = get_available_providers()
+    available_vision = get_available_vision_providers()
+
+    current_text = (
+        available_text[0]
+        if available_text
+        else None
     )
 
-    if provider is None:
-
-        raise HTTPException(
-            status_code=500,
-            detail="Current AI provider is not configured.",
-        )
-
-    if provider["client"] is None:
-
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"{provider['name']} API key is not configured."
-            ),
-        )
+    current_vision = (
+        available_vision[0]
+        if available_vision
+        else None
+    )
 
     return {
         "success": True,
-        "provider": {
-            "id": provider["id"],
-            "name": provider["name"],
-            "model": provider["model"],
-        },
+        "text": (
+            {
+                "provider": current_text.get("id"),
+                "name": current_text.get("name"),
+                "model": current_text.get("model"),
+            }
+            if current_text
+            else None
+        ),
+        "vision": (
+            {
+                "provider": current_vision.get("id"),
+                "name": current_vision.get("name"),
+                "model": current_vision.get("model"),
+            }
+            if current_vision
+            else None
+        ),
     }
 
 
 # =========================================================
-# HEALTH
+# AI HEALTH
 # =========================================================
 
 @router.get("/health")
 def ai_health():
+    """
+    Report whether text and vision AI providers are configured.
+    """
 
-    available = get_available_providers()
+    text_providers = get_available_providers()
+    vision_providers = get_available_vision_providers()
+
+    text_available = len(text_providers) > 0
+    vision_available = len(vision_providers) > 0
+
+    if text_available or vision_available:
+        status = "healthy"
+    else:
+        status = "unavailable"
 
     return {
         "success": True,
-        "status": (
-            "healthy"
-            if available
-            else "no_providers"
-        ),
-        "current_provider": CURRENT_PROVIDER,
-        "available_providers": len(available),
+        "status": status,
+        "text_ai_available": text_available,
+        "vision_ai_available": vision_available,
+        "text_provider_count": len(text_providers),
+        "vision_provider_count": len(vision_providers),
     }

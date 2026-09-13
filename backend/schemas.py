@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict
 
 class WaterReadingCreate(BaseModel):
     device_id: int
+
     temperature: float | None = None
     ph: float | None = None
     turbidity: float | None = None

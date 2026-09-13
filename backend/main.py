@@ -1,64 +1,169 @@
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load environment variables before importing application modules.
+load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
-from backend import models  # noqa: F401 - registers SQLAlchemy models
+from backend import models  # noqa: F401
 from backend.database import Base, engine
+
 from backend.routes.devices import router as devices_router
 from backend.routes.readings import router as readings_router
 from backend.routes.camera import router as camera_router
 from backend.routes.chat import router as chat_router
 from backend.routes.ai import router as ai_router
+from backend.routes.water_quality import router as water_quality_router
+from backend.routes.agents import router as agents_router
 
 
 # =========================================================
-# APP
+# PATHS
+# =========================================================
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+FRONTEND_DIR = BASE_DIR / "frontend"
+FRONTEND_INDEX = FRONTEND_DIR / "index.html"
+
+
+# =========================================================
+# CORS CONFIGURATION
+# =========================================================
+
+allowed_origins = [
+    "http://localhost:5500",
+    "http://127.0.0.1:5500",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "https://aqua-ai.netlify.app",
+    "https://aqua-ai-frontend.netlify.app",
+]
+
+extra_origins = os.getenv("CORS_ORIGINS", "").strip()
+
+if extra_origins:
+    allowed_origins.extend(
+        origin.strip()
+        for origin in extra_origins.split(",")
+        if origin.strip()
+    )
+
+# Remove duplicate origins while preserving order.
+allowed_origins = list(dict.fromkeys(allowed_origins))
+
+
+# =========================================================
+# DATABASE STARTUP
+# =========================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Verify the database connection and create missing tables.
+
+    Existing tables are not deleted or automatically migrated.
+    """
+
+    print("Starting Aqua AI backend...")
+
+    try:
+        # Verify database connectivity.
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+
+        # Create tables that do not already exist.
+        Base.metadata.create_all(bind=engine)
+
+        print("Aqua AI database connection successful.")
+        print("Aqua AI database tables verified.")
+
+        # Report AI provider configuration status.
+        # Only booleans are printed - API key values are never logged.
+        from backend.services.ai_provider import (
+            get_provider_debug_info,
+        )
+
+        info = get_provider_debug_info()
+        print("Aqua AI provider keys loaded:")
+        print(
+            "  openrouter:",
+            "yes" if info.get("openrouter_key_loaded") else "no",
+        )
+        print(
+            "  groq:",
+            "yes" if info.get("groq_key_loaded") else "no",
+        )
+        print(
+            "  deepseek:",
+            "yes" if info.get("deepseek_key_loaded") else "no",
+        )
+
+        vision = info.get("vision_providers") or []
+        if vision:
+            print(
+                "Aqua AI vision providers available:",
+                ", ".join(
+                    f"{v['id']} ({v['model']})" for v in vision
+                ),
+            )
+        else:
+            print(
+                "Aqua AI vision providers available: none "
+                "(camera analysis will be unavailable until an "
+                "API key is configured in .env)"
+            )
+
+    except Exception as error:
+        print(
+            "Aqua AI database initialization failed:",
+            type(error).__name__,
+            str(error),
+        )
+
+    yield
+
+    print("Aqua AI backend shutdown complete.")
+
+
+# =========================================================
+# FASTAPI APPLICATION
 # =========================================================
 
 app = FastAPI(
     title="Aqua AI API",
-    description="Smart Water Quality Monitoring and AI Camera Analysis",
+    description=(
+        "Smart water-quality monitoring API with sensor data, "
+        "water-quality analysis, AI chatbot, camera analysis, "
+        "AI providers, and intelligent agents."
+    ),
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 
 # =========================================================
-# CORS
+# MIDDLEWARE
 # =========================================================
-
-DEFAULT_CORS_ORIGINS = {
-    "http://127.0.0.1:5500",
-    "http://localhost:5500",
-    "http://127.0.0.1:8000",
-    "http://localhost:8000",
-    "https://vac-project-ver1.netlify.app",
-    "https://vac-project-vers2.netlify.app",
-}
-
-configured_origins = {
-    origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "").split(",")
-    if origin.strip()
-}
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=sorted(DEFAULT_CORS_ORIGINS | configured_origins),
-
+    allow_origins=allowed_origins,
     allow_credentials=True,
-
     allow_methods=["*"],
-
     allow_headers=["*"],
 )
 
 
 # =========================================================
-# ROUTES
+# ROUTERS
 # =========================================================
 
 app.include_router(devices_router)
@@ -66,50 +171,85 @@ app.include_router(readings_router)
 app.include_router(camera_router)
 app.include_router(chat_router)
 app.include_router(ai_router)
+app.include_router(water_quality_router)
+app.include_router(agents_router)
 
 
 # =========================================================
-# FRONTEND
-# =========================================================
-
-FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
-
-
-@app.on_event("startup")
-def initialize_database() -> None:
-    """Create the initial tables when the service starts on a fresh database."""
-
-    Base.metadata.create_all(bind=engine)
-
-
-# =========================================================
-# ROOT
+# BASIC ENDPOINTS
 # =========================================================
 
 @app.get("/", include_in_schema=False)
-def dashboard():
-    """Serve the production dashboard from the same origin as the API."""
+def root():
+    """
+    Serve the frontend homepage if it exists.
+    Otherwise, return a backend status response.
+    """
 
-    return FileResponse(FRONTEND_DIR / "index.html")
+    if FRONTEND_INDEX.exists():
+        return FileResponse(FRONTEND_INDEX)
+
+    return {
+        "success": True,
+        "message": "Aqua AI backend is running.",
+        "docs": "/docs",
+        "health": "/health",
+    }
 
 
-# =========================================================
-# HEALTH
-# =========================================================
+@app.get("/health", tags=["System"])
+def health_check():
+    """
+    Check whether the API and database are available.
+    """
 
-@app.get("/health")
-def health():
+    database_status = "unavailable"
+
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+
+        database_status = "connected"
+
+    except Exception as error:
+        database_status = f"error: {type(error).__name__}"
+
+    if database_status != "connected":
+        return JSONResponse(
+            status_code=503,
+            content={
+                "success": False,
+                "status": "degraded",
+                "service": "Aqua AI API",
+                "database": database_status,
+            },
+        )
 
     return {
         "success": True,
         "status": "healthy",
-        "service": "Aqua AI",
+        "service": "Aqua AI API",
+        "database": database_status,
     }
 
 
-# Keep this mount last: API, docs, and health routes above take precedence.
-app.mount(
-    "/",
-    StaticFiles(directory=FRONTEND_DIR, html=True),
-    name="frontend",
-)
+# =========================================================
+# FRONTEND STATIC FILES
+# =========================================================
+
+if FRONTEND_DIR.exists():
+    app.mount(
+        "/frontend",
+        StaticFiles(directory=FRONTEND_DIR),
+        name="frontend",
+    )
+
+    # Also serve the frontend at the root so that relative asset
+    # references such as "app.js" and "style.css" resolve when the
+    # homepage is opened at "/". This mount is registered last, so all
+    # API routes above keep precedence.
+    app.mount(
+        "/",
+        StaticFiles(directory=FRONTEND_DIR, html=True),
+        name="frontend-root",
+    )

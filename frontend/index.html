@@ -897,6 +897,85 @@
 
                     </div>
 
+
+                <article class="content-card chatbot-card sensor-chatbot-card">
+
+                    <div class="content-card-header">
+
+                        <div class="chatbot-heading">
+
+                            <div class="chatbot-icon sensor-chatbot-icon">
+                                <i class="ri-robot-2-line"></i>
+                            </div>
+
+                            <div>
+                                <h3>Water quality assistant</h3>
+                                <p>
+                                    Ask about live sensor readings and water quality.
+                                </p>
+                            </div>
+
+                        </div>
+
+                        <button
+                            class="chat-clear-button"
+                            id="clearSensorChatButton"
+                            type="button"
+                        >
+                            <i class="ri-delete-bin-line"></i>
+                            Clear
+                        </button>
+
+                    </div>
+
+                    <div
+                        class="chat-messages"
+                        id="sensorChatMessages"
+                    >
+
+                        <div class="chat-message assistant-message">
+
+                            <div class="chat-message-avatar">
+                                <i class="ri-sparkling-2-line"></i>
+                            </div>
+
+                            <div class="chat-message-bubble">
+                                Hello! I can help you understand your current
+                                water-quality readings. Ask me about pH,
+                                temperature, turbidity or TDS.
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    <form
+                        class="chat-input-form"
+                        id="sensorChatForm"
+                    >
+
+                        <textarea
+                            id="sensorChatInput"
+                            rows="1"
+                            placeholder="Ask about your water readings..."
+                        ></textarea>
+
+                        <button
+                            class="chat-send-button"
+                            type="submit"
+                            aria-label="Send water quality question"
+                        >
+                            <i class="ri-send-plane-2-fill"></i>
+                        </button>
+
+                    </form>
+
+                    <p class="chat-input-hint">
+                        Press Enter to send. Use Shift + Enter for a new line.
+                    </p>
+
+                </article>
+
                 </section>
 
                 <!-- =========================================
@@ -2006,87 +2085,6 @@
                     </div>
 
                 </section>
-
-                <!-- =========================================
-                     SENSOR CHATBOT
-                ========================================== -->
-                <article class="content-card chatbot-card sensor-chatbot-card">
-
-                    <div class="content-card-header">
-
-                        <div class="chatbot-heading">
-
-                            <div class="chatbot-icon sensor-chatbot-icon">
-                                <i class="ri-robot-2-line"></i>
-                            </div>
-
-                            <div>
-                                <h3>Water quality assistant</h3>
-                                <p>
-                                    Ask about live sensor readings and water quality.
-                                </p>
-                            </div>
-
-                        </div>
-
-                        <button
-                            class="chat-clear-button"
-                            id="clearSensorChatButton"
-                            type="button"
-                        >
-                            <i class="ri-delete-bin-line"></i>
-                            Clear
-                        </button>
-
-                    </div>
-
-                    <div
-                        class="chat-messages"
-                        id="sensorChatMessages"
-                    >
-
-                        <div class="chat-message assistant-message">
-
-                            <div class="chat-message-avatar">
-                                <i class="ri-sparkling-2-line"></i>
-                            </div>
-
-                            <div class="chat-message-bubble">
-                                Hello! I can help you understand your current
-                                water-quality readings. Ask me about pH,
-                                temperature, turbidity or TDS.
-                            </div>
-
-                        </div>
-
-                    </div>
-
-                    <form
-                        class="chat-input-form"
-                        id="sensorChatForm"
-                    >
-
-                        <textarea
-                            id="sensorChatInput"
-                            rows="1"
-                            placeholder="Ask about your water readings..."
-                        ></textarea>
-
-                        <button
-                            class="chat-send-button"
-                            type="submit"
-                            aria-label="Send water quality question"
-                        >
-                            <i class="ri-send-plane-2-fill"></i>
-                        </button>
-
-                    </form>
-
-                    <p class="chat-input-hint">
-                        Press Enter to send. Use Shift + Enter for a new line.
-                    </p>
-
-                </article>
 
             </div>
 

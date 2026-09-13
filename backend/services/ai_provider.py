@@ -593,7 +593,7 @@ def call_vision_provider(
     content_type: str = "image/jpeg",
     model: str | None = None,
     temperature: float = 0.2,
-    max_tokens: int = 900,
+    max_tokens: int = 1500,
 ) -> dict[str, Any]:
     """
     Call one vision-capable provider.
@@ -697,7 +697,7 @@ def ask_vision_ai(
     model: str | None = None,
     content_type: str = "image/jpeg",
     temperature: float = 0.2,
-    max_tokens: int = 900,
+    max_tokens: int = 1500,
 ) -> dict[str, Any]:
     """
     Analyze an image using a vision-capable provider.

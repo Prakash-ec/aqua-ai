@@ -273,6 +273,18 @@ class CameraAgent:
         another AI provider.
         """
 
+        # If no analysis exists, return a clear message
+        if not analysis or not isinstance(analysis, dict) or not analysis.get("overall_observation"):
+            return {
+                "answer": (
+                    "Please analyze a water image first so I can answer "
+                    "questions about it."
+                ),
+                "question": question,
+                "risk_level": None,
+                "confidence": None,
+            }
+
         normalized = self.normalize_analysis(analysis)
         question_text = question.strip().lower()
 
@@ -310,8 +322,9 @@ class CameraAgent:
 
         elif "microplastic" in question_text:
             answer = (
-                "Some particles may resemble microplastics, but an ordinary "
-                "image cannot confirm microplastics."
+                "Visible particles may be present, but microplastics cannot be "
+                "confirmed using an ordinary camera image alone. Use a "
+                "microscope or laboratory analysis for confirmation."
                 if normalized["possible_microplastics"]
                 else "The image did not show particles specifically flagged "
                 "as possible microplastics."
@@ -355,8 +368,37 @@ class CameraAgent:
                 )
             )
 
+        elif "green" in question_text or "growth" in question_text or "colour" in question_text:
+            if normalized["algae_detected"]:
+                answer = ("The image shows possible algae or green growth. "
+                          "Algae can affect water quality and may produce "
+                          "toxins. Consider testing pH, turbidity, and "
+                          "dissolved oxygen for a complete assessment.")
+            elif normalized["water_color"] and normalized["water_color"].lower() != "unknown":
+                answer = ("The visible water color is "
+                          f"{normalized['water_color']}. "
+                          "Unusual colors can indicate organic material, "
+                          "sediment, or chemical presence. Laboratory testing "
+                          "is recommended for confirmation.")
+            else:
+                answer = ("The image does not show obvious green growth or "
+                          "significant colour abnormalities. If you still "
+                          "suspect issues, consider sending a water sample "
+                          "to a laboratory.")
+
+        elif "test" in question_text or "check" in question_text or "measure" in question_text:
+            answer = ("Based on the visible assessment, I recommend monitoring "
+                      "pH, turbidity, TDS, and temperature with your sensors. "
+                      "If you observe unusual colours, odors, or surface films, "
+                      "consider laboratory testing for bacteria, heavy metals, "
+                      "or chemical contaminants. Image analysis alone cannot "
+                      "replace these measurements.")
+
         else:
-            answer = normalized["overall_observation"]
+            answer = (f"{normalized['overall_observation']} "
+                      "This assessment is based on visual appearance only. "
+                      "For accurate water quality data, use your sensor "
+                      "readings and consider laboratory testing.")
 
         return {
             "question": question,

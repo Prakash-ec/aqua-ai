@@ -2153,6 +2153,32 @@ async function analyzeCameraImage() {
         return;
     }
 
+    // Pre-upload validation: file type
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+
+    if (!allowedTypes.includes(selectedCameraFile.type)) {
+        alert(
+            "Unsupported file type. Please select a JPEG, PNG, or WebP image."
+        );
+        return;
+    }
+
+    // Pre-upload validation: size limit (10 MB)
+    const maxSize = 10 * 1024 * 1024;
+
+    if (selectedCameraFile.size > maxSize) {
+        alert(
+            "Image is too large. Please select an image smaller than 10 MB."
+        );
+        return;
+    }
+
+    // Pre-upload validation: empty file
+    if (selectedCameraFile.size === 0) {
+        alert("The selected file appears to be empty. Please choose another.");
+        return;
+    }
+
     const analyzeButton =
         $("analyzeCameraButton") ||
         $("analyzeButton") ||
@@ -2333,6 +2359,38 @@ function renderCameraResult(data) {
             "score"
         );
 
+    const cloudiness =
+        getCameraAnalysisField(
+            analysis,
+            "cloudiness",
+            "turbidity"
+        );
+
+    const colorAbnormalities =
+        getCameraAnalysisField(
+            analysis,
+            "color_abnormalities"
+        );
+
+    const visibleDebris =
+        getCameraAnalysisField(
+            analysis,
+            "visible_debris"
+        );
+
+    const safetyDisclaimer =
+        getCameraAnalysisField(
+            analysis,
+            "safety_disclaimer"
+        );
+
+    const limitations =
+        getCameraAnalysisField(
+            analysis,
+            "limitations",
+            "limitation"
+        );
+
     if (titleElement) {
         titleElement.textContent =
             riskLevel !== undefined
@@ -2341,11 +2399,35 @@ function renderCameraResult(data) {
     }
 
     if (textElement) {
-        const primaryText =
-            String(observation || agentAnswer || "").trim();
+        const parts = [];
+
+        if (observation) {
+            parts.push(observation);
+        }
+
+        if (cloudiness && cloudiness !== "not assessed") {
+            parts.push(`Cloudiness: ${cloudiness}`);
+        }
+
+        if (colorAbnormalities && colorAbnormalities !== "null" && colorAbnormalities !== "None") {
+            parts.push(`Colour observations: ${colorAbnormalities}`);
+        }
+
+        if (visibleDebris && visibleDebris !== "null" && visibleDebris !== "None") {
+            parts.push(`Visible debris: ${visibleDebris}`);
+        }
+
+        if (limitations) {
+            parts.push(limitations);
+        }
+
+        if (safetyDisclaimer && safetyDisclaimer !== "null" && safetyDisclaimer !== "None") {
+            parts.push(safetyDisclaimer);
+        }
 
         textElement.textContent =
-            primaryText ||
+            parts.join("\n") ||
+            String(observation || agentAnswer || "").trim() ||
             JSON.stringify(analysis, null, 2) ||
             "No result was returned.";
     }
@@ -2549,7 +2631,7 @@ function setupCameraChat() {
     }
 
     cameraChatHistory = loadStoredChat("aqua_ai_camera_chat_history");
-    renderChatMessages(messages, cameraChatHistory);
+    renderCameraChatMessages(messages, cameraChatHistory);
 
     form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -2557,6 +2639,18 @@ function setupCameraChat() {
         const question = input.value.trim();
 
         if (!question) {
+            return;
+        }
+
+        // Guard: require a camera analysis before answering questions
+        if (!latestCameraAnalysis) {
+            addChatMessage(
+                messages,
+                cameraChatHistory,
+                "assistant",
+                "Please analyze a water image first so I can answer questions about it."
+            );
+            input.value = "";
             return;
         }
 
@@ -2628,6 +2722,28 @@ function setupCameraChat() {
             form.requestSubmit();
         }
     });
+}
+
+function renderCameraChatMessages(container, history) {
+    container.innerHTML = "";
+
+    if (history.length === 0) {
+        const welcome = document.createElement("div");
+        welcome.className = "chat-message assistant";
+        welcome.textContent =
+            "Upload and analyse a water image first, then I can help explain the visible characteristics.";
+        container.appendChild(welcome);
+        return;
+    }
+
+    history.forEach((message) => {
+        const element = document.createElement("div");
+        element.className = `chat-message ${message.role}`;
+        element.textContent = message.content;
+        container.appendChild(element);
+    });
+
+    container.scrollTop = container.scrollHeight;
 }
 
 function loadStoredChat(key) {

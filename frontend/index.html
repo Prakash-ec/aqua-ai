@@ -157,6 +157,15 @@
                     <span>Trends</span>
                 </button>
 
+                <button
+                    class="nav-item"
+                    data-page="reports"
+                    type="button"
+                >
+                    <i class="ri-file-chart-line"></i>
+                    <span>Reports</span>
+                </button>
+
                 <p class="navigation-label">MANAGEMENT</p>
 
                 <button
@@ -170,11 +179,50 @@
 
                 <button
                     class="nav-item"
+                    data-page="profile"
+                    type="button"
+                >
+                    <i class="ri-user-3-line"></i>
+                    <span>Profile</span>
+                </button>
+
+                <button
+                    class="nav-item"
                     data-page="settings"
                     type="button"
                 >
                     <i class="ri-settings-4-line"></i>
                     <span>Settings</span>
+                </button>
+
+                <button
+                    class="nav-item hidden"
+                    id="adminNavItem"
+                    data-page="admin"
+                    type="button"
+                >
+                    <i class="ri-shield-line"></i>
+                    <span>Admin</span>
+                </button>
+
+                <div class="nav-divider"></div>
+
+                <button
+                    class="nav-item login-item hidden"
+                    type="button"
+                    id="loginItem"
+                >
+                    <i class="ri-login-circle-line"></i>
+                    <span>Sign in</span>
+                </button>
+
+                <button
+                    class="nav-item logout-item"
+                    type="button"
+                    id="logoutItem"
+                >
+                    <i class="ri-logout-box-line"></i>
+                    <span>Logout</span>
                 </button>
 
             </nav>
@@ -266,13 +314,13 @@
 
                     <div class="user-profile">
 
-                        <div class="user-avatar">
+                        <div class="user-avatar" id="userAvatar">
                             DP
                         </div>
 
                         <div class="user-profile-text">
-                            <strong>Water Admin</strong>
-                            <span>Administrator</span>
+                            <strong id="userProfileName">Water Admin</strong>
+                            <span id="userProfileRole">Administrator</span>
                         </div>
 
                         <i class="ri-arrow-down-s-line"></i>
@@ -298,11 +346,10 @@
                     <div class="page-heading-row">
 
                         <div>
-                            <p class="page-eyebrow">OVERVIEW</p>
-                            <h2>Good day, welcome back.</h2>
+                            <p class="page-eyebrow">DASHBOARD</p>
+                            <h2>Water Quality Overview</h2>
                             <p class="page-description">
-                                Monitor your water quality and understand your
-                                environment in real time.
+                                Monitor live sensor readings and understand the current condition of your water.
                             </p>
                         </div>
 
@@ -899,67 +946,63 @@
 
 
                 <article class="content-card chatbot-card sensor-chatbot-card">
-
                     <div class="content-card-header">
-
                         <div class="chatbot-heading">
-
                             <div class="chatbot-icon sensor-chatbot-icon">
                                 <i class="ri-robot-2-line"></i>
                             </div>
-
                             <div>
-                                <h3>Water quality assistant</h3>
+                                <h3>Sensor Assistant</h3>
                                 <p>
-                                    Ask about live sensor readings and water quality.
+                                    Ask about your current temperature, pH, turbidity, and TDS readings.
                                 </p>
                             </div>
-
                         </div>
-
                         <button
                             class="chat-clear-button"
                             id="clearSensorChatButton"
                             type="button"
+                            aria-label="Clear sensor chat history"
                         >
                             <i class="ri-delete-bin-line"></i>
                             Clear
                         </button>
-
                     </div>
-
+                    <div
+                        class="chat-context-indicator"
+                        id="sensorChatContext"
+                    >
+                        <span class="context-dot offline"></span>
+                        <span class="context-label">Sensor reading unavailable</span>
+                    </div>
                     <div
                         class="chat-messages"
                         id="sensorChatMessages"
+                        role="log"
+                        aria-live="polite"
+                        aria-label="Sensor chat messages"
                     >
-
                         <div class="chat-message assistant-message">
-
                             <div class="chat-message-avatar">
                                 <i class="ri-sparkling-2-line"></i>
                             </div>
-
                             <div class="chat-message-bubble">
                                 Hello! I can help you understand your current
                                 water-quality readings. Ask me about pH,
                                 temperature, turbidity or TDS.
                             </div>
-
                         </div>
-
                     </div>
-
                     <form
                         class="chat-input-form"
                         id="sensorChatForm"
                     >
-
                         <textarea
                             id="sensorChatInput"
                             rows="1"
-                            placeholder="Ask about your water readings..."
+                            placeholder="Ask about pH, temperature, TDS, turbidity…"
+                            aria-label="Ask a question about sensor readings"
                         ></textarea>
-
                         <button
                             class="chat-send-button"
                             type="submit"
@@ -967,13 +1010,10 @@
                         >
                             <i class="ri-send-plane-2-fill"></i>
                         </button>
-
                     </form>
-
                     <p class="chat-input-hint">
-                        Press Enter to send. Use Shift + Enter for a new line.
+                        Press Enter to send &middot; Shift+Enter for a new line
                     </p>
-
                 </article>
 
                 </section>
@@ -1430,16 +1470,15 @@
                                 </div>
 
                                 <div>
-                                    <h3>Camera analysis assistant</h3>
+                                    <h3>Camera Analysis Assistant</h3>
                                     <p>
-                                        Ask questions about the latest camera
-                                        analysis.
+                                        Ask questions about the latest image analysis and detected conditions.
                                     </p>
                                 </div>
 
                             </div>
 
-                            <span class="chatbot-status">
+                            <span class="chatbot-status" id="cameraChatStatus">
                                 <span></span>
                                 Ready
                             </span>
@@ -1447,8 +1486,19 @@
                         </div>
 
                         <div
+                            class="chat-context-indicator"
+                            id="cameraChatContext"
+                        >
+                            <span class="context-dot offline"></span>
+                            <span class="context-label">No camera analysis available</span>
+                        </div>
+
+                        <div
                             class="chat-messages"
                             id="cameraChatMessages"
+                            role="log"
+                            aria-live="polite"
+                            aria-label="Camera chat messages"
                         >
 
                             <div class="chat-message assistant-message">
@@ -1474,7 +1524,8 @@
                             <textarea
                                 id="cameraChatInput"
                                 rows="1"
-                                placeholder="Ask about the camera analysis..."
+                                placeholder="Ask about the camera analysis…"
+                                aria-label="Ask a question about camera analysis"
                             ></textarea>
 
                             <button
@@ -1488,7 +1539,7 @@
                         </form>
 
                         <p class="chat-input-hint">
-                            Press Enter to send. Use Shift + Enter for a new line.
+                            Press Enter to send &middot; Shift+Enter for a new line
                         </p>
 
                     </article>
@@ -1877,6 +1928,69 @@
 
                             </div>
 
+                            <div class="device-token-panel">
+
+                                <button
+                                    class="secondary-button full-width"
+                                    id="btn-regenerate-device-token"
+                                    type="button"
+                                    disabled
+                                >
+                                    <i class="ri-refresh-line" aria-hidden="true"></i>
+                                    Regenerate Device Token
+                                </button>
+
+                                <p class="device-token-hint">
+                                    A new token replaces the current one immediately. Select a device first.
+                                </p>
+
+                                <p
+                                    class="device-token-status"
+                                    id="device-token-status"
+                                    role="status"
+                                    aria-live="polite"
+                                ></p>
+
+                            </div>
+
+                            <div
+                                class="device-token-result hidden"
+                                id="device-token-result"
+                            >
+
+                                <p class="device-token-warning">
+                                    <i class="ri-alert-line" aria-hidden="true"></i>
+                                    This token will not be shown again.
+                                </p>
+
+                                <code
+                                    class="device-token-value"
+                                    id="device-token-display"
+                                ></code>
+
+                                <div class="device-token-actions">
+
+                                    <button
+                                        class="primary-button"
+                                        id="btn-copy-device-token"
+                                        type="button"
+                                    >
+                                        <i class="ri-file-copy-line" aria-hidden="true"></i>
+                                        Copy Token
+                                    </button>
+
+                                    <button
+                                        class="text-button"
+                                        id="btn-close-device-token"
+                                        type="button"
+                                    >
+                                        Done
+                                    </button>
+
+                                </div>
+
+                            </div>
+
                         </article>
 
                     </div>
@@ -2085,10 +2199,418 @@
                     </div>
 
                 </section>
+<!-- =========================================
+                     REPORTS PAGE
+                ========================================== -->
+                <section
+                    class="page-section"
+                    id="page-reports"
+                    data-page-section="reports"
+                >
 
-            </div>
+                    <div class="page-heading-row">
 
-            <!-- Footer -->
+                        <div>
+                            <p class="page-eyebrow">WATER QUALITY REPORTS</p>
+                            <h2>Reports</h2>
+                            <p class="page-description">
+                                Review water-quality readings and summaries from your connected device.
+                            </p>
+                        </div>
+
+                    </div>
+
+                    <div class="reports-summary-grid">
+
+                        <article class="metric-highlight-card">
+                            <span class="metric-label">Latest reading</span>
+                            <strong id="reportsLatestTime">--</strong>
+                            <p id="reportsLatestDevice">No device data</p>
+                        </article>
+
+                        <article class="metric-highlight-card">
+                            <span class="metric-label">Total readings</span>
+                            <strong id="reportsTotalReadings">0</strong>
+                            <p>Available in current range</p>
+                        </article>
+
+                        <article class="metric-highlight-card">
+                            <span class="metric-label">Quality status</span>
+                            <strong id="reportsQualityStatus">--</strong>
+                            <p id="reportsQualityDescription">Waiting for data</p>
+                        </article>
+
+                        <article class="metric-highlight-card">
+                            <span class="metric-label">Device status</span>
+                            <strong id="reportsDeviceStatus">--</strong>
+                            <p id="reportsDeviceName">No device</p>
+                        </article>
+
+                    </div>
+
+                    <div class="reports-filter-bar">
+                        <span class="filter-label">Time range</span>
+                        <div class="time-filter-group" id="reportsTimeFilter">
+                            <button class="time-filter-btn" data-range="1H" type="button">1H</button>
+                            <button class="time-filter-btn" data-range="6H" type="button">6H</button>
+                            <button class="time-filter-btn active" data-range="24H" type="button">24H</button>
+                            <button class="time-filter-btn" data-range="7D" type="button">7D</button>
+                            <button class="time-filter-btn" data-range="30D" type="button">30D</button>
+                        </div>
+                    </div>
+
+<div class="report-content-grid">
+
+                        <article class="content-card report-summary-card">
+
+                            <div class="content-card-header">
+                                <div>
+                                    <h3>Sensor summary</h3>
+                                    <p>Latest values and units from the current range.</p>
+                                </div>
+                            </div>
+
+                            <div class="report-sensor-grid">
+
+                                <div class="report-sensor-item">
+                                    <span class="report-sensor-label">
+                                        <i class="ri-temp-hot-line"></i> Temperature
+                                    </span>
+                                    <span class="report-sensor-value" id="reportsTemperature">-- °C</span>
+                                    <span class="report-sensor-status" id="reportsTemperatureStatus">--</span>
+                                </div>
+
+                                <div class="report-sensor-item">
+                                    <span class="report-sensor-label">
+                                        <i class="ri-test-tube-line"></i> pH Level
+                                    </span>
+                                    <span class="report-sensor-value" id="reportsPh">-- pH</span>
+                                    <span class="report-sensor-status" id="reportsPhStatus">--</span>
+                                </div>
+
+                                <div class="report-sensor-item">
+                                    <span class="report-sensor-label">
+                                        <i class="ri-contrast-drop-2-line"></i> Turbidity
+                                    </span>
+                                    <span class="report-sensor-value" id="reportsTurbidity">-- NTU</span>
+                                    <span class="report-sensor-status" id="reportsTurbidityStatus">--</span>
+                                </div>
+
+                                <div class="report-sensor-item">
+                                    <span class="report-sensor-label">
+                                        <i class="ri-flask-line"></i> TDS
+                                    </span>
+                                    <span class="report-sensor-value" id="reportsTds">-- mg/L</span>
+                                    <span class="report-sensor-status" id="reportsTdsStatus">--</span>
+                                </div>
+
+                            </div>
+
+                        </article>
+
+                        <div class="report-empty-state" id="reportsEmptyState">
+                            <i class="ri-inbox-2-line"></i>
+                            <strong>No readings yet</strong>
+                            <p>Sensor readings will appear here after the device synchronises data with the backend.</p>
+                        </div>
+
+                        <div class="report-table-wrapper hidden" id="reportsTableWrapper">
+
+                            <table class="readings-table" id="reportsReadingsTable">
+                                <caption>Recent readings in selected time range</caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">ID</th>
+                                        <th scope="col">Device</th>
+                                        <th scope="col">Temp (&deg;C)</th>
+                                        <th scope="col">pH</th>
+                                        <th scope="col">Turbidity (NTU)</th>
+                                        <th scope="col">TDS (mg/L)</th>
+                                        <th scope="col">Recorded</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="reportsReadingsBody"></tbody>
+                            </table>
+
+                        </div>
+
+                    </div>
+
+                </section>
+<!-- =========================================
+                     PROFILE PAGE
+                ========================================== -->
+                <section
+                    class="page-section"
+                    id="page-profile"
+                    data-page-section="profile"
+                >
+
+                    <div class="page-heading-row">
+
+                        <div>
+                            <p class="page-eyebrow">USER PREFERENCES</p>
+                            <h2>Profile</h2>
+                            <p class="page-description">
+                                View local monitoring preferences and application information.
+                            </p>
+                        </div>
+
+                    </div>
+
+                    <div class="profile-card-grid">
+
+                        <article class="profile-card">
+
+                            <div class="profile-avatar">
+                                <span id="profileInitials">AU</span>
+                            </div>
+
+                            <div class="profile-details">
+                                <strong id="profileDisplayName">Aqua AI User</strong>
+                                <span id="profileDisplayRole">Water Quality Monitoring User</span>
+                            </div>
+
+                        </article>
+
+                        <div class="profile-preferences-grid">
+
+                            <div class="metric-info-card">
+                                <span class="metric-label">Connected device</span>
+                                <strong id="profileDeviceName">No device</strong>
+                                <span id="profileDeviceStatus">Offline</span>
+                            </div>
+
+                            <div class="metric-info-card">
+                                <span class="metric-label">Auto-refresh</span>
+                                <strong id="profileRefreshStatus">Inactive</strong>
+                                <span>15-second interval</span>
+                            </div>
+
+                            <div class="metric-info-card">
+                                <span class="metric-label">Dashboard range</span>
+                                <strong id="profileDashboardRange">24H</strong>
+                                <span>Current time range</span>
+                            </div>
+
+                            <div class="metric-info-card">
+                                <span class="metric-label">Backend status</span>
+                                <strong id="profileBackendStatus">Offline</strong>
+                                <span id="profileBackendUrl">http://127.0.0.1:8001</span>
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    <div class="profile-section-divider">
+                        <hr>
+                        <span>Quick navigation</span>
+                    </div>
+
+                    <div class="profile-quick-grid">
+
+                        <button class="nav-card-button" data-page="device" type="button">
+                            <i class="ri-hardware-2-line"></i>
+                            <strong>Device monitoring</strong>
+                            <span>Manage connected devices</span>
+                        </button>
+
+                        <button class="nav-card-button" data-page="settings" type="button">
+                            <i class="ri-settings-4-line"></i>
+                            <strong>Sensor settings</strong>
+                            <span>Configure preferences</span>
+                        </button>
+
+                        <button class="nav-card-button" data-page="camera" type="button">
+                            <i class="ri-camera-3-line"></i>
+                            <strong>AI Camera</strong>
+                            <span>Analyse water visually</span>
+                        </button>
+
+                        <button class="nav-card-button" data-page="temperature" type="button">
+                            <i class="ri-temp-hot-line"></i>
+                            <strong>Temperature</strong>
+                            <span>View sensor details</span>
+                        </button>
+
+                    </div>
+
+                    <div class="profile-info-card">
+                        <div class="info-card-row">
+                            <span class="info-label">Application</span>
+                            <span id="profileAppVersion">Aqua AI v1.0.0</span>
+                        </div>
+                        <div class="info-card-row">
+                            <span class="info-label">Frontend mode</span>
+                            <span>Public dashboard</span>
+                        </div>
+                        <div class="info-card-row">
+                            <span class="info-label">Data source</span>
+                            <span id="profileDataSource">Connected backend</span>
+                        </div>
+                        <div class="info-card-row">
+                            <span class="info-label">ESP32 integration</span>
+                            <span>Planned</span>
+                        </div>
+                    </div>
+
+                </section>
+
+                <!-- =========================================
+                     ADMIN PAGE
+                ========================================== -->
+                <section
+                    class="page-section hidden"
+                    id="page-admin"
+                    data-page-section="admin"
+                >
+
+                    <div class="page-heading-row">
+
+                        <div>
+                            <p class="page-eyebrow">ADMINISTRATION</p>
+                            <h2>Admin Dashboard</h2>
+                            <p class="page-description">
+                                Manage registered users and monitor platform
+                                activity. Administrator access only.
+                            </p>
+                        </div>
+
+                        <div class="page-heading-actions">
+
+                            <button
+                                class="primary-button"
+                                id="adminRefreshButton"
+                                type="button"
+                            >
+                                <i class="ri-refresh-line"></i>
+                                Refresh
+                            </button>
+
+                        </div>
+
+                    </div>
+
+                    <!-- Admin stats overview -->
+                    <div class="dashboard-summary-grid">
+
+                        <article class="summary-card">
+
+                            <div class="summary-card-header">
+
+                                <div>
+                                    <span class="summary-label">Users</span>
+                                    <h3 id="adminUsersCount">--</h3>
+                                </div>
+
+                                <div class="summary-icon users-icon">
+                                    <i class="ri-user-line"></i>
+                                </div>
+
+                            </div>
+
+                            <div class="admin-stats-content">
+
+                                <div class="stat-row">
+                                    <span>Active users:</span>
+                                    <strong id="adminActiveUsers">--</strong>
+                                </div>
+
+                                <div class="stat-row">
+                                    <span>Disabled users:</span>
+                                    <strong id="adminDisabledUsers">--</strong>
+                                </div>
+
+                                <div class="stat-row">
+                                    <span>Administrators:</span>
+                                    <strong id="adminAdminUsers">--</strong>
+                                </div>
+
+                                <div class="stat-row">
+                                    <span>Active sessions:</span>
+                                    <strong id="adminActiveSessions">--</strong>
+                                </div>
+
+                            </div>
+
+                        </article>
+
+                        <article class="summary-card">
+
+                            <div class="summary-card-header">
+
+                                <div>
+                                    <span class="summary-label">Devices</span>
+                                    <h3 id="adminDevicesCount">--</h3>
+                                </div>
+
+                                <div class="summary-icon devices-icon">
+                                    <i class="ri-cpu-line"></i>
+                                </div>
+
+                            </div>
+
+                            <div class="admin-stats-content">
+
+                                <div class="stat-row">
+                                    <span>Online (15m):</span>
+                                    <strong id="adminOnlineDevices">--</strong>
+                                </div>
+
+                                <div class="stat-row">
+                                    <span>Total readings:</span>
+                                    <strong id="adminTotalReadings">--</strong>
+                                </div>
+
+                                <div class="stat-row">
+                                    <span>Camera predictions:</span>
+                                    <strong id="adminTotalPredictions">--</strong>
+                                </div>
+
+                            </div>
+
+                        </article>
+
+                    </div>
+
+                    <!-- Admin users management -->
+                    <article class="content-card">
+
+                        <div class="content-card-header">
+                            <div>
+                                <h3>User Management</h3>
+                                <p>View and manage registered user accounts.</p>
+                            </div>
+                        </div>
+
+                        <div class="admin-users-table-container">
+                            <table class="admin-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Username</th>
+                                        <th>Full Name</th>
+                                        <th>Email</th>
+                                        <th>Role</th>
+                                        <th>Status</th>
+                                        <th>Created</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adminUsersTableBody">
+                                    <tr>
+                                        <td colspan="8">Loading users...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                    </article>
+
+                </section>
+
+<!-- Footer -->
             <footer class="main-footer">
 
                 <div>
@@ -2102,11 +2624,13 @@
 
             </footer>
 
+            </div>
+
         </main>
 
     </div>
 
-    <!-- Add-device modal -->
+        <!-- Add-device modal -->
     <div
         class="modal-backdrop hidden"
         id="addDeviceModal"
@@ -2194,6 +2718,142 @@
         </div>
 
     </div>
+
+    <!-- Login modal -->
+    <div
+        class="modal-backdrop hidden"
+        id="loginModal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="loginModalTitle"
+    >
+
+        <div class="modal-card login-modal-card">
+
+            <div class="modal-header">
+
+                <div>
+                    <p class="page-eyebrow" id="authEyebrow">SECURE ACCESS</p>
+                    <h3 id="loginModalTitle">Admin Login</h3>
+                </div>
+
+                <button
+                    class="modal-close-button"
+                    id="closeLoginModal"
+                    type="button"
+                    aria-label="Close login dialog"
+                >
+                    <i class="ri-close-line"></i>
+                </button>
+
+            </div>
+
+            <form id="loginForm" class="settings-form" novalidate>
+
+                <div class="login-error hidden" id="loginError"></div>
+
+                <div id="registerExtraFields" class="hidden">
+
+                    <label for="registerFullName">Full name</label>
+                    <input
+                        type="text"
+                        id="registerFullName"
+                        autocomplete="name"
+                        placeholder="Your name"
+                    >
+
+                    <label for="registerEmail">Email (optional)</label>
+                    <input
+                        type="email"
+                        id="registerEmail"
+                        autocomplete="email"
+                        placeholder="you@example.com"
+                    >
+
+                </div>
+
+                <label for="loginUsername">
+                    Username
+                </label>
+
+                <input
+                    type="text"
+                    id="loginUsername"
+                    required
+                    autocomplete="username"
+                    placeholder="admin"
+                >
+
+                <label for="loginPassword">
+                    Password
+                </label>
+
+                <input
+                    type="password"
+                    id="loginPassword"
+                    required
+                    autocomplete="current-password"
+                    placeholder="Enter admin password"
+                >
+
+                <div id="registerConfirmField" class="hidden">
+                    <label for="registerConfirmPassword">
+                        Confirm password
+                    </label>
+                    <input
+                        type="password"
+                        id="registerConfirmPassword"
+                        autocomplete="new-password"
+                        placeholder="Re-enter password"
+                    >
+                </div>
+
+                <div class="login-form-options">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="rememberMe" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="login-remember-label">
+                        Remember me
+                    </span>
+                </div>
+
+                <div class="modal-actions">
+
+                    <button
+                        class="secondary-button"
+                        id="cancelLoginButton"
+                        type="button"
+                    >
+                        Cancel
+                    </button>
+
+                    <button
+                        class="primary-button"
+                        id="submitLoginButton"
+                        type="submit"
+                    >
+                        <i class="ri-login-circle-line"></i>
+                        Sign in
+                    </button>
+
+                </div>
+
+                <div class="login-auth-switch">
+                    <p class="hidden" id="loginSwitchText">
+                        New here? <button type="button" id="toggleAuthMode" class="link-button">Create an account</button>
+                    </p>
+                    <p class="hidden" id="registerSwitchText">
+                        Already have an account? <button type="button" id="toggleAuthMode2" class="link-button">Sign in</button>
+                    </p>
+                </div>
+
+            </form>
+
+        </div>
+
+    </div>
+
 
     <!-- Toast notification -->
     <div

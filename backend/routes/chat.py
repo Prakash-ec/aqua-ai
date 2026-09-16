@@ -9,6 +9,11 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models import Device, WaterReading
+from backend.routes.auth import (
+    get_current_session,
+    require_device_access,
+    scoped_reading_query,
+)
 from backend.services.ai_provider import ask_ai
 from backend.services.water_quality import calculate_water_quality
 
@@ -402,15 +407,14 @@ def build_quality_context(
 )
 def chat_water(
     request: ChatRequest,
+    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
     """
-    Answer water-quality questions.
+    Answer water-quality questions for the caller's own devices.
 
-    The route first handles:
-    1. Definition questions
-    2. Direct database sensor questions
-    3. Quality-related and general questions through AI
+    Admins may query any device. Normal users are restricted to their
+    own devices and receive HTTP 404 for foreign ones.
     """
 
     question = request.question.strip()
@@ -423,12 +427,14 @@ def chat_water(
 
     try:
         # =====================================================
-        # GET LATEST READING
+        # GET LATEST READING (OWNER-SCOPED)
         # =====================================================
 
-        reading_query = db.query(WaterReading)
+        reading_query = scoped_reading_query(session, db)
 
         if request.device_id is not None:
+            require_device_access(db, session, request.device_id)
+
             reading_query = reading_query.filter(
                 WaterReading.device_id == request.device_id
             )
@@ -506,10 +512,10 @@ def chat_water(
             }
 
         # =====================================================
-        # GET RECENT READINGS
+        # GET RECENT READINGS (OWNER-SCOPED)
         # =====================================================
 
-        recent_query = db.query(WaterReading)
+        recent_query = scoped_reading_query(session, db)
 
         if request.device_id is not None:
             recent_query = recent_query.filter(

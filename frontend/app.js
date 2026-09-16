@@ -39,6 +39,14 @@ let trendParameter = "quality";
 let chatHistory = [];
 let cameraChatHistory = [];
 
+let isAuthenticated = false;
+let currentUser = null;
+let authMode = "login"; // "login" | "register"
+
+const AUTH_CHECK_INTERVAL = 30000; // 30 seconds
+let authCheckTimer = null;
+
+
 const $ = (id) => document.getElementById(id);
 
 const query = (selector) => document.querySelector(selector);
@@ -152,16 +160,19 @@ function setConnectionStatus(online, message = "") {
 async function apiRequest(path, options = {}) {
     const url = `${getApiBaseUrl()}${path}`;
 
-    const response = await fetch(url, {
-        ...options,
-        headers: {
-            Accept: "application/json",
-            ...(options.body instanceof FormData
-                ? {}
-                : { "Content-Type": "application/json" }),
-            ...(options.headers || {})
+    const response = await fetch(url,
+        {
+            ...options,
+            credentials: "include", // Always send cookies for authentication
+            headers: {
+                Accept: "application/json",
+                ...(options.body instanceof FormData
+                    ? {}
+                    : { "Content-Type": "application/json" }),
+                ...(options.headers || {})
+            }
         }
-    });
+    );
 
     let data = null;
 
@@ -182,6 +193,231 @@ async function apiRequest(path, options = {}) {
 
     return data;
 }
+
+/* =========================================================
+   AUTHENTICATION
+   ========================================================= */
+
+async function checkAuth() {
+    try {
+        const data = await apiRequest("/auth/check");
+        isAuthenticated = data && data.authenticated === true;
+        return isAuthenticated;
+    } catch (error) {
+        isAuthenticated = false;
+        return false;
+    }
+}
+
+async function fetchCurrentUser() {
+    try {
+        currentUser = await apiRequest("/auth/me");
+        return currentUser;
+    } catch {
+        currentUser = null;
+        return null;
+    }
+}
+
+async function performLogin(username, password, rememberMe = false) {
+    const response = await fetch(`${getApiBaseUrl()}/auth/login`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+        },
+        body: JSON.stringify({ username, password, remember_me: rememberMe }),
+        credentials: "include",
+    });
+
+    let data = null;
+    try {
+        data = await response.json();
+    } catch {
+        data = null;
+    }
+
+    if (!response.ok) {
+        const detail =
+            data?.detail ||
+            data?.message ||
+            `Login failed with status ${response.status}`;
+        throw new Error(detail);
+    }
+
+    isAuthenticated = true;
+    currentUser = data;
+    return data;
+}
+
+async function performRegister(payload) {
+    const response = await fetch(`${getApiBaseUrl()}/auth/register`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
+        credentials: "include",
+    });
+
+    let data = null;
+    try {
+        data = await response.json();
+    } catch {
+        data = null;
+    }
+
+    if (!response.ok) {
+        const detail =
+            data?.detail ||
+            data?.message ||
+            `Registration failed with status ${response.status}`;
+        throw new Error(detail);
+    }
+
+    return data;
+}
+
+let logoutInProgress = false;
+
+async function performLogout() {
+    // Prevent duplicate logout requests
+    if (logoutInProgress) {
+        return;
+    }
+    logoutInProgress = true;
+
+    try {
+        const response = await fetch(`${getApiBaseUrl()}/auth/logout`, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+                Accept: "application/json",
+            },
+        });
+
+        // Accept 200 (success), 401 (already logged out), and treat them the same.
+        // Only throw for unexpected server errors (500) but still clear client state.
+        if (response.status === 500) {
+            console.error("Logout server error:", response.status);
+        }
+    } catch (error) {
+        // Network error or server unreachable — still clear client-side state
+        console.error("Logout request failed:", error);
+    } finally {
+        logoutInProgress = false;
+    }
+
+    // Always clear client-side auth state regardless of backend response
+    isAuthenticated = false;
+    currentUser = null;
+    clearUserState();
+
+    // Clear any client-side session UI
+    updateUserInterface();
+
+    // Force the protected-route view and require sign-in again.
+    navigateTo("dashboard");
+    openLoginModal("Signed out. Please sign in to continue.");
+}
+
+function openLoginModal(errorMessage) {
+    const modal = $("loginModal");
+    const errorEl = $("loginError");
+
+    if (!modal) return;
+
+    if (errorMessage) {
+        if (errorEl) {
+            errorEl.classList.remove("hidden");
+            errorEl.innerHTML =
+                '<i class="ri-error-warning-line"></i>' +
+                escapeHtml(errorMessage);
+        }
+    } else if (errorEl) {
+        errorEl.classList.add("hidden");
+        errorEl.innerHTML = "";
+    }
+
+    modal.classList.remove("hidden");
+    $("loginUsername")?.focus();
+}
+
+function closeLoginModal() {
+    const modal = $("loginModal");
+    const errorEl = $("loginError");
+
+    if (!modal) return;
+
+    modal.classList.add("hidden");
+    if (errorEl) {
+        errorEl.classList.add("hidden");
+        errorEl.innerHTML = "";
+    }
+
+    $("loginForm")?.reset();
+}
+
+function updateUserInterface() {
+    const usernameEl = $("userProfileName");
+    const roleEl = $("userProfileRole");
+    const avatarEl = $("userAvatar");
+    const logoutItem = $("logoutItem");
+    const loginItem = $("loginItem");
+    const adminNavItem = $("adminNavItem");
+
+    const isAdmin =
+        isAuthenticated && currentUser && currentUser.is_admin === true;
+
+    if (adminNavItem) {
+        adminNavItem.classList.toggle("hidden", !isAdmin);
+    }
+
+    if (isAuthenticated && currentUser) {
+        if (usernameEl) {
+            usernameEl.textContent = currentUser.full_name || currentUser.username;
+        }
+        if (roleEl) {
+            roleEl.textContent = currentUser.is_admin ? "Administrator" : "User";
+        }
+        if (avatarEl) {
+            const initials = (currentUser.full_name || currentUser.username)
+                .split(/\s+/)
+                .slice(0, 2)
+                .map((part) => (part && part[0] ? part[0].toUpperCase() : ""))
+                .join("")
+                .slice(0, 2) || "?";
+            avatarEl.textContent = initials;
+        }
+        if (logoutItem) {
+            logoutItem.classList.remove("hidden");
+        }
+        if (loginItem) {
+            loginItem.classList.add("hidden");
+        }
+    } else {
+        if (usernameEl) {
+            usernameEl.textContent = "Guest";
+        }
+        if (roleEl) {
+            roleEl.textContent = "Not signed in";
+        }
+        if (avatarEl) {
+            avatarEl.textContent = "GU";
+        }
+        if (logoutItem) {
+            logoutItem.classList.add("hidden");
+        }
+        if (loginItem) {
+            loginItem.classList.remove("hidden");
+        }
+    }
+}
+
+/* =========================================================
+   API REQUEST
+   ========================================================= */
 
 function getReadingValue(reading, ...keys) {
     for (const key of keys) {
@@ -365,6 +601,17 @@ function populateDeviceInformation(devices) {
     setText("selectedDeviceId", device.id, "--");
     setText("deviceId", device.id, "--");
 
+    // Selecting a device unlocks token regeneration. Any token that was
+    // displayed for a different device is cleared immediately.
+    const regenerateButton = $("btn-regenerate-device-token");
+
+    if (regenerateButton) {
+        regenerateButton.disabled = !(device && device.id);
+    }
+
+    hideDeviceTokenResult();
+    setDeviceTokenStatus("");
+
     const deviceStatusDot = $("deviceStatusDot");
     const isActive = device.is_active !== false;
 
@@ -381,7 +628,6 @@ function populateDeviceInformation(devices) {
         deviceBadge.textContent = isActive ? "ACTIVE" : "INACTIVE";
 
         deviceBadge.classList.remove("safe", "watch", "alert", "unknown");
-
         if (isActive) {
             deviceBadge.classList.add("safe");
         } else {
@@ -405,15 +651,278 @@ function populateDeviceInformation(devices) {
         if (select.options.length === 0) {
             devices.forEach((item) => {
                 const option = document.createElement("option");
-
                 option.value = item.id;
                 option.textContent =
                     item.name || `Device ${item.id}`;
-
                 select.appendChild(option);
             });
         }
     });
+}
+
+/* =========================================================
+   DEVICE TOKEN REGENERATION
+   The plaintext token is only ever held in memory for the
+   current click. It is never written to localStorage,
+   sessionStorage or cookies.
+========================================================= */
+
+function setDeviceTokenStatus(message, isError = false) {
+    const status = $("device-token-status");
+
+    if (!status) {
+        return;
+    }
+
+    status.textContent = message || "";
+    status.classList.toggle("error", Boolean(isError));
+}
+
+function hideDeviceTokenResult() {
+    const result = $("device-token-result");
+    const display = $("device-token-display");
+
+    if (display) {
+        display.textContent = "";
+    }
+
+    if (result) {
+        result.classList.add("hidden");
+    }
+}
+
+async function copyDeviceToken() {
+    const display = $("device-token-display");
+    const token = display ? display.textContent.trim() : "";
+
+    if (!token) {
+        setDeviceTokenStatus("Generate a token first, then copy it.", true);
+        return;
+    }
+
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(token);
+        } else {
+            const helper = document.createElement("textarea");
+            helper.value = token;
+            helper.setAttribute("readonly", "readonly");
+            helper.style.position = "fixed";
+            helper.style.top = "0";
+            helper.style.opacity = "0";
+            document.body.appendChild(helper);
+            helper.select();
+            document.execCommand("copy");
+            document.body.removeChild(helper);
+        }
+
+        setDeviceTokenStatus("Token copied to the clipboard.");
+    } catch (error) {
+        setDeviceTokenStatus(
+            "Copy failed. Select the token text and copy it manually.",
+            true
+        );
+    }
+}
+
+async function regenerateDeviceToken() {
+    const button = $("btn-regenerate-device-token");
+    const device = latestDevice;
+    const deviceId = device ? device.id : null;
+
+    if (!deviceId) {
+        setDeviceTokenStatus("Select a device before regenerating its token.", true);
+        return;
+    }
+
+    const confirmed = window.confirm(
+        "Regenerating the token will invalidate the current device token. Continue?"
+    );
+
+    if (!confirmed) {
+        return;
+    }
+
+    if (button) {
+        button.disabled = true;
+    }
+
+    hideDeviceTokenResult();
+    setDeviceTokenStatus(`Generating a new token for device #${deviceId}…`);
+
+    try {
+        const data = await apiRequest(
+            `/devices/${encodeURIComponent(deviceId)}/regenerate-token`,
+            { method: "POST" }
+        );
+
+        if (data && data.success === false) {
+            throw new Error(
+                data.message || "The device token could not be regenerated."
+            );
+        }
+
+        const token = (data && (data.device_token || data.token)) || "";
+
+        if (!token) {
+            throw new Error("The server did not return a device token.");
+        }
+
+        const result = $("device-token-result");
+        const display = $("device-token-display");
+
+        if (display) {
+            display.textContent = token;
+        }
+
+        if (result) {
+            result.classList.remove("hidden");
+        }
+
+        setDeviceTokenStatus(
+            `New token generated for device #${deviceId}. Copy it now.`
+        );
+    } catch (error) {
+        hideDeviceTokenResult();
+        setDeviceTokenStatus(
+            error && error.message
+                ? error.message
+                : "Could not regenerate the device token. Please try again.",
+            true
+        );
+    } finally {
+        if (button) {
+            button.disabled = !latestDevice;
+        }
+    }
+}
+
+function setupDeviceToken() {
+    $("btn-regenerate-device-token")?.addEventListener(
+        "click",
+        regenerateDeviceToken
+    );
+    $("btn-copy-device-token")?.addEventListener("click", copyDeviceToken);
+    $("btn-close-device-token")?.addEventListener("click", () => {
+        hideDeviceTokenResult();
+        setDeviceTokenStatus("");
+    });
+}
+
+async function setupAuth() {
+    // Toggle between Login and Register modes
+    function setAuthMode(mode) {
+        authMode = mode;
+        const isReg = mode === "register";
+        $("registerExtraFields")?.classList.toggle("hidden", !isReg);
+        $("registerConfirmField")?.classList.toggle("hidden", !isReg);
+        $("loginSwitchText")?.classList.toggle("hidden", isReg);
+        $("registerSwitchText")?.classList.toggle("hidden", !isReg);
+        const title = $("loginModalTitle");
+        const eyebrow = $("authEyebrow");
+        if (title) title.textContent = isReg ? "Create Account" : "Sign In";
+        if (eyebrow) eyebrow.textContent = isReg ? "NEW ACCOUNT" : "SECURE ACCESS";
+        if (submitButton) {
+            submitButton.innerHTML = isReg
+                ? '<i class="ri-user-add-line"></i> Create account'
+                : '<i class="ri-login-circle-line"></i> Sign in';
+        }
+    }
+
+    $("toggleAuthMode")?.addEventListener("click", () => setAuthMode("register"));
+    $("toggleAuthMode2")?.addEventListener("click", () => setAuthMode("login"));
+
+    // Login form submission
+    const loginForm = $("loginForm");
+    const submitButton = $("submitLoginButton");
+
+    if (loginForm) {
+        loginForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            if (!submitButton) return;
+
+            submitButton.disabled = true;
+
+            const username = $("loginUsername")?.value.trim() || "";
+            const password = $("loginPassword")?.value || "";
+            const rememberMe = $("rememberMe")?.checked || false;
+
+            try {
+                if (authMode === "register") {
+                    const fullName = $("registerFullName")?.value.trim() || "";
+                    const email = $("registerEmail")?.value.trim() || "";
+                    const confirm = $("registerConfirmPassword")?.value || "";
+                    await performRegister({
+                        full_name: fullName,
+                        email: email || null,
+                        username,
+                        password,
+                        confirm_password: confirm,
+                    });
+                    showToast(
+                        "Account created. Please sign in.",
+                        "success"
+                    );
+                    // Switch back to login mode, keep username prefilled.
+                    setAuthMode("login");
+                    const errorEl = $("loginError");
+                    if (errorEl) {
+                        errorEl.classList.add("hidden");
+                        errorEl.innerHTML = "";
+                    }
+                    submitButton.disabled = false;
+                    return;
+                }
+
+                await performLogin(username, password, rememberMe);
+                closeLoginModal();
+                showToast("Signed in successfully", "success");
+                updateUserInterface();
+                refreshDashboard();
+            } catch (error) {
+                showToast(error.message, "error");
+                if (authMode === "register") {
+                    const errorEl = $("loginError");
+                    if (errorEl) {
+                        errorEl.classList.remove("hidden");
+                        errorEl.innerHTML =
+                            '<i class="ri-error-warning-line"></i>' +
+                            escapeHtml(error.message);
+                    }
+                } else {
+                    openLoginModal(error.message);
+                }
+            } finally {
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    setAuthMode(authMode);
+                }
+            }
+        });
+    }
+
+    // Close login modal buttons
+    $("closeLoginModal")?.addEventListener("click", closeLoginModal);
+    $("cancelLoginButton")?.addEventListener("click", closeLoginModal);
+
+    // Login button
+    const loginBtn = $("loginItem");
+    if (loginBtn) {
+        loginBtn.addEventListener("click", () => {
+            openLoginModal();
+        });
+    }
+
+    // Logout button
+    const logoutBtn = $("logoutItem");
+    if (logoutBtn) {
+        logoutBtn.addEventListener("click", async () => {
+            await performLogout();
+            showToast("Signed out successfully", "success");
+            navigateTo("dashboard");
+        });
+    }
 }
 
 async function loadLatestReading() {
@@ -524,6 +1033,9 @@ async function refreshDashboard() {
         await loadLatestReading();
         await loadAllReadings();
         updateLastRefreshTime();
+        updateChatContextIndicators();
+        setupReports();
+        setupProfile();
     } finally {
         refreshButtons.forEach((button) => {
             button.disabled = false;
@@ -845,6 +1357,67 @@ function filterReadingsByRange(readings, range) {
     return filtered.length > 0 ? filtered : readings.slice(0, 20);
 }
 
+/**
+ * Sort readings chronologically (oldest → newest) by their actual
+ * timestamp so every chart plots real time positions regardless of
+ * the order the API returned. Readings without a valid timestamp are
+ * placed last and still plotted in sequence (no time is invented).
+ */
+function sortReadingsChronologically(readings) {
+    if (!Array.isArray(readings)) {
+        return [];
+    }
+
+    return readings
+        .map((reading, index) => ({
+            reading,
+            index,
+            time: reading.recorded_at ? new Date(reading.recorded_at).getTime() : NaN
+        }))
+        .sort((a, b) => {
+            const aValid = !Number.isNaN(a.time);
+            const bValid = !Number.isNaN(b.time);
+
+            if (aValid && bValid) {
+                return a.time - b.time;
+            }
+
+            if (aValid !== bValid) {
+                return aValid ? -1 : 1;
+            }
+
+            return a.index - b.index;
+        })
+        .map((item) => item.reading);
+}
+/**
+ * Format a timestamp for chart axis labels / tooltips using the real
+ * reading time (never an invented one).
+ */
+function formatChartTime(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+        return "--";
+    }
+
+    const sameDay =
+        date.toDateString() === new Date().toDateString();
+
+    return date.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        ...(sameDay ? {} : {}),
+        hour: "2-digit",
+        minute: "2-digit"
+    });
+}
+
+const CHART_UNITS = {
+    temperature: "°C",
+    ph: "pH",
+    turbidity: "NTU",
+    tds: "mg/L"
+};
+
 function drawTrendChart(readings = readingsCache) {
     const container =
         $("trendChart") ||
@@ -892,9 +1465,9 @@ function renderCanvasChart(canvas, readings) {
         return;
     }
 
-    const filtered = filterReadingsByRange(readings, currentRange)
-        .slice()
-        .reverse();
+    const filtered = sortReadingsChronologically(
+        filterReadingsByRange(readings, currentRange)
+    );
 
     const width = canvas.clientWidth || 700;
     const height = 270;
@@ -929,31 +1502,56 @@ function renderCanvasChart(canvas, readings) {
     context.strokeStyle = "#e5eaf1";
     context.lineWidth = 1;
 
-    for (let index = 0; index <= 4; index += 1) {
-        const y = padding.top + (chartHeight / 4) * index;
+    // Timestamps for time-proportional X positions. Readings without a
+    // valid timestamp keep their sequence position (no time is invented).
+    const times = filtered.map((reading) =>
+        reading.recorded_at ? new Date(reading.recorded_at).getTime() : NaN
+    );
+    const validTimes = times.filter((time) => !Number.isNaN(time));
+    const useTimeScale = validTimes.length >= 2;
+    const timeMin = useTimeScale ? Math.min(...validTimes) : 0;
+    const timeMax = useTimeScale
+        ? Math.max(...validTimes, timeMin + 1)
+        : 1;
 
-        context.beginPath();
-        context.moveTo(padding.left, y);
-        context.lineTo(width - padding.right, y);
-        context.stroke();
+    function xForIndex(index) {
+        if (filtered.length === 1) {
+            return padding.left + chartWidth / 2;
+        }
 
-        context.fillText(
-            `${100 - index * 25}`,
-            12,
-            y + 4
+        if (useTimeScale && !Number.isNaN(times[index])) {
+            return (
+                padding.left +
+                ((times[index] - timeMin) / (timeMax - timeMin)) *
+                    chartWidth
+            );
+        }
+
+        return (
+            padding.left + (index / (filtered.length - 1)) * chartWidth
         );
     }
 
-    if (filtered.length === 0) {
-        context.fillStyle = "#718096";
-        context.textAlign = "center";
-        context.fillText(
-            "No readings available",
-            width / 2,
-            height / 2
-        );
-        context.textAlign = "left";
-        return;
+    // X-axis time labels at ~4 evenly spaced ticks (only when time-scaled).
+    if (useTimeScale && filtered.length > 1) {
+        const tickCount = Math.min(4, filtered.length - 1);
+
+        for (let tick = 0; tick <= tickCount; tick += 1) {
+            const time =
+                timeMin + ((timeMax - timeMin) / tickCount) * tick;
+            const label = formatChartTime(new Date(time));
+            const labelWidth = context.measureText(label).width;
+            let x =
+                padding.left +
+                (chartWidth * tick) / tickCount;
+
+            x = Math.min(
+                Math.max(x, padding.left + labelWidth / 2),
+                width - padding.right - labelWidth / 2
+            );
+
+            context.fillText(label, x - labelWidth / 2, height - 8);
+        }
     }
 
     const series = [
@@ -979,6 +1577,8 @@ function renderCanvasChart(canvas, readings) {
         }
     ];
 
+    // Compute the real value scale from actual readings so the Y axis
+    // reflects true data instead of a fixed 0–100 range.
     const values = [];
 
     filtered.forEach((reading) => {
@@ -1004,6 +1604,38 @@ function renderCanvasChart(canvas, readings) {
     minimum -= margin;
     maximum += margin;
 
+    for (let index = 0; index <= 4; index += 1) {
+        const y = padding.top + (chartHeight / 4) * index;
+
+        context.beginPath();
+        context.moveTo(padding.left, y);
+        context.lineTo(width - padding.right, y);
+        context.stroke();
+
+        // Label from the computed scale (top = max, bottom = min).
+        const scaleValue = maximum - ((maximum - minimum) / 4) * index;
+
+        context.fillText(
+            Number.isInteger(scaleValue)
+                ? String(scaleValue)
+                : scaleValue.toFixed(1),
+            12,
+            y + 4
+        );
+    }
+
+    if (filtered.length === 0) {
+        context.fillStyle = "#718096";
+        context.textAlign = "center";
+        context.fillText(
+            "No readings available",
+            width / 2,
+            height / 2
+        );
+        context.textAlign = "left";
+        return;
+    }
+
     series.forEach((item) => {
         const points = filtered
             .map((reading, index) => {
@@ -1013,12 +1645,7 @@ function renderCanvasChart(canvas, readings) {
                     return null;
                 }
 
-                const x =
-                    filtered.length === 1
-                        ? padding.left + chartWidth / 2
-                        : padding.left +
-                          (index / (filtered.length - 1)) *
-                              chartWidth;
+                const x = xForReading(reading);
 
                 const y =
                     padding.top +
@@ -1075,7 +1702,9 @@ function renderCanvasChart(canvas, readings) {
 }
 
 function renderSvgChart(svg, readings) {
-    const filtered = filterReadingsByRange(readings, currentRange).slice();
+    const filtered = sortReadingsChronologically(
+        filterReadingsByRange(readings, currentRange)
+    );
 
     const line = $("historyChartLine");
     const area = $("historyChartArea");
@@ -1210,7 +1839,9 @@ function trendsParameterTitle(parameter) {
 }
 
 function renderDivChart(container, readings) {
-    const filtered = filterReadingsByRange(readings, currentRange).slice();
+    const filtered = sortReadingsChronologically(
+        filterReadingsByRange(readings, currentRange)
+    );
 
     if (filtered.length === 0) {
         container.innerHTML = `
@@ -1525,6 +2156,18 @@ function navigateTo(pageName) {
         settings: [
             "Settings",
             "Configure backend and AI preferences."
+        ],
+        reports: [
+            "Water Quality Reports",
+            "Review water-quality readings and summaries from your connected device."
+        ],
+        profile: [
+            "Profile",
+            "View local monitoring preferences and application information."
+        ],
+        admin: [
+            "Admin Dashboard",
+            "Manage registered users and monitor platform activity."
         ]
     };
 
@@ -1543,10 +2186,49 @@ function navigateTo(pageName) {
         device: "Device",
         trends: "Trends",
         analysis: "Analysis",
-        settings: "Settings"
+        settings: "Settings",
+        reports: "Reports",
+        profile: "Profile",
+        admin: "Admin"
     };
 
     setText("breadcrumbCurrent", pageLabels[page] || "Dashboard");
+
+    // Auth guard: redirect to login for protected pages when not authenticated.
+    const protectedPages = new Set([
+        "camera",
+        "analysis",
+        "device",
+        "settings",
+        "reports",
+        "profile",
+        "trends",
+        "admin",
+    ]);
+
+    if (protectedPages.has(page) && !isAuthenticated) {
+        openLoginModal("Please sign in to access this page.");
+        return;
+    }
+
+    // Admin guard: only admins may open the admin page.
+    if (page === "admin") {
+        const isAdmin =
+            isAuthenticated && currentUser && currentUser.is_admin === true;
+
+        const adminNavItem = $("adminNavItem");
+
+        if (adminNavItem) {
+            adminNavItem.classList.toggle("hidden", !isAdmin);
+        }
+
+        if (!isAdmin) {
+            navigateTo("dashboard");
+            return;
+        }
+
+        loadAdminData();
+    }
 
     if (window.location.hash !== `#${page}`) {
         history.replaceState(null, "", `#${page}`);
@@ -1648,6 +2330,7 @@ function setupRangeFilters() {
             });
 
             drawTrendChart(readingsCache);
+            setupReports();
         });
     });
 
@@ -1697,6 +2380,22 @@ function setupRefreshButton() {
     buttons.forEach((button) => {
         button.addEventListener("click", refreshDashboard);
     });
+
+    const adminRefresh = $("adminRefreshButton");
+
+    if (adminRefresh) {
+        adminRefresh.addEventListener("click", async () => {
+            adminRefresh.disabled = true;
+            adminRefresh.classList.add("loading");
+
+            try {
+                await loadAdminData();
+            } finally {
+                adminRefresh.disabled = false;
+                adminRefresh.classList.remove("loading");
+            }
+        });
+    }
 }
 
 function setupSettings() {
@@ -2252,6 +2951,7 @@ async function analyzeCameraImage() {
             data;
 
         renderCameraResult(data);
+        updateChatContextIndicators();
     } catch (error) {
         if (resultText) {
             resultText.innerHTML = `
@@ -2522,90 +3222,40 @@ function setupSensorChat() {
         return;
     }
 
-    chatHistory = loadStoredChat("aqua_ai_chat_history");
-    renderChatMessages(messages, chatHistory);
-
-    form.addEventListener("submit", async (event) => {
-        event.preventDefault();
-
-        const question = input.value.trim();
-
-        if (!question) {
-            return;
-        }
-
-        input.value = "";
-
-        addChatMessage(
-            messages,
-            chatHistory,
-            "user",
-            question
-        );
-
-        if (sendButton) {
-            sendButton.disabled = true;
-        }
-
-        const loadingElement = addChatMessage(
-            messages,
-            chatHistory,
-            "assistant",
-            "Thinking..."
-        );
-
-        try {
-            const response = await apiRequest("/chat/water", {
-                method: "POST",
-                body: JSON.stringify({
-                    question,
-                    device_id:
-                        latestReading?.device_id ||
-                        latestDevice?.id ||
-                        null,
-                    provider:
-                        localStorage.getItem("aqua_ai_provider") ||
-                        null,
-                    model:
-                        localStorage.getItem("aqua_ai_model") || null
-                })
-            });
-
-            removeChatMessage(loadingElement);
-
-            const answer =
+    createChatManager({
+        form,
+        input,
+        messages,
+        sendButton,
+        endpoint: "/chat/water",
+        buildPayload(question) {
+            return {
+                question,
+                device_id:
+                    latestReading?.device_id ||
+                    latestDevice?.id ||
+                    null,
+                provider:
+                    localStorage.getItem("aqua_ai_provider") ||
+                    null,
+                model:
+                    localStorage.getItem("aqua_ai_model") || null
+            };
+        },
+        extractAnswer(response) {
+            return (
                 response?.answer ||
                 response?.response ||
                 response?.message ||
-                "I could not generate an answer.";
-
-            addChatMessage(
-                messages,
-                chatHistory,
-                "assistant",
-                answer
+                "I could not generate an answer."
             );
-        } catch (error) {
-            removeChatMessage(loadingElement);
-
-            addChatMessage(
-                messages,
-                chatHistory,
-                "assistant",
-                `Unable to contact the water-quality assistant: ${error.message}`
-            );
-        } finally {
-            if (sendButton) {
-                sendButton.disabled = false;
-            }
-        }
-    });
-
-    input.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            form.requestSubmit();
-        }
+        },
+        history: chatHistory,
+        storageKey: "aqua_ai_chat_history",
+        welcomeMessage:
+            "Hello! Ask me about the latest sensor readings, pH, temperature, turbidity, or TDS.",
+        emptyGuard: null,
+        errorPrefix: "Unable to contact the water-quality assistant"
     });
 }
 
@@ -2630,120 +3280,252 @@ function setupCameraChat() {
         return;
     }
 
-    cameraChatHistory = loadStoredChat("aqua_ai_camera_chat_history");
-    renderCameraChatMessages(messages, cameraChatHistory);
-
-    form.addEventListener("submit", async (event) => {
-        event.preventDefault();
-
-        const question = input.value.trim();
-
-        if (!question) {
-            return;
-        }
-
-        // Guard: require a camera analysis before answering questions
-        if (!latestCameraAnalysis) {
-            addChatMessage(
-                messages,
-                cameraChatHistory,
-                "assistant",
-                "Please analyze a water image first so I can answer questions about it."
-            );
-            input.value = "";
-            return;
-        }
-
-        input.value = "";
-
-        addChatMessage(
-            messages,
-            cameraChatHistory,
-            "user",
-            question
-        );
-
-        if (sendButton) {
-            sendButton.disabled = true;
-        }
-
-        const loadingElement = addChatMessage(
-            messages,
-            cameraChatHistory,
-            "assistant",
-            "Thinking..."
-        );
-
-        try {
-            const response = await apiRequest("/agents/camera/question", {
-                method: "POST",
-                body: JSON.stringify({
-                    question,
-                    analysis: latestCameraAnalysis
-                })
-            });
-
-            removeChatMessage(loadingElement);
-
+    createChatManager({
+        form,
+        input,
+        messages,
+        sendButton,
+        endpoint: "/agents/camera/question",
+        buildPayload(question) {
+            return {
+                question,
+                analysis: latestCameraAnalysis
+            };
+        },
+        extractAnswer(response) {
             const agentResponse = response?.response || response || {};
-
-            const answer =
+            return (
                 agentResponse?.answer ||
                 agentResponse?.response ||
                 response?.answer ||
                 response?.message ||
-                "I could not generate an answer.";
-
-            addChatMessage(
-                messages,
-                cameraChatHistory,
-                "assistant",
-                answer
+                "I could not generate an answer."
             );
-        } catch (error) {
-            removeChatMessage(loadingElement);
-
-            addChatMessage(
-                messages,
-                cameraChatHistory,
-                "assistant",
-                `Camera assistant error: ${error.message}`
-            );
-        } finally {
-            if (sendButton) {
-                sendButton.disabled = false;
+        },
+        history: cameraChatHistory,
+        storageKey: "aqua_ai_camera_chat_history",
+        welcomeMessage:
+            "Upload and analyse a water image first, then I can help explain the visible characteristics.",
+        emptyGuard() {
+            if (!latestCameraAnalysis) {
+                return "Please analyze a water image first so I can answer questions about it.";
             }
-        }
-    });
-
-    input.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            form.requestSubmit();
-        }
+            return null;
+        },
+        errorPrefix: "Camera assistant error"
     });
 }
 
-function renderCameraChatMessages(container, history) {
-    container.innerHTML = "";
+function setupClearSensorChat() {
+    const clearButton = $("clearSensorChatButton");
+    if (!clearButton) return;
 
-    if (history.length === 0) {
-        const welcome = document.createElement("div");
-        welcome.className = "chat-message assistant";
-        welcome.textContent =
-            "Upload and analyse a water image first, then I can help explain the visible characteristics.";
-        container.appendChild(welcome);
-        return;
+    clearButton.addEventListener("click", () => {
+        chatHistory.length = 0;
+        sessionStorage.removeItem("aqua_ai_chat_history");
+        const messages = $("sensorChatMessages");
+        if (messages) {
+            renderChatMessages(
+                messages,
+                chatHistory,
+                "Hello! I can help you understand your current temperature, pH, turbidity, and TDS readings. What would you like to know?"
+            );
+        }
+        updateChatContextIndicators();
+    });
+}
+
+function updateChatContextIndicators() {
+    /* Sensor chat context */
+    const sensorCtx = $("sensorChatContext");
+    if (sensorCtx) {
+        const dot = sensorCtx.querySelector(".context-dot");
+        const label = sensorCtx.querySelector(".context-label");
+        if (dot && label) {
+            if (latestReading) {
+                dot.className = "context-dot online";
+                label.textContent = "Using latest sensor reading";
+            } else {
+                dot.className = "context-dot offline";
+                label.textContent = "Sensor reading unavailable";
+            }
+        }
     }
 
-    history.forEach((message) => {
-        const element = document.createElement("div");
-        element.className = `chat-message ${message.role}`;
-        element.textContent = message.content;
-        container.appendChild(element);
-    });
+    /* Camera chat context */
+    const cameraCtx = $("cameraChatContext");
+    if (cameraCtx) {
+        const dot = cameraCtx.querySelector(".context-dot");
+        const label = cameraCtx.querySelector(".context-label");
+        if (dot && label) {
+            if (latestCameraAnalysis) {
+                dot.className = "context-dot online";
+                label.textContent = "Using latest camera analysis";
+            } else {
+                dot.className = "context-dot offline";
+                label.textContent = "No camera analysis available";
+            }
+        }
+    }
+}
 
-    container.scrollTop = container.scrollHeight;
+/**
+ * Create a reusable chat manager to avoid duplicating submit + keydown logic.
+ *
+ * @param {Object} config
+ * @param {HTMLFormElement}  config.form             The chat <form>.
+ * @param {HTMLTextAreaElement} config.input         The <textarea>.
+ * @param {HTMLElement}       config.messages        The message container.
+ * @param {HTMLElement|null}  config.sendButton      The submit button (optional).
+ * @param {string}            config.endpoint        API path, e.g. "/chat/water".
+ * @param {Function}          config.buildPayload    (question) => object for JSON body.
+ * @param {Function}          config.extractAnswer   (response) => answer string.
+ * @param {Array}             config.history         The chat history array (mutable ref).
+ * @param {string}            config.storageKey      sessionStorage key for persistence.
+ * @param {string}            config.welcomeMessage  Shown when history is empty.
+ * @param {Function|null}     config.emptyGuard      Optional (question) => error string or null.
+ * @param {string}            config.errorPrefix     Prefix for network-error messages.
+ * @returns {{destroy: Function}} Control handle.
+ */
+function createChatManager(config) {
+    const {
+        form,
+        input,
+        messages,
+        sendButton,
+        endpoint,
+        buildPayload,
+        extractAnswer,
+        history,
+        storageKey,
+        welcomeMessage,
+        emptyGuard,
+        errorPrefix
+    } = config;
+
+    /* ---- Guard: missing DOM ---- */
+    if (!form || !input || !messages) {
+        return { destroy: () => {} };
+    }
+
+    /* ---- Load stored history & render ---- */
+    const stored = loadStoredChat(storageKey);
+    history.length = 0;
+    stored.forEach((msg) => history.push(msg));
+    renderChatMessages(messages, history, welcomeMessage);
+
+    /* ---- Track loading state ---- */
+    let isLoading = false;
+
+    /* ---- Auto-resize textarea as user types ---- */
+    function autoResize() {
+        input.style.height = "auto";
+        input.style.height = Math.min(input.scrollHeight, 120) + "px";
+    }
+    input.addEventListener("input", autoResize);
+
+    /*
+     * Single send path shared by the form submit handler AND the Enter key.
+     * Guarding here (isLoading + empty) prevents duplicate submissions and
+     * makes Enter-to-send reliable without relying on requestSubmit().
+     */
+    async function sendMessage() {
+        if (isLoading) return;
+
+        const question = input.value.trim();
+        if (!question) return;
+
+        /* Optional guard (e.g. camera chat requires an analysis first) */
+        if (typeof emptyGuard === "function") {
+            const guardMessage = emptyGuard(question);
+            if (guardMessage) {
+                input.value = "";
+                autoResize();
+                addChatMessage(messages, history, "assistant", guardMessage, storageKey);
+                input.focus();
+                return;
+            }
+        }
+
+        input.value = "";
+        autoResize();
+        input.focus();
+
+        addChatMessage(messages, history, "user", question, storageKey);
+
+        isLoading = true;
+        if (sendButton) sendButton.disabled = true;
+
+        const loadingElement = addChatMessage(
+            messages,
+            history,
+            "assistant",
+            "Thinking...",
+            storageKey
+        );
+
+        try {
+            const response = await apiRequest(endpoint, {
+                method: "POST",
+                body: JSON.stringify(buildPayload(question))
+            });
+
+            removeChatMessage(loadingElement);
+
+            const answer = extractAnswer(response);
+            addChatMessage(messages, history, "assistant", answer, storageKey);
+        } catch (error) {
+            removeChatMessage(loadingElement);
+            addChatMessage(
+                messages,
+                history,
+                "assistant",
+                `${errorPrefix}: ${error.message}`,
+                storageKey
+            );
+        } finally {
+            isLoading = false;
+            if (sendButton) sendButton.disabled = false;
+            input.focus();
+        }
+    }
+
+    /* ---- Form submit: Enter in a <textarea> does not natively submit,
+           so the keydown handler drives the flow, but clicking Send must
+           also work. This handler covers both. ---- */
+    let inSubmit = false;
+    function onFormSubmit(event) {
+        event.preventDefault();
+        if (inSubmit) return;
+        inSubmit = true;
+        try {
+            sendMessage();
+        } finally {
+            inSubmit = false;
+        }
+    }
+
+    /* ---- Keydown: Enter to send, Shift+Enter for newline ----
+       - preventDefault ONLY for a plain Enter (no Shift, not composing).
+       - Shift+Enter is left to the browser to insert a newline. */
+    function onInputKeydown(event) {
+        if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+            event.preventDefault();
+            if (isLoading) return; // safe: ignore Enter while sending
+            form.requestSubmit();
+        }
+    }
+
+    form.addEventListener("submit", onFormSubmit);
+    input.addEventListener("keydown", onInputKeydown);
+
+    return {
+        destroy() {
+            form.removeEventListener("submit", onFormSubmit);
+            input.removeEventListener("keydown", onInputKeydown);
+            input.removeEventListener("input", autoResize);
+        }
+    };
 }
 
 function loadStoredChat(key) {
@@ -2770,38 +3552,48 @@ function saveStoredChat(key, history) {
     }
 }
 
-function renderChatMessages(container, history) {
+function renderChatMessages(container, history, welcomeMessage) {
     container.innerHTML = "";
 
     if (history.length === 0) {
         const welcome = document.createElement("div");
+        const content = document.createElement("div");
 
         welcome.className = "chat-message assistant";
-        welcome.textContent =
+        content.className = "chat-message-content";
+        content.textContent =
+            welcomeMessage ||
             "Hello! Ask me about the latest sensor readings, pH, temperature, turbidity, or TDS.";
 
+        welcome.appendChild(content);
         container.appendChild(welcome);
         return;
     }
 
     history.forEach((message) => {
         const element = document.createElement("div");
+        const content = document.createElement("div");
 
         element.className = `chat-message ${message.role}`;
-        element.textContent = message.content;
+        content.className = "chat-message-content";
+        content.textContent = message.content;
 
+        element.appendChild(content);
         container.appendChild(element);
     });
 
     container.scrollTop = container.scrollHeight;
 }
 
-function addChatMessage(container, history, role, content) {
+function addChatMessage(container, history, role, content, storageKey) {
     const element = document.createElement("div");
+    const contentDiv = document.createElement("div");
 
     element.className = `chat-message ${role}`;
-    element.textContent = content;
+    contentDiv.className = "chat-message-content";
+    contentDiv.textContent = content;
 
+    element.appendChild(contentDiv);
     container.appendChild(element);
     container.scrollTop = container.scrollHeight;
 
@@ -2813,10 +3605,8 @@ function addChatMessage(container, history, role, content) {
 
     history.push(message);
 
-    if (history === chatHistory) {
-        saveStoredChat("aqua_ai_chat_history", history);
-    } else if (history === cameraChatHistory) {
-        saveStoredChat("aqua_ai_camera_chat_history", history);
+    if (storageKey) {
+        saveStoredChat(storageKey, history);
     }
 
     return element;
@@ -2938,6 +3728,267 @@ function stopAutoRefresh() {
     }
 }
 
+function setupReports() {
+    const readings = readingsCache;
+    const latest = latestReading;
+    const device = latestDevice;
+
+    // Summary cards
+    if (latest && latest.recorded_at) {
+        setText("reportsLatestTime", formatDate(latest.recorded_at));
+    } else {
+        setText("reportsLatestTime", "--");
+    }
+
+    if (device && device.name) {
+        setText("reportsLatestDevice", device.name);
+    } else {
+        setText("reportsLatestDevice", latest ? "Unknown device" : "No device data");
+    }
+
+    setText("reportsTotalReadings", String(readings.length));
+
+    if (latest) {
+        const quality = computeReadingQuality(latest);
+        setText("reportsQualityStatus", quality.label);
+        setText("reportsQualityDescription", quality.description || "Evaluated from latest reading");
+    } else {
+        setText("reportsQualityStatus", "No data");
+        setText("reportsQualityDescription", "Waiting for readings");
+    }
+
+    if (device) {
+        setText("reportsDeviceStatus", device.is_online ? "Online" : "Offline");
+        setText("reportsDeviceName", device.name || device.device_id || "Device");
+    } else {
+        setText("reportsDeviceStatus", "--");
+        setText("reportsDeviceName", "No device");
+    }
+
+    // Sensor summary
+    if (latest) {
+        setText("reportsTemperature", formatNumber(latest.temperature, 1) + " °C");
+        setText("reportsTemperatureStatus", latest.temperature != null ? "Measured" : "Unavailable");
+        setText("reportsPh", formatNumber(latest.ph, 2) + " pH");
+        setText("reportsPhStatus", latest.ph != null ? "Measured" : "Unavailable");
+        setText("reportsTurbidity", formatNumber(latest.turbidity, 2) + " NTU");
+        setText("reportsTurbidityStatus", latest.turbidity != null ? "Measured" : "Unavailable");
+        setText("reportsTds", formatNumber(latest.tds, 2) + " mg/L");
+        setText("reportsTdsStatus", latest.tds != null ? "Measured" : "Unavailable");
+    }
+
+    // Empty state / table
+    const emptyState = $("reportsEmptyState");
+    const tableWrapper = $("reportsTableWrapper");
+    const tableBody = $("reportsReadingsBody");
+
+    if (!emptyState || !tableBody) return;
+
+    if (readings.length === 0) {
+        showElement("reportsEmptyState");
+        hideElement("reportsTableWrapper");
+    } else {
+        hideElement("reportsEmptyState");
+        showElement("reportsTableWrapper");
+
+        tableBody.innerHTML = "";
+
+        const rows = readings.slice(0, 50);
+
+        rows.forEach(function (r) {
+            const row = document.createElement("tr");
+            row.innerHTML =
+                "<td>" + safeText(r.id) + "</td>" +
+                "<td>" + safeText(r.device_id) + "</td>" +
+                "<td>" + formatNumber(r.temperature, 1) + "</td>" +
+                "<td>" + formatNumber(r.ph, 2) + "</td>" +
+                "<td>" + formatNumber(r.turbidity, 2) + "</td>" +
+                "<td>" + formatNumber(r.tds, 2) + "</td>" +
+                "<td>" + formatDate(r.recorded_at) + "</td>";
+            tableBody.appendChild(row);
+        });
+    }
+}
+
+function setupProfile() {
+    const device = latestDevice;
+
+    if (device && device.name) {
+        setText("profileDeviceName", device.name);
+    } else {
+        setText("profileDeviceName", "No device");
+    }
+
+    if (device) {
+        setText("profileDeviceStatus", device.is_online ? "Online" : "Offline");
+    } else {
+        setText("profileDeviceStatus", "Offline");
+    }
+
+    setText("profileRefreshStatus", refreshTimer ? "Active" : "Inactive");
+    setText("profileDashboardRange", currentRange || "24H");
+
+    const baseUrl = getApiBaseUrl();
+    setText("profileBackendUrl", baseUrl);
+
+    // Check actual backend status via the connection indicator
+    const connectionDot = $("connectionDot");
+    if (connectionDot) {
+        const isOnline = connectionDot.classList.contains("online");
+        setText("profileBackendStatus", isOnline ? "Online" : "Offline");
+    } else {
+        setText("profileBackendStatus", "Unknown");
+    }
+}
+/*
+ * ADMIN DASHBOARD
+ * Load users + stats from admin-only endpoints. Every endpoint is also
+ * enforced server-side, so a normal user calling these gets 401/403 and
+ * simply sees "Unavailable".
+ */
+async function loadAdminData() {
+    try {
+        const stats = await apiRequest("/admin/stats");
+        setText("adminUsersCount", String(stats?.users?.total ?? "--"));
+        setText("adminActiveUsers", String(stats?.users?.active ?? "--"));
+        setText(
+            "adminDisabledUsers",
+            String(stats?.users?.disabled ?? "--")
+        );
+        setText("adminAdminUsers", String(stats?.users?.admins ?? "--"));
+        setText(
+            "adminActiveSessions",
+            String(stats?.active_sessions ?? "--")
+        );
+        setText(
+            "adminDevicesCount",
+            String(stats?.devices?.total ?? "--")
+        );
+        setText(
+            "adminOnlineDevices",
+            String(stats?.devices?.online_recent ?? "--")
+        );
+        setText(
+            "adminTotalReadings",
+            String(stats?.readings_total ?? "--")
+        );
+        setText(
+            "adminTotalPredictions",
+            String(stats?.camera_predictions_total ?? "--")
+        );
+    } catch (error) {
+        console.warn("Admin stats unavailable:", error.message);
+        ["adminUsersCount", "adminDevicesCount"].forEach((id) =>
+            setText(id, "Unavailable")
+        );
+    }
+
+    await renderAdminUsers();
+}
+
+async function renderAdminUsers() {
+    const tableBody = $("adminUsersTableBody");
+
+    if (!tableBody) {
+        return;
+    }
+
+    tableBody.innerHTML =
+        '<tr><td colspan="8">Loading users...</td></tr>';
+
+    try {
+        const data = await apiRequest("/admin/users");
+        const users = Array.isArray(data?.users) ? data.users : [];
+
+        if (users.length === 0) {
+            tableBody.innerHTML =
+                '<tr><td colspan="8">No users registered yet.</td></tr>';
+            return;
+        }
+
+        tableBody.innerHTML = "";
+
+        users.forEach((user) => {
+            const row = document.createElement("tr");
+
+            const roleBadge = user.is_admin
+                ? '<span class="admin-role-badge admin">Admin</span>'
+                : '<span class="admin-role-badge">User</span>';
+
+            const statusBadge = user.is_active
+                ? '<span class="admin-status-badge active">Active</span>'
+                : '<span class="admin-status-badge disabled">Disabled</span>';
+
+            const selfRow = user.is_admin ? " (you)" : "";
+
+            row.innerHTML =
+                "<td>" + escapeHtml(String(user.id)) + "</td>" +
+                "<td>" +
+                    escapeHtml(user.username || "--") +
+                    escapeHtml(selfRow) +
+                "</td>" +
+                "<td>" + escapeHtml(user.full_name || "--") + "</td>" +
+                "<td>" + escapeHtml(user.email || "--") + "</td>" +
+                "<td>" + roleBadge + "</td>" +
+                "<td>" + statusBadge + "</td>" +
+                "<td>" + escapeHtml(formatDate(user.created_at)) + "</td>" +
+                '<td class="admin-actions"></td>';
+
+            // Disable/enable toggle (not for the signed-in admin themself)
+            if (currentUser && user.id === currentUser.id) {
+                row.querySelector(".admin-actions").textContent = "—";
+            } else {
+                const toggleButton = document.createElement("button");
+
+                toggleButton.className = user.is_active
+                    ? "admin-toggle-button disable"
+                    : "admin-toggle-button enable";
+                toggleButton.type = "button";
+                toggleButton.textContent = user.is_active
+                    ? "Disable"
+                    : "Enable";
+
+                toggleButton.addEventListener("click", async () => {
+                    toggleButton.disabled = true;
+
+                    try {
+                        await apiRequest(
+                            `/admin/users/${user.id}/status`,
+                            {
+                                method: "PATCH",
+                                body: JSON.stringify({
+                                    is_active: !user.is_active,
+                                }),
+                            }
+                        );
+
+                        showToast(
+                            user.is_active
+                                ? "User disabled."
+                                : "User enabled.",
+                            "success"
+                        );
+                        await renderAdminUsers();
+                    } catch (error) {
+                        showToast(error.message, "error");
+                        toggleButton.disabled = false;
+                    }
+                });
+
+                row.querySelector(".admin-actions").appendChild(toggleButton);
+            }
+
+            tableBody.appendChild(row);
+        });
+    } catch (error) {
+        console.warn("Admin users unavailable:", error.message);
+        tableBody.innerHTML =
+            '<tr><td colspan="8">User list unavailable. ' +
+            escapeHtml(error.message) +
+            "</td></tr>";
+    }
+}
+
 async function initializeApp() {
     setupNavigation();
     setupMobileMenu();
@@ -2945,21 +3996,161 @@ async function initializeApp() {
     setupRefreshButton();
     setupSettings();
     setupAddDevice();
+    setupDeviceToken();
+    setupAuth();
     setupReadingForm();
     setupCameraUpload();
     setupSensorChat();
     setupCameraChat();
+    setupClearSensorChat();
+    updateChatContextIndicators();
+    setupReports();
+    setupProfile();
     setupSimulator();
     setupWindowEvents();
 
-    const initialPage =
-        window.location.hash.replace("#", "") || "dashboard";
-
-    navigateTo(initialPage);
-
-    await refreshDashboard();
+    // Gate every private load behind the session check.  Nothing that
+    // touches devices/readings/camera history is fetched until the
+    // backend confirms who is signed in.
+    showAuthLoadingState("Checking sign-in status…");
+    const authenticated = await checkAuth();
+    if (authenticated) {
+        await fetchCurrentUser();
+        updateUserInterface();
+        hideAuthLoadingState();
+        const initialPage =
+            window.location.hash.replace("#", "") || "dashboard";
+        navigateTo(initialPage);
+        await refreshDashboard();
+    } else {
+        isAuthenticated = false;
+        currentUser = null;
+        clearUserState();
+        updateUserInterface();
+        hideAuthLoadingState();
+        navigateTo("dashboard");
+        openLoginModal("Please sign in to continue.");
+    }
 
     startAutoRefresh();
+
+    // Start periodic auth checks regardless of initial auth state.
+    if (authCheckTimer) {
+        clearInterval(authCheckTimer);
+    }
+    authCheckTimer = setInterval(() => {
+        checkAuth().then((ok) => {
+            if (!ok && isAuthenticated) {
+                isAuthenticated = false;
+                currentUser = null;
+                clearUserState();
+                updateUserInterface();
+                showToast("Session expired. Please sign in again.", "warning");
+                openLoginModal("Session expired. Please sign in again.");
+            } else if (!ok) {
+                isAuthenticated = false;
+                currentUser = null;
+                clearUserState();
+                updateUserInterface();
+            }
+        });
+    }, AUTH_CHECK_INTERVAL);
+}
+
+/*
+ * Authentication loading state: an explicit overlay-style notice in the
+ * header area so the page never shows private/blank dashboard data while
+ * the session is being confirmed.
+ */
+function showAuthLoadingState(message) {
+    let banner = document.getElementById("authLoadingBanner");
+    if (!banner) {
+        banner = document.createElement("div");
+        banner.id = "authLoadingBanner";
+        banner.className = "auth-loading-banner";
+        banner.setAttribute("role", "status");
+        const main = document.querySelector("main") || document.body;
+        if (main.firstChild) {
+            main.insertBefore(banner, main.firstChild);
+        } else {
+            main.appendChild(banner);
+        }
+    }
+    banner.textContent = message || "Checking sign-in status…";
+    banner.classList.remove("hidden");
+}
+
+function hideAuthLoadingState() {
+    const banner = document.getElementById("authLoadingBanner");
+    if (banner) {
+        banner.classList.add("hidden");
+    }
+}
+
+/*
+ * Clear every client-side user artifact on logout/expiry so no private
+ * state survives a session boundary.
+ */
+function clearUserState() {
+    latestReading = null;
+    latestDevice = null;
+    readingsCache = [];
+    selectedCameraFile = null;
+    latestCameraAnalysis = null;
+    chatHistory.length = 0;
+    cameraChatHistory.length = 0;
+    try {
+        sessionStorage.removeItem("aqua_ai_chat_history");
+        sessionStorage.removeItem("aqua_ai_camera_chat_history");
+    } catch {
+        // sessionStorage unavailable — nothing to clear
+    }
+    renderCameraClearedState();
+}
+
+/*
+ * Reset the camera UI to its empty state after logout so a previous
+ * user's image/result is never left on screen.
+ */
+function renderCameraClearedState() {
+    const input = $("cameraFileInput") || $("cameraInput") || $("imageInput");
+    if (input) {
+        input.value = "";
+    }
+    const preview =
+        $("cameraPreviewImage") || $("imagePreview") || document.querySelector(".image-preview");
+    if (preview) {
+        preview.removeAttribute("src");
+        preview.classList.add("hidden");
+    }
+    const previewContainer = $("cameraPreviewContainer");
+    if (previewContainer) {
+        previewContainer.classList.add("hidden");
+    }
+    setText("selectedFileName", "No file selected");
+    setText("cameraFileName", "No file selected");
+    const analyzeButton =
+        $("analyzeCameraButton") || $("analyzeButton") || $("cameraAnalyzeButton");
+    if (analyzeButton) {
+        analyzeButton.disabled = true;
+    }
+    const emptyState = $("cameraResultEmpty");
+    if (emptyState) {
+        emptyState.classList.remove("hidden");
+    }
+    const resultContent = $("cameraResultContent");
+    if (resultContent) {
+        resultContent.classList.add("hidden");
+    }
+    const sensorMessages = $("sensorChatMessages");
+    if (sensorMessages) {
+        renderChatMessages(sensorMessages, chatHistory, "Hello! Sign in to start chatting about your water-quality readings.");
+    }
+    const cameraMessages = $("cameraChatMessages");
+    if (cameraMessages) {
+        renderChatMessages(cameraMessages, cameraChatHistory, "Sign in, analyze an image, and I can explain the result.");
+    }
+    updateChatContextIndicators();
 }
 
 document.addEventListener("DOMContentLoaded", initializeApp);

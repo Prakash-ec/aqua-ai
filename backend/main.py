@@ -23,6 +23,8 @@ from backend.routes.chat import router as chat_router
 from backend.routes.ai import router as ai_router
 from backend.routes.water_quality import router as water_quality_router
 from backend.routes.agents import router as agents_router
+from backend.routes.auth import router as auth_router
+from backend.routes.admin import router as admin_router
 
 
 # =========================================================
@@ -43,6 +45,8 @@ allowed_origins = [
     "http://127.0.0.1:5500",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
+    "http://localhost:8001",
+    "http://127.0.0.1:8001",
     "https://aqua-ai.netlify.app",
     "https://aqua-ai-frontend.netlify.app",
 ]
@@ -82,8 +86,32 @@ async def lifespan(app: FastAPI):
         # Create tables that do not already exist.
         Base.metadata.create_all(bind=engine)
 
+        # Apply guarded, additive migrations for columns introduced after a
+        # table already existed (e.g. per-user ownership).
+        from backend.migrations import run_migrations
+
+        run_migrations(engine)
+
         print("Aqua AI database connection successful.")
         print("Aqua AI database tables verified.")
+
+        # Seed a default admin user if no users exist yet.
+        from backend.database import SessionLocal
+        from backend.routes.auth import seed_admin_user
+
+        with SessionLocal() as lifespan_db:
+            seeded = seed_admin_user(lifespan_db)
+            if seeded:
+                print(
+                    "Aqua AI admin user ready:",
+                    f"username={seeded.username}",
+                )
+
+        # Point pre-existing ownership-less rows at the first admin so a
+        # legacy single-admin deployment keeps working after migration.
+        from backend.migrations import backfill_owner_to_first_admin
+
+        backfill_owner_to_first_admin(engine)
 
         # Report AI provider configuration status.
         # Only booleans are printed - API key values are never logged.
@@ -104,6 +132,14 @@ async def lifespan(app: FastAPI):
         print(
             "  deepseek:",
             "yes" if info.get("deepseek_key_loaded") else "no",
+        )
+        print(
+            "  groq vision model:",
+            info.get("groq_vision_model") or "not set",
+        )
+        print(
+            "  openrouter vision model:",
+            info.get("openrouter_vision_model") or "not set",
         )
 
         vision = info.get("vision_providers") or []
@@ -173,6 +209,8 @@ app.include_router(chat_router)
 app.include_router(ai_router)
 app.include_router(water_quality_router)
 app.include_router(agents_router)
+app.include_router(auth_router)
+app.include_router(admin_router)
 
 
 # =========================================================

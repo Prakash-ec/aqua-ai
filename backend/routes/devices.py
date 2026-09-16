@@ -1,4 +1,8 @@
+import hashlib
+import secrets
 from typing import Optional
+
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -7,6 +11,12 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models import Device
+from backend.routes.auth import (
+    get_current_session,
+    get_optional_session,
+    require_device_access,
+    scoped_device_query,
+)
 
 
 router = APIRouter(
@@ -63,6 +73,7 @@ class DeviceUpdate(BaseModel):
 )
 def create_device(
     device_data: DeviceCreate,
+    session: dict | None = Depends(get_optional_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -82,6 +93,9 @@ def create_device(
                 detail="A device with this name already exists.",
             )
 
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
         device = Device(
             name=device_data.name.strip(),
             device_type=device_data.device_type.strip(),
@@ -90,16 +104,37 @@ def create_device(
                 if device_data.location
                 else None
             ),
+            user_id=(
+                session.get("user_id")
+                if session
+                else None
+            ),
+            token_hash=token_hash,
+            # Set explicitly; the legacy devices table has no DB default.
+            created_at=datetime.now(),
         )
 
         db.add(device)
         db.commit()
         db.refresh(device)
 
+        # Serialize explicitly so token_hash never leaks in responses.
         return {
             "success": True,
-            "message": "Device created successfully.",
-            "device": device,
+            "message": (
+                "Device created successfully. Save the device token now — "
+                "it is shown only once."
+            ),
+            "device": {
+                "id": device.id,
+                "name": device.name,
+                "device_type": device.device_type,
+                "location": device.location,
+                "user_id": device.user_id,
+                "is_active": device.is_active,
+                "created_at": device.created_at.isoformat(),
+            },
+            "device_token": raw_token,
         }
 
     except HTTPException:
@@ -120,15 +155,18 @@ def create_device(
 
 @router.get("/")
 def get_devices(
+    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
     """
-    Return all registered devices.
+    Return devices owned by the authenticated user.
+
+    Admins see every device. Normal users see only their own.
     """
 
     try:
         devices = (
-            db.query(Device)
+            scoped_device_query(session, db)
             .order_by(Device.id.asc())
             .all()
         )
@@ -153,14 +191,17 @@ def get_devices(
 @router.get("/{device_id}")
 def get_device(
     device_id: int,
+    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
     """
-    Return one device by ID.
+    Return one device by ID for its owner (or any device for admins).
     """
 
+    require_device_access(db, session, device_id)
+
     device = (
-        db.query(Device)
+        scoped_device_query(session, db)
         .filter(Device.id == device_id)
         .first()
     )
@@ -185,14 +226,17 @@ def get_device(
 def update_device(
     device_id: int,
     device_data: DeviceUpdate,
+    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
     """
-    Update the details of an existing device.
+    Update the details of an existing device owned by the caller.
     """
 
+    require_device_access(db, session, device_id)
+
     device = (
-        db.query(Device)
+        scoped_device_query(session, db)
         .filter(Device.id == device_id)
         .first()
     )
@@ -261,23 +305,88 @@ def update_device(
 
 
 # =========================================================
+# REGENERATE DEVICE TOKEN
+# =========================================================
+
+class DeviceTokenRegenerateResponse(BaseModel):
+    success: bool
+    message: str
+    device_id: int
+    device_token: str
+
+
+@router.post("/{device_id}/regenerate-token")
+def regenerate_device_token(
+    device_id: int,
+    session: dict = Depends(get_current_session),
+    db: Session = Depends(get_db),
+):
+    """
+    Regenerate the API token for a device.
+
+    The old token is immediately invalidated. The new plaintext token
+    is returned only in this response and must be saved by the caller.
+    """
+
+    require_device_access(db, session, device_id)
+
+    device = (
+        scoped_device_query(session, db)
+        .filter(Device.id == device_id)
+        .first()
+    )
+
+    if device is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found.",
+        )
+
+    # Generate a new token and replace the stored hash
+    new_token = secrets.token_urlsafe(32)
+    device.token_hash = hashlib.sha256(new_token.encode("utf-8")).hexdigest()
+
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="A database error occurred while regenerating the device token.",
+        )
+
+    return {
+        "success": True,
+        "message": (
+            "Device token regenerated successfully. "
+            "Save this token; it will not be shown again."
+        ),
+        "device_id": device_id,
+        "device_token": new_token,
+    }
+
+
+# =========================================================
 # DELETE DEVICE
 # =========================================================
 
 @router.delete("/{device_id}")
 def delete_device(
     device_id: int,
+    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
     """
-    Delete a device.
+    Delete a device owned by the caller.
 
     This may fail if related readings or camera records are not
     configured with database cascade behavior.
     """
 
+    require_device_access(db, session, device_id)
+
     device = (
-        db.query(Device)
+        scoped_device_query(session, db)
         .filter(Device.id == device_id)
         .first()
     )

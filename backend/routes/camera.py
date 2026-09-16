@@ -16,7 +16,17 @@ from sqlalchemy.orm import Session
 from backend.agents.camera_agent import CameraAgent
 from backend.database import get_db
 from backend.models import CameraPrediction, Device
-from backend.services.ai_provider import ask_vision_ai
+from backend.routes.auth import (
+    get_current_session,
+    get_optional_session,
+    require_device_access,
+    scoped_camera_query,
+)
+from backend.services.ai_provider import (
+    VisionProviderError,
+    ask_vision_ai,
+    classify_provider_error,
+)
 
 
 # =========================================================
@@ -123,6 +133,11 @@ Rules:
 - confidence must be a number from 0 to 1.
 - risk_level must be exactly Low, Medium, or High.
 - confidence_level must be one of high, moderate, low.
+- Keep every value concise: 1-2 short sentences per text field.
+  A short JSON object keeps the response well under the output
+  token budget.
+- IMPORTANT: Reply with ONLY the JSON object. Do not include any
+  thinking, reasoning, explanation, or <think> text.
 """
 
 
@@ -471,6 +486,7 @@ async def analyze_camera(
     provider: str | None = Form(None),
     model: str | None = Form(None),
     device_id: int | None = Form(None),
+    session: dict | None = Depends(get_optional_session),
     db: Session = Depends(get_db),
 ):
     """
@@ -478,6 +494,15 @@ async def analyze_camera(
     """
 
     try:
+        # -------------------------------------------------
+        # Enforce ownership when a device was supplied
+        # (logged-in non-admin callers only; guests keep
+        # the previous validation-only behavior).
+        # -------------------------------------------------
+
+        if session is not None and not session.get("is_admin"):
+            require_device_access(db, session, device_id)
+
         # -------------------------------------------------
         # Validate optional device
         # -------------------------------------------------
@@ -574,6 +599,11 @@ async def analyze_camera(
 
         prediction = CameraPrediction(
             device_id=validated_device_id,
+            user_id=(
+                session.get("user_id")
+                if session
+                else None
+            ),
             image_path=safe_filename,
             prediction=analysis[
                 "overall_observation"
@@ -640,6 +670,42 @@ async def analyze_camera(
             ),
         ) from database_error
 
+    except VisionProviderError as vision_error:
+        db.rollback()
+
+        error_text = str(vision_error)
+        error_code = (
+            vision_error.error_code
+            or classify_provider_error(error_text)
+        )
+        status_code = 503
+
+        if error_code == "AI_PROVIDER_AUTH_FAILED":
+            status_code = 502
+        elif error_code == "AI_PROVIDER_RATE_LIMITED":
+            status_code = 429
+        elif error_code == "AI_MODEL_UNAVAILABLE":
+            status_code = 502
+        elif error_code == "AI_MODEL_VISION_UNSUPPORTED":
+            status_code = 502
+
+        print(
+            "[CAMERA VISION ERROR]",
+            f"{type(vision_error).__name__}:",
+            error_text,
+            f"error_code={error_code}",
+        )
+
+        # Keep detail as a readable string for older frontend code
+        # while exposing a machine-readable header for newer code.
+        raise HTTPException(
+            status_code=status_code,
+            detail=error_text,
+            headers={
+                "X-Aqua-Error-Code": error_code,
+            },
+        ) from vision_error
+
     except ValueError as parsing_error:
         db.rollback()
 
@@ -656,6 +722,9 @@ async def analyze_camera(
                 "analysis response and is temporarily unavailable. "
                 "Please try again later."
             ),
+            headers={
+                "X-Aqua-Error-Code": "VISION_RESPONSE_INVALID",
+            },
         ) from parsing_error
 
     except Exception as error:
@@ -663,6 +732,7 @@ async def analyze_camera(
 
         print(
             "[CAMERA ANALYSIS ERROR]",
+            f"{type(error).__name__}:",
             str(error),
         )
 
@@ -672,4 +742,62 @@ async def analyze_camera(
                 "Camera AI analysis is currently unavailable. "
                 "Please try again later."
             ),
+            headers={
+                "X-Aqua-Error-Code": classify_provider_error(
+                    str(error)
+                ),
+            },
         ) from error
+
+# =========================================================
+# CAMERA PREDICTION HISTORY (OWNER-SCOPED)
+# =========================================================
+
+@router.get("/history")
+def camera_history(
+    device_id: int | None = None,
+    limit: int = 50,
+    session: dict = Depends(get_current_session),
+    db: Session = Depends(get_db),
+):
+    """
+    Return camera predictions owned by the authenticated user.
+
+    Admins see every prediction. Normal users see only their own.
+    """
+
+    if device_id is not None:
+        require_device_access(db, session, device_id)
+
+    query = scoped_camera_query(session, db)
+
+    if device_id is not None:
+        query = query.filter(CameraPrediction.device_id == device_id)
+
+    rows = (
+        query
+        .order_by(CameraPrediction.created_at.desc())
+        .limit(max(1, min(limit, 200)))
+        .all()
+    )
+
+    return {
+        "success": True,
+        "count": len(rows),
+        "predictions": [
+            {
+                "id": row.id,
+                "device_id": row.device_id,
+                "image_path": row.image_path,
+                "prediction": row.prediction,
+                "confidence": row.confidence,
+                "details": row.details,
+                "created_at": (
+                    row.created_at.isoformat()
+                    if row.created_at is not None
+                    else None
+                ),
+            }
+            for row in rows
+        ],
+    }

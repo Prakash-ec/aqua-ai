@@ -83,11 +83,21 @@ async def lifespan(app: FastAPI):
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
 
-        # Create tables that do not already exist.
-        Base.metadata.create_all(bind=engine)
+        # Create tables that do not already exist.  A failure here must not
+        # stop the additive column migrations below, which repair tables that
+        # were created by an older version of the models.
+        try:
+            Base.metadata.create_all(bind=engine)
+        except Exception as create_error:  # pragma: no cover - defensive
+            print(
+                "Aqua AI table creation warning:",
+                type(create_error).__name__,
+                "-",
+                str(create_error)[:200],
+            )
 
-        # Apply guarded, additive migrations for columns introduced after a
-        # table already existed (e.g. per-user ownership).
+        # Apply guarded, additive migrations so the live schema matches the
+        # current models before any request can query the affected tables.
         from backend.migrations import run_migrations
 
         run_migrations(engine)

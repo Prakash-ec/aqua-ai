@@ -12,7 +12,17 @@ generic "ADD COLUMN IF NOT EXISTS"-free; we check the column exists first).
 
 from __future__ import annotations
 
-from sqlalchemy import inspect, text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    inspect,
+    text,
+)
 from sqlalchemy.engine import Engine
 
 
@@ -25,7 +35,7 @@ def _column_exists(engine: Engine, table: str, column: str) -> bool:
         return False
 
 
-def run_migrations(engine: Engine) -> None:
+def run_migrations(engine: Engine, metadata=None) -> None:
     """
     Apply all guarded migrations.
 
@@ -41,6 +51,19 @@ def run_migrations(engine: Engine) -> None:
 
     # ---- Device API token (ESP32 ingestion authentication) ----
     _add_token_hash_column(engine)
+
+    # ---- Generic, model-driven repair of every remaining missing column ----
+    # ``Base.metadata.create_all`` cannot alter a table that already exists,
+    # so a production database created from an older model version can be
+    # missing columns the current code selects (for example
+    # ``devices.is_active``).  This pass adds any missing column/index that
+    # the current models define, without touching existing rows.
+    if metadata is None:
+        from backend.database import Base
+
+        metadata = Base.metadata
+
+    sync_schema_with_models(engine, metadata)
 
     print("Aqua AI database migrations verified.")
 
@@ -139,3 +162,164 @@ def backfill_owner_to_first_admin(engine: Engine) -> None:
                 """
             )
         )
+
+
+# =========================================================
+# MODEL-DRIVEN SCHEMA SYNC
+# =========================================================
+
+# Columns that must default to TRUE (not the type-based FALSE) so that
+# pre-existing rows keep working after the column is added.  Existing
+# devices must stay active and existing users must stay admins.
+_TRUE_DEFAULT_COLUMNS = {
+    ("devices", "is_active"),
+    ("users", "is_active"),
+    ("users", "is_admin"),
+}
+
+
+def _default_sql_for(table_name: str, column) -> str | None:
+    """
+    Return a safe SQL default used to backfill a newly added NOT NULL column.
+
+    Nullable columns are added without a default so existing rows stay NULL.
+    """
+    if (table_name, column.name) in _TRUE_DEFAULT_COLUMNS:
+        return "TRUE"
+
+    server_default = getattr(column, "server_default", None)
+
+    if server_default is not None:
+        arg = getattr(server_default, "arg", None)
+
+        if isinstance(arg, str) and arg:
+            return arg
+
+        if arg is not None:
+            rendered = str(arg)
+
+            if rendered:
+                return rendered
+
+        return "CURRENT_TIMESTAMP"
+
+    if isinstance(column.type, Boolean):
+        return "FALSE"
+
+    if isinstance(column.type, DateTime):
+        return "CURRENT_TIMESTAMP"
+
+    if isinstance(column.type, (Integer, Float, Numeric)):
+        return "0"
+
+    if isinstance(column.type, (String, Text)):
+        return "''"
+
+    return None
+
+
+def _add_model_column(engine: Engine, table_name: str, column) -> None:
+    """Add a single missing column using the current model definition."""
+    try:
+        column_type = column.type.compile(dialect=engine.dialect)
+    except Exception as error:  # pragma: no cover - defensive
+        print(
+            f"Migration warning: unsupported type for "
+            f"{table_name}.{column.name} ({type(error).__name__})"
+        )
+        return
+
+    statement = f"ALTER TABLE {table_name} ADD COLUMN {column.name} {column_type}"
+
+    if column.nullable is False:
+        backfill = _default_sql_for(table_name, column)
+
+        if backfill:
+            statement = f"{statement} DEFAULT {backfill}"
+
+    try:
+        with engine.begin() as connection:
+            connection.execute(text(statement))
+
+        print(f"Added column {table_name}.{column.name} ({column_type})")
+    except Exception as error:  # pragma: no cover - defensive
+        # A concurrent worker may have added it first; never abort startup.
+        print(
+            f"Migration warning for {table_name}.{column.name}: "
+            f"{type(error).__name__}"
+        )
+        return
+
+    if column.nullable is False:
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        f"ALTER TABLE {table_name} "
+                        f"ALTER COLUMN {column.name} SET NOT NULL"
+                    )
+                )
+        except Exception as error:  # pragma: no cover - defensive
+            print(
+                f"Migration note: {table_name}.{column.name} left nullable "
+                f"({type(error).__name__})"
+            )
+
+
+def sync_schema_with_models(engine: Engine, metadata) -> None:
+    """
+    Add every column/index that the current models define but the live
+    database is missing.
+
+    Idempotent and strictly additive: it never drops a column, never drops a
+    table, and never rewrites existing values (except the DEFAULT backfill
+    applied while adding a NOT NULL column).  Brand-new tables are left to
+    ``Base.metadata.create_all``.
+    """
+    try:
+        inspector = inspect(engine)
+        existing_tables = set(inspector.get_table_names())
+    except Exception as error:  # pragma: no cover - defensive
+        print(
+            "Migration warning: could not list tables "
+            f"({type(error).__name__})"
+        )
+        return
+
+    added_columns = []
+
+    for table in metadata.sorted_tables:
+        if table.name not in existing_tables:
+            # New table: create_all() owns it.
+            continue
+
+        try:
+            existing_columns = {
+                column["name"]
+                for column in inspector.get_columns(table.name)
+            }
+        except Exception as error:  # pragma: no cover - defensive
+            print(
+                f"Migration warning: could not read {table.name} "
+                f"({type(error).__name__})"
+            )
+            continue
+
+        for column in table.columns:
+            if column.name in existing_columns:
+                continue
+
+            _add_model_column(engine, table.name, column)
+            added_columns.append(f"{table.name}.{column.name}")
+
+        for column in table.columns:
+            if column.index:
+                _add_index_if_missing(engine, table.name, column.name)
+
+    if added_columns:
+        print(
+            "Aqua AI schema sync added:",
+            ", ".join(added_columns),
+        )
+    else:
+        print("Aqua AI schema sync: no missing columns detected.")

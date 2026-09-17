@@ -287,6 +287,36 @@ AUTH_COOKIE_SAMESITE = os.getenv(
 # Validate SameSite value
 if AUTH_COOKIE_SAMESITE not in ("strict", "lax", "none"):
     AUTH_COOKIE_SAMESITE = "lax"
+# Partitioned (CHIPS): key the cookie jar by top-level site so the session
+# cookie keeps working for cross-site API calls once browsers block
+# third-party cookies by default. The CHIPS spec only accepts the attribute
+# for Secure cookies with SameSite=None, so it follows both flags.
+AUTH_COOKIE_PARTITIONED = (
+    AUTH_COOKIE_SECURE and AUTH_COOKIE_SAMESITE == "none"
+)
+
+
+def _emit_partitioned(response: Response) -> None:
+    """
+    Append the CHIPS ``Partitioned`` attribute to the last Set-Cookie header.
+
+    Starlette can only emit ``Partitioned`` on Python 3.14+, but Render runs
+    3.11, so the attribute is appended to the raw header instead. It is a
+    pure extension attribute: browsers that understand it partition the
+    cookie per top-level site (keeping cross-site sessions alive under
+    third-party-cookie blocking) and older clients simply ignore it.
+    """
+    if not AUTH_COOKIE_PARTITIONED:
+        return
+    for index in range(len(response.raw_headers) - 1, -1, -1):
+        name, value = response.raw_headers[index]
+        if name.lower() == b"set-cookie":
+            if b"; Partitioned" not in value:
+                response.raw_headers[index] = (
+                    name,
+                    value.rstrip().rstrip(b";") + b"; Partitioned",
+                )
+            return
 
 
 def _set_auth_cookie(response: Response, token: str, remember_me: bool = False) -> None:
@@ -305,16 +335,23 @@ def _set_auth_cookie(response: Response, token: str, remember_me: bool = False) 
         samesite=AUTH_COOKIE_SAMESITE,
         max_age=max_age,
     )
+    _emit_partitioned(response)
 
 
 def _clear_auth_cookie(response: Response) -> None:
-    response.delete_cookie(
+    # Use set_cookie directly (not delete_cookie) so that a Partitioned
+    # cookie can be cleared from the same partitioned jar it was created in.
+    response.set_cookie(
         key=AUTH_COOKIE_NAME,
+        value="",
         path=AUTH_COOKIE_PATH,
         httponly=AUTH_COOKIE_HTTP_ONLY,
         secure=AUTH_COOKIE_SECURE,
         samesite=AUTH_COOKIE_SAMESITE,
+        max_age=0,
+        expires=0,
     )
+    _emit_partitioned(response)
 
 
 def _extract_token(request: Request) -> str | None:

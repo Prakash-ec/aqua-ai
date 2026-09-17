@@ -276,7 +276,16 @@ elif _auth_secure_env in ("0", "false", "no", "off"):
 else:
     # Auto-detect: secure if ENVIRONMENT=production
     AUTH_COOKIE_SECURE = os.getenv("ENVIRONMENT", "development").strip().lower() == "production"
-AUTH_COOKIE_SAMESITE = os.getenv("AUTH_COOKIE_SAMESITE", "lax").strip().lower()
+AUTH_COOKIE_SAMESITE = os.getenv(
+    "AUTH_COOKIE_SAMESITE",
+    # "lax" is correct when the frontend is served from the same site as the
+    # API. A frontend on a different site (for example a local dev server on
+    # http://127.0.0.1:5500 calling the Render backend) does NOT receive a
+    # Lax cookie, so the session would be lost immediately after login.
+    # Browsers only accept SameSite=None together with Secure=True, so the
+    # default follows the Secure flag and stays "lax" for local HTTP.
+    "none" if AUTH_COOKIE_SECURE else "lax",
+).strip().lower()
 # Validate SameSite value
 if AUTH_COOKIE_SAMESITE not in ("strict", "lax", "none"):
     AUTH_COOKIE_SAMESITE = "lax"

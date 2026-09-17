@@ -27,6 +27,99 @@ function getApiBaseUrl() {
         : "http://127.0.0.1:8001";
 }
 
+/*
+ * Show a transient toast in #toastContainer.
+ *
+ * This function was previously missing entirely even though seven call
+ * sites referenced it (including every login / register / logout path),
+ * so each of those paths threw "showToast is not defined".
+ */
+function showToast(message, type = "success") {
+    const container = $("toastContainer");
+
+    if (!container) {
+        return;
+    }
+
+    const toast = document.createElement("div");
+    toast.className = `toast ${type}`;
+
+    const icon = document.createElement("i");
+    if (type === "error") {
+        icon.className = "ri-error-warning-line";
+    } else if (type === "warning") {
+        icon.className = "ri-alert-line";
+    } else {
+        icon.className = "ri-checkbox-circle-line";
+    }
+
+    const text = document.createElement("span");
+    text.textContent = String(message ?? "");
+
+    toast.appendChild(icon);
+    toast.appendChild(text);
+    container.appendChild(toast);
+
+    const removeToast = () => {
+        if (toast.parentNode === container) {
+            container.removeChild(toast);
+        }
+    };
+
+    toast.addEventListener("click", removeToast);
+    window.setTimeout(removeToast, 4500);
+}
+
+/*
+ * Convert any FastAPI error body into one readable sentence.
+ *
+ * FastAPI returns "detail" as a string for HTTPException, but as a LIST of
+ * validation objects for 422 responses. Passing that list into
+ * new Error(...) produced "[object Object]" in the UI.
+ */
+function extractApiErrorMessage(data, status, fallbackPrefix = "Request failed.") {
+    const detail = data?.detail ?? data?.message;
+
+    if (typeof detail === "string" && detail.trim()) {
+        return detail.trim();
+    }
+
+    if (Array.isArray(detail)) {
+        const parts = detail
+            .map((item) => {
+                if (typeof item === "string") {
+                    return item.trim();
+                }
+
+                if (item && typeof item === "object") {
+                    const field = Array.isArray(item.loc)
+                        ? item.loc.filter((part) => part !== "body").join(".")
+                        : "";
+                    const message = item.msg || item.message || "";
+
+                    return [field, message].filter(Boolean).join(": ");
+                }
+
+                return "";
+            })
+            .filter(Boolean);
+
+        if (parts.length > 0) {
+            return parts.join(" ");
+        }
+    }
+
+    if (detail && typeof detail === "object") {
+        const message = detail.msg || detail.message;
+
+        if (typeof message === "string" && message.trim()) {
+            return message.trim();
+        }
+    }
+
+    return `${fallbackPrefix} (HTTP ${status})`;
+}
+
 let currentPage = "dashboard";
 let currentRange = "24H";
 let refreshTimer = null;
@@ -183,12 +276,9 @@ async function apiRequest(path, options = {}) {
     }
 
     if (!response.ok) {
-        const detail =
-            data?.detail ||
-            data?.message ||
-            `Request failed with status ${response.status}`;
-
-        throw new Error(detail);
+        throw new Error(
+            extractApiErrorMessage(data, response.status, "Request failed.")
+        );
     }
 
     return data;
@@ -238,11 +328,9 @@ async function performLogin(username, password, rememberMe = false) {
     }
 
     if (!response.ok) {
-        const detail =
-            data?.detail ||
-            data?.message ||
-            `Login failed with status ${response.status}`;
-        throw new Error(detail);
+        throw new Error(
+            extractApiErrorMessage(data, response.status, "Login failed.")
+        );
     }
 
     isAuthenticated = true;
@@ -269,11 +357,9 @@ async function performRegister(payload) {
     }
 
     if (!response.ok) {
-        const detail =
-            data?.detail ||
-            data?.message ||
-            `Registration failed with status ${response.status}`;
-        throw new Error(detail);
+        throw new Error(
+            extractApiErrorMessage(data, response.status, "Registration failed.")
+        );
     }
 
     return data;
@@ -832,27 +918,124 @@ async function setupAuth() {
     $("toggleAuthMode")?.addEventListener("click", () => setAuthMode("register"));
     $("toggleAuthMode2")?.addEventListener("click", () => setAuthMode("login"));
 
-    // Login form submission
+    // Login / register form submission
     const loginForm = $("loginForm");
     const submitButton = $("submitLoginButton");
+    setAuthMode("login");
+
+    // Guards against duplicate submissions from double-clicks or repeated Enter.
+    let authSubmitInProgress = false;
+
+    function clearAuthError() {
+        const errorEl = $("loginError");
+
+        if (errorEl) {
+            errorEl.classList.add("hidden");
+            errorEl.textContent = "";
+        }
+    }
+
+    function showAuthError(message) {
+        const errorEl = $("loginError");
+
+        if (!errorEl) {
+            return;
+        }
+
+        errorEl.textContent = "";
+
+        const icon = document.createElement("i");
+        icon.className = "ri-error-warning-line";
+        errorEl.appendChild(icon);
+        errorEl.appendChild(document.createTextNode(String(message ?? "")));
+        errorEl.classList.remove("hidden");
+    }
+
+    /*
+     * Validate locally first so the user gets an actionable sentence instead
+     * of a raw FastAPI 422 validation payload.
+     */
+    function validateAuthInput({ mode, fullName, email, username, password, confirm }) {
+        if (!username) {
+            return "Please enter your username.";
+        }
+
+        if (username.length < 3) {
+            return "Username must be at least 3 characters long.";
+        }
+
+        if (!password) {
+            return "Please enter your password.";
+        }
+
+        if (mode !== "register") {
+            return "";
+        }
+
+        if (!fullName) {
+            return "Please enter your full name.";
+        }
+
+        if (password.length < 8) {
+            return "Password must be at least 8 characters long.";
+        }
+
+        if (password !== confirm) {
+            return "Passwords do not match.";
+        }
+
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return "Please enter a valid email address or leave it blank.";
+        }
+
+        return "";
+    }
 
     if (loginForm) {
         loginForm.addEventListener("submit", async (event) => {
             event.preventDefault();
 
-            if (!submitButton) return;
+            if (!submitButton || authSubmitInProgress) {
+                return;
+            }
 
-            submitButton.disabled = true;
+            // Always start from a clean error state.
+            clearAuthError();
 
             const username = $("loginUsername")?.value.trim() || "";
             const password = $("loginPassword")?.value || "";
             const rememberMe = $("rememberMe")?.checked || false;
+            const isRegister = authMode === "register";
+
+            const fullName = isRegister
+                ? $("registerFullName")?.value.trim() || ""
+                : "";
+            const email = isRegister
+                ? $("registerEmail")?.value.trim() || ""
+                : "";
+            const confirm = isRegister
+                ? $("registerConfirmPassword")?.value || ""
+                : "";
+
+            const validationError = validateAuthInput({
+                mode: authMode,
+                fullName,
+                email,
+                username,
+                password,
+                confirm,
+            });
+
+            if (validationError) {
+                showAuthError(validationError);
+                return;
+            }
+
+            authSubmitInProgress = true;
+            submitButton.disabled = true;
 
             try {
-                if (authMode === "register") {
-                    const fullName = $("registerFullName")?.value.trim() || "";
-                    const email = $("registerEmail")?.value.trim() || "";
-                    const confirm = $("registerConfirmPassword")?.value || "";
+                if (isRegister) {
                     await performRegister({
                         full_name: fullName,
                         email: email || null,
@@ -860,40 +1043,60 @@ async function setupAuth() {
                         password,
                         confirm_password: confirm,
                     });
-                    showToast(
-                        "Account created. Please sign in.",
-                        "success"
-                    );
-                    // Switch back to login mode, keep username prefilled.
+
+                    // Registration does not create a session; return to sign in.
                     setAuthMode("login");
-                    const errorEl = $("loginError");
-                    if (errorEl) {
-                        errorEl.classList.add("hidden");
-                        errorEl.innerHTML = "";
-                    }
-                    submitButton.disabled = false;
+                    clearAuthError();
+
+                    const passwordField = $("loginPassword");
+                    const confirmField = $("registerConfirmPassword");
+
+                    if (passwordField) passwordField.value = "";
+                    if (confirmField) confirmField.value = "";
+
+                    showToast("Account created. Please sign in.", "success");
+                    passwordField?.focus();
                     return;
                 }
 
-                await performLogin(username, password, rememberMe);
-                closeLoginModal();
-                showToast("Signed in successfully", "success");
-                updateUserInterface();
-                refreshDashboard();
-            } catch (error) {
-                showToast(error.message, "error");
-                if (authMode === "register") {
-                    const errorEl = $("loginError");
-                    if (errorEl) {
-                        errorEl.classList.remove("hidden");
-                        errorEl.innerHTML =
-                            '<i class="ri-error-warning-line"></i>' +
-                            escapeHtml(error.message);
-                    }
-                } else {
-                    openLoginModal(error.message);
+                await performLogin(
+                    username,
+                    password,
+                    rememberMe
+                );
+
+                clearAuthError();
+
+                // Confirm that the browser accepted the HttpOnly session cookie.
+                const profile = await fetchCurrentUser();
+
+                if (!profile) {
+                    // A successful login POST is not enough if the browser rejected
+                    // its cookie (for example, cross-site cookie restrictions).
+                    isAuthenticated = false;
+                    currentUser = null;
+                    clearUserState();
+                    updateUserInterface();
+                    openLoginModal();
+                    throw new Error("Unable to confirm your session. Check backend connectivity and browser cookie settings, then sign in again.");
                 }
+
+                isAuthenticated = true;
+                closeLoginModal();
+                updateUserInterface();
+                showToast("Signed in successfully.", "success");
+                navigateTo("dashboard");
+                refreshDashboard().catch(() => null);
+            } catch (error) {
+                const message =
+                    (error && error.message) ||
+                    "Sign in failed. Please try again.";
+
+                showAuthError(message);
+                showToast(message, "error");
             } finally {
+                authSubmitInProgress = false;
+
                 if (submitButton) {
                     submitButton.disabled = false;
                     setAuthMode(authMode);

@@ -760,14 +760,14 @@ function populateDeviceInformation(devices) {
 
 async function setupAuth() {
     // Login-only form (registration is disabled in this deployment).
-    const loginForm = $("#loginForm");
-    const submitButton = $("#submitLoginButton");
+    const loginForm = $("loginForm");
+    const submitButton = $("submitLoginButton");
 
     // Guards against duplicate submissions from double-clicks or repeated Enter.
     let authSubmitInProgress = false;
 
     function clearAuthError() {
-        const errorEl = $("#loginError");
+        const errorEl = $("loginError");
 
         if (errorEl) {
             errorEl.classList.add("hidden");
@@ -776,7 +776,7 @@ async function setupAuth() {
     }
 
     function showAuthError(message) {
-        const errorEl = $("#loginError");
+        const errorEl = $("loginError");
 
         if (!errorEl) {
             return;
@@ -822,9 +822,9 @@ async function setupAuth() {
             // Always start from a clean error state.
             clearAuthError();
 
-            const username = $("#loginUsername")?.value.trim() || "";
-            const password = $("#loginPassword")?.value || "";
-            const rememberMe = $("#rememberMe")?.checked || false;
+            const username = $("loginUsername")?.value.trim() || "";
+            const password = $("loginPassword")?.value || "";
+            const rememberMe = $("rememberMe")?.checked || false;
 
             const validationError = validateLoginInput({ username, password });
 
@@ -878,11 +878,11 @@ async function setupAuth() {
     }
 
     // Close login modal buttons
-    $("#closeLoginModal")?.addEventListener("click", closeLoginModal);
-    $("#cancelLoginButton")?.addEventListener("click", closeLoginModal);
+    $("closeLoginModal")?.addEventListener("click", closeLoginModal);
+    $("cancelLoginButton")?.addEventListener("click", closeLoginModal);
 
     // Login button
-    const loginBtn = $("#loginItem");
+    const loginBtn = $("loginItem");
     if (loginBtn) {
         loginBtn.addEventListener("click", () => {
             openLoginModal();
@@ -890,7 +890,7 @@ async function setupAuth() {
     }
 
     // Logout button
-    const logoutBtn = $("#logoutItem");
+    const logoutBtn = $("logoutItem");
     if (logoutBtn) {
         logoutBtn.addEventListener("click", async () => {
             await performLogout();

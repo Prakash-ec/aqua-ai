@@ -10,21 +10,41 @@
     Change API_BASE_URL when using Render.
 */
 
+const DEFAULT_LOCAL_API_URL = "http://127.0.0.1:8001";
+
+/*
+ * Production backend mapped per known frontend origin so the app works
+ * without requiring the user to configure `aqua_api_url` in Settings.
+ */
+const PRODUCTION_API_URL_BY_ORIGIN = {
+    "https://aqua-ai.netlify.app": "https://aqua-ai-wz4s.onrender.com",
+    "https://aqua-ai-frontend.netlify.app": "https://aqua-ai-wz4s.onrender.com",
+};
+
 let API_BASE_URL =
     localStorage.getItem("aqua_api_url") ||
-    "http://127.0.0.1:8001";
+    DEFAULT_LOCAL_API_URL;
 
 const REFRESH_INTERVAL = 15000;
 
 /*
- * Read the API base URL live from localStorage so that a backend URL saved
- * in Settings takes effect without requiring an extra page reload.
+ * Determine the API base URL, in priority order:
+ *   1. User-configured `aqua_api_url` in localStorage (Settings).
+ *   2. Production backend matched to the current frontend origin.
+ *   3. Default local backend for local development.
  */
 function getApiBaseUrl() {
     const stored = localStorage.getItem("aqua_api_url");
-    return stored && stored.trim() !== ""
-        ? stored.replace(/\/+$/, "")
-        : "http://127.0.0.1:8001";
+    if (stored && stored.trim() !== "") {
+        return stored.replace(/\/+$/, "");
+    }
+
+    const productionUrl = PRODUCTION_API_URL_BY_ORIGIN[window.location.origin];
+    if (productionUrl) {
+        return productionUrl;
+    }
+
+    return DEFAULT_LOCAL_API_URL;
 }
 
 /*

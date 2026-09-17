@@ -4,7 +4,6 @@
  * Sends real sensor readings to the Aqua AI backend:
  *
  *     POST {AQUA_AI_SERVER}/readings/ingest
- *     X-Device-Token: <device token shown once at device creation>
  *     Content-Type: application/json
  *     {"device_id": <id>, "temperature": ..., "ph": ..., "turbidity": ..., "tds": ...}
  *
@@ -12,8 +11,7 @@
  *  - AQUA_AI_SERVER must be the PC's LAN IP (e.g. http://192.168.1.50:8001).
  *    NEVER use 127.0.0.1 or "localhost": from the ESP32 those point at the
  *    ESP32 itself, not your backend.
- *  - DEVICE_ID and DEVICE_TOKEN come from the Devices page (token is shown
- *    only once when the device is created).
+ *  - DEVICE_ID comes from the Devices page.
  *  - Wire REAL sensors: analogRead()/I2C values below. Do NOT substitute
  *    random numbers — Aqua AI displays exactly what is sent here.
  */
@@ -22,6 +20,7 @@
 #include <HTTPClient.h>
 
 // ----------------- USER CONFIGURATION -----------------
+
 const char* WIFI_SSID     = "YOUR_WIFI_SSID";        // <-- your WiFi name
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";    // <-- your WiFi password
 
@@ -29,7 +28,6 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";    // <-- your WiFi password
 const char* AQUA_AI_SERVER = "http://192.168.1.50:8001";  // <-- PC LAN IP + backend port
 
 const int   DEVICE_ID    = 1;                        // <-- id from the Devices page
-const char* DEVICE_TOKEN = "PASTE_DEVICE_TOKEN";     // <-- token shown at creation
 
 // Send one reading every 60 s, scheduled with millis() (non-blocking).
 const unsigned long SEND_INTERVAL_MS = 60000UL;
@@ -140,7 +138,6 @@ void sendReading() {
 
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Device-Token", DEVICE_TOKEN);
   http.setTimeout(10000);  // 10 s so a slow backend cannot hang the loop
 
   Serial.print("[HTTP] POST ");

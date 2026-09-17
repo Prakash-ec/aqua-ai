@@ -1928,68 +1928,6 @@
 
                             </div>
 
-                            <div class="device-token-panel">
-
-                                <button
-                                    class="secondary-button full-width"
-                                    id="btn-regenerate-device-token"
-                                    type="button"
-                                    disabled
-                                >
-                                    <i class="ri-refresh-line" aria-hidden="true"></i>
-                                    Regenerate Device Token
-                                </button>
-
-                                <p class="device-token-hint">
-                                    A new token replaces the current one immediately. Select a device first.
-                                </p>
-
-                                <p
-                                    class="device-token-status"
-                                    id="device-token-status"
-                                    role="status"
-                                    aria-live="polite"
-                                ></p>
-
-                            </div>
-
-                            <div
-                                class="device-token-result hidden"
-                                id="device-token-result"
-                            >
-
-                                <p class="device-token-warning">
-                                    <i class="ri-alert-line" aria-hidden="true"></i>
-                                    This token will not be shown again.
-                                </p>
-
-                                <code
-                                    class="device-token-value"
-                                    id="device-token-display"
-                                ></code>
-
-                                <div class="device-token-actions">
-
-                                    <button
-                                        class="primary-button"
-                                        id="btn-copy-device-token"
-                                        type="button"
-                                    >
-                                        <i class="ri-file-copy-line" aria-hidden="true"></i>
-                                        Copy Token
-                                    </button>
-
-                                    <button
-                                        class="text-button"
-                                        id="btn-close-device-token"
-                                        type="button"
-                                    >
-                                        Done
-                                    </button>
-
-                                </div>
-
-                            </div>
 
                         </article>
 
@@ -2752,61 +2690,27 @@
 
                 <div class="login-error hidden" id="loginError"></div>
 
-                <div id="registerExtraFields" class="hidden">
-
-                    <label for="registerFullName">Full name</label>
-                    <input
-                        type="text"
-                        id="registerFullName"
-                        autocomplete="name"
-                        placeholder="Your name"
-                    >
-
-                    <label for="registerEmail">Email (optional)</label>
-                    <input
-                        type="email"
-                        id="registerEmail"
-                        autocomplete="email"
-                        placeholder="you@example.com"
-                    >
-
-                </div>
-
                 <label for="loginUsername">
                     Username
                 </label>
-
                 <input
                     type="text"
                     id="loginUsername"
                     required
                     autocomplete="username"
-                    placeholder="admin"
+                    placeholder="Enter username"
                 >
 
                 <label for="loginPassword">
                     Password
                 </label>
-
                 <input
                     type="password"
                     id="loginPassword"
                     required
                     autocomplete="current-password"
-                    placeholder="Enter admin password"
+                    placeholder="Enter password"
                 >
-
-                <div id="registerConfirmField" class="hidden">
-                    <label for="registerConfirmPassword">
-                        Confirm password
-                    </label>
-                    <input
-                        type="password"
-                        id="registerConfirmPassword"
-                        autocomplete="new-password"
-                        placeholder="Re-enter password"
-                    >
-                </div>
 
                 <div class="login-form-options">
                     <label class="toggle-switch">
@@ -2837,15 +2741,6 @@
                         Sign in
                     </button>
 
-                </div>
-
-                <div class="login-auth-switch">
-                    <p class="hidden" id="loginSwitchText">
-                        New here? <button type="button" id="toggleAuthMode" class="link-button">Create an account</button>
-                    </p>
-                    <p class="hidden" id="registerSwitchText">
-                        Already have an account? <button type="button" id="toggleAuthMode2" class="link-button">Sign in</button>
-                    </p>
                 </div>
 
             </form>

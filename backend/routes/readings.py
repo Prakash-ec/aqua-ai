@@ -1,10 +1,8 @@
-import hashlib
-import hmac
 from typing import Optional
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -76,7 +74,7 @@ def validate_reading_values(reading: WaterReadingCreate) -> None:
 
 
 # =========================================================
-# ESP32 INGESTION (device-token authenticated)
+# ESP32 INGESTION (device identified by device_id)
 # =========================================================
 
 class IngestReading(BaseModel):
@@ -94,19 +92,15 @@ class IngestReading(BaseModel):
 )
 def ingest_reading(
     reading: IngestReading,
-    x_device_token: str = Header(...),
     db: Session = Depends(get_db),
 ):
     """
     Ingest a sensor reading directly from an ESP32 device.
 
-    Authenticated with the per-device token via the X-Device-Token
-    header. No user session is required — the device authenticates
-    itself with its token (compared as a SHA-256 hash in
-    constant time).
+    No authentication header is required — the device is identified
+    solely by its device_id.  The device must exist and be active.
     """
 
-    # Reuse the same range validation as the session-authenticated route.
     validate_reading_values(
         WaterReadingCreate(
             device_id=reading.device_id,
@@ -123,20 +117,10 @@ def ingest_reading(
         .first()
     )
 
-    # 404 for both nonexistent and unknown-token devices so the
-    # endpoint does not reveal which device IDs exist.
-    provided_hash = hashlib.sha256(
-        x_device_token.encode("utf-8")
-    ).hexdigest()
-
-    if (
-        device is None
-        or not device.token_hash
-        or not hmac.compare_digest(device.token_hash, provided_hash)
-    ):
+    if device is None:
         raise HTTPException(
-            status_code=403,
-            detail="Invalid device credentials.",
+            status_code=404,
+            detail="Device not found.",
         )
 
     if not device.is_active:
@@ -152,8 +136,6 @@ def ingest_reading(
         ph=reading.ph,
         turbidity=reading.turbidity,
         tds=reading.tds,
-        # Server-generated timestamp: the ESP32 cannot be trusted
-        # to supply a correct clock.
         recorded_at=datetime.now(),
     )
 

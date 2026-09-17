@@ -440,56 +440,56 @@ async def login(
     )
 
 # ---------------------------------------------------------------------------
-# Admin seed helper
+# Single-user initialization (prakash)
 # ---------------------------------------------------------------------------
 
 
-def seed_admin_user(db: Session) -> User | None:
+def ensure_prakash_user(db: Session) -> User:
     """
-    Create a default admin user if no admin users exist yet.
+    Create or update the single admin user ``prakash``.
 
-    The password is read from ``ADMIN_PASSWORD`` (defaults to
-    ``"ChangeMe123!"``).  This is intended for first-time setup only and
-    should be replaced with a real password immediately.
-
-    Note: This only checks for admin users (is_admin=True), so existing
-    non-admin users will not prevent admin seeding.
+    The bootstrap password is read from the ``AUTH_BOOTSTRAP_PASSWORD``
+    environment variable. On every startup the stored hash is refreshed
+    from that variable so the configured password always wins. The
+    environment variable must be set — the application refuses to start
+    if it is missing.
     """
-    from backend.models import User
+    bootstrap_password = os.getenv("AUTH_BOOTSTRAP_PASSWORD", "")
 
-    # Check if an admin user already exists
-    existing_admin = db.execute(
-        select(User).where(User.is_admin == True).limit(1)
-    ).scalar_one_or_none()
-    if existing_admin is not None:
-        return existing_admin
-
-    username = os.getenv("ADMIN_USERNAME", "admin").strip() or "admin"
-    full_name = os.getenv("ADMIN_FULL_NAME", "Administrator").strip() or "Administrator"
-    email = os.getenv("ADMIN_EMAIL", "").strip() or None
-    password = os.getenv("ADMIN_PASSWORD", "ChangeMe123!")
-
-    # Safety check: don't create admin with default password in production
-    env = os.getenv("ENVIRONMENT", "development").strip().lower()
-    if env == "production" and password == "ChangeMe123!":
-        import logging
-        logging.warning(
-            "SECURITY WARNING: Using default ADMIN_PASSWORD in production. "
-            "Set a strong ADMIN_PASSWORD environment variable immediately."
+    if not bootstrap_password.strip():
+        raise RuntimeError(
+            "AUTH_BOOTSTRAP_PASSWORD must be set to bootstrap the admin user."
         )
 
-    admin = User(
-        username=username,
-        hashed_password=hash_password(password),
-        full_name=full_name,
-        email=email,
-        is_admin=True,
-        is_active=True,
-    )
-    db.add(admin)
-    db.commit()
-    db.refresh(admin)
-    return admin
+    hashed = hash_password(bootstrap_password)
+
+    user = db.execute(
+        select(User).where(User.username == "prakash")
+    ).scalar_one_or_none()
+
+    if user is None:
+        user = User(
+            username="prakash",
+            hashed_password=hashed,
+            full_name="Administrator",
+            email=None,
+            is_admin=True,
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    else:
+        # Idempotent: refresh the hash every startup so that the
+        # configured password always wins over any legacy value.
+        user.hashed_password = hashed
+        user.is_admin = True
+        user.is_active = True
+        db.add(user)
+        db.commit()
+
+    return user
 
 
 
@@ -595,72 +595,13 @@ async def register(
     db: Session = Depends(get_db),
 ):
     """
-    Create a new normal (non-admin) user account.
-
-    - Passwords are hashed with bcrypt before storage.
-    - Created users default to ``is_admin=False`` and ``is_active=True``.
-    - Registration does NOT create a session; the user must log in.
+    Registration is disabled in this single-user deployment.
     """
-    stripped_username = body.username.strip()
-
-    if body.password != body.confirm_password:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Passwords do not match.",
-        )
-
-    if len(body.password) < 8:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Password must be at least 8 characters long.",
-        )
-
-    existing = db.execute(
-        select(User).where(User.username == stripped_username)
-    ).scalar_one_or_none()
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A user with this username already exists.",
-        )
-
-    if body.email:
-        normalized_email = body.email.strip().lower()
-        existing_email = db.execute(
-            select(User).where(User.email == normalized_email)
-        ).scalar_one_or_none()
-        if existing_email:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="A user with this email already exists.",
-            )
-    else:
-        normalized_email = None
-
-    new_user = User(
-        username=stripped_username,
-        hashed_password=hash_password(body.password),
-        full_name=body.full_name.strip() or None,
-        email=normalized_email,
-        is_admin=False,
-        is_active=True,
+    raise HTTPException(
+        status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+        detail="Registration is disabled in this deployment.",
+        headers={"Allow": ""},
     )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-
-    return {
-        "success": True,
-        "message": "Registration successful. Please sign in.",
-        "user": {
-            "id": new_user.id,
-            "username": new_user.username,
-            "full_name": new_user.full_name,
-            "email": new_user.email,
-            "is_admin": new_user.is_admin,
-            "is_active": new_user.is_active,
-        },
-    }
 
 
 # =========================================================================

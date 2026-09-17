@@ -105,17 +105,16 @@ async def lifespan(app: FastAPI):
         print("Aqua AI database connection successful.")
         print("Aqua AI database tables verified.")
 
-        # Seed a default admin user if no users exist yet.
+        # Ensure the single admin user (prakash) exists.
         from backend.database import SessionLocal
-        from backend.routes.auth import seed_admin_user
+        from backend.routes.auth import ensure_prakash_user
 
         with SessionLocal() as lifespan_db:
-            seeded = seed_admin_user(lifespan_db)
-            if seeded:
-                print(
-                    "Aqua AI admin user ready:",
-                    f"username={seeded.username}",
-                )
+            prakash = ensure_prakash_user(lifespan_db)
+            print(
+                "Aqua AI single-user ready:",
+                f"username={prakash.username}",
+            )
 
         # Point pre-existing ownership-less rows at the first admin so a
         # legacy single-admin deployment keeps working after migration.

@@ -1,5 +1,3 @@
-import hashlib
-import secrets
 from typing import Optional
 
 from datetime import datetime
@@ -93,9 +91,6 @@ def create_device(
                 detail="A device with this name already exists.",
             )
 
-        raw_token = secrets.token_urlsafe(32)
-        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-
         device = Device(
             name=device_data.name.strip(),
             device_type=device_data.device_type.strip(),
@@ -109,8 +104,6 @@ def create_device(
                 if session
                 else None
             ),
-            token_hash=token_hash,
-            # Set explicitly; the legacy devices table has no DB default.
             created_at=datetime.now(),
         )
 
@@ -118,13 +111,9 @@ def create_device(
         db.commit()
         db.refresh(device)
 
-        # Serialize explicitly so token_hash never leaks in responses.
         return {
             "success": True,
-            "message": (
-                "Device created successfully. Save the device token now — "
-                "it is shown only once."
-            ),
+            "message": "Device created successfully.",
             "device": {
                 "id": device.id,
                 "name": device.name,
@@ -134,7 +123,6 @@ def create_device(
                 "is_active": device.is_active,
                 "created_at": device.created_at.isoformat(),
             },
-            "device_token": raw_token,
         }
 
     except HTTPException:
@@ -302,68 +290,6 @@ def update_device(
             status_code=500,
             detail="A database error occurred while updating the device.",
         )
-
-
-# =========================================================
-# REGENERATE DEVICE TOKEN
-# =========================================================
-
-class DeviceTokenRegenerateResponse(BaseModel):
-    success: bool
-    message: str
-    device_id: int
-    device_token: str
-
-
-@router.post("/{device_id}/regenerate-token")
-def regenerate_device_token(
-    device_id: int,
-    session: dict = Depends(get_current_session),
-    db: Session = Depends(get_db),
-):
-    """
-    Regenerate the API token for a device.
-
-    The old token is immediately invalidated. The new plaintext token
-    is returned only in this response and must be saved by the caller.
-    """
-
-    require_device_access(db, session, device_id)
-
-    device = (
-        scoped_device_query(session, db)
-        .filter(Device.id == device_id)
-        .first()
-    )
-
-    if device is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Device not found.",
-        )
-
-    # Generate a new token and replace the stored hash
-    new_token = secrets.token_urlsafe(32)
-    device.token_hash = hashlib.sha256(new_token.encode("utf-8")).hexdigest()
-
-    try:
-        db.commit()
-    except SQLAlchemyError:
-        db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail="A database error occurred while regenerating the device token.",
-        )
-
-    return {
-        "success": True,
-        "message": (
-            "Device token regenerated successfully. "
-            "Save this token; it will not be shown again."
-        ),
-        "device_id": device_id,
-        "device_token": new_token,
-    }
 
 
 # =========================================================

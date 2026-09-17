@@ -154,7 +154,7 @@ let cameraChatHistory = [];
 
 let isAuthenticated = false;
 let currentUser = null;
-let authMode = "login"; // "login" | "register"
+
 
 const AUTH_CHECK_INTERVAL = 30000; // 30 seconds
 let authCheckTimer = null;
@@ -358,32 +358,7 @@ async function performLogin(username, password, rememberMe = false) {
     return data;
 }
 
-async function performRegister(payload) {
-    const response = await fetch(`${getApiBaseUrl()}/auth/register`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-        },
-        body: JSON.stringify(payload),
-        credentials: "include",
-    });
 
-    let data = null;
-    try {
-        data = await response.json();
-    } catch {
-        data = null;
-    }
-
-    if (!response.ok) {
-        throw new Error(
-            extractApiErrorMessage(data, response.status, "Registration failed.")
-        );
-    }
-
-    return data;
-}
 
 let logoutInProgress = false;
 
@@ -707,17 +682,6 @@ function populateDeviceInformation(devices) {
     setText("selectedDeviceId", device.id, "--");
     setText("deviceId", device.id, "--");
 
-    // Selecting a device unlocks token regeneration. Any token that was
-    // displayed for a different device is cleared immediately.
-    const regenerateButton = $("btn-regenerate-device-token");
-
-    if (regenerateButton) {
-        regenerateButton.disabled = !(device && device.id);
-    }
-
-    hideDeviceTokenResult();
-    setDeviceTokenStatus("");
-
     const deviceStatusDot = $("deviceStatusDot");
     const isActive = device.is_active !== false;
 
@@ -766,188 +730,16 @@ function populateDeviceInformation(devices) {
     });
 }
 
-/* =========================================================
-   DEVICE TOKEN REGENERATION
-   The plaintext token is only ever held in memory for the
-   current click. It is never written to localStorage,
-   sessionStorage or cookies.
-========================================================= */
-
-function setDeviceTokenStatus(message, isError = false) {
-    const status = $("device-token-status");
-
-    if (!status) {
-        return;
-    }
-
-    status.textContent = message || "";
-    status.classList.toggle("error", Boolean(isError));
-}
-
-function hideDeviceTokenResult() {
-    const result = $("device-token-result");
-    const display = $("device-token-display");
-
-    if (display) {
-        display.textContent = "";
-    }
-
-    if (result) {
-        result.classList.add("hidden");
-    }
-}
-
-async function copyDeviceToken() {
-    const display = $("device-token-display");
-    const token = display ? display.textContent.trim() : "";
-
-    if (!token) {
-        setDeviceTokenStatus("Generate a token first, then copy it.", true);
-        return;
-    }
-
-    try {
-        if (navigator.clipboard && window.isSecureContext) {
-            await navigator.clipboard.writeText(token);
-        } else {
-            const helper = document.createElement("textarea");
-            helper.value = token;
-            helper.setAttribute("readonly", "readonly");
-            helper.style.position = "fixed";
-            helper.style.top = "0";
-            helper.style.opacity = "0";
-            document.body.appendChild(helper);
-            helper.select();
-            document.execCommand("copy");
-            document.body.removeChild(helper);
-        }
-
-        setDeviceTokenStatus("Token copied to the clipboard.");
-    } catch (error) {
-        setDeviceTokenStatus(
-            "Copy failed. Select the token text and copy it manually.",
-            true
-        );
-    }
-}
-
-async function regenerateDeviceToken() {
-    const button = $("btn-regenerate-device-token");
-    const device = latestDevice;
-    const deviceId = device ? device.id : null;
-
-    if (!deviceId) {
-        setDeviceTokenStatus("Select a device before regenerating its token.", true);
-        return;
-    }
-
-    const confirmed = window.confirm(
-        "Regenerating the token will invalidate the current device token. Continue?"
-    );
-
-    if (!confirmed) {
-        return;
-    }
-
-    if (button) {
-        button.disabled = true;
-    }
-
-    hideDeviceTokenResult();
-    setDeviceTokenStatus(`Generating a new token for device #${deviceId}…`);
-
-    try {
-        const data = await apiRequest(
-            `/devices/${encodeURIComponent(deviceId)}/regenerate-token`,
-            { method: "POST" }
-        );
-
-        if (data && data.success === false) {
-            throw new Error(
-                data.message || "The device token could not be regenerated."
-            );
-        }
-
-        const token = (data && (data.device_token || data.token)) || "";
-
-        if (!token) {
-            throw new Error("The server did not return a device token.");
-        }
-
-        const result = $("device-token-result");
-        const display = $("device-token-display");
-
-        if (display) {
-            display.textContent = token;
-        }
-
-        if (result) {
-            result.classList.remove("hidden");
-        }
-
-        setDeviceTokenStatus(
-            `New token generated for device #${deviceId}. Copy it now.`
-        );
-    } catch (error) {
-        hideDeviceTokenResult();
-        setDeviceTokenStatus(
-            error && error.message
-                ? error.message
-                : "Could not regenerate the device token. Please try again.",
-            true
-        );
-    } finally {
-        if (button) {
-            button.disabled = !latestDevice;
-        }
-    }
-}
-
-function setupDeviceToken() {
-    $("btn-regenerate-device-token")?.addEventListener(
-        "click",
-        regenerateDeviceToken
-    );
-    $("btn-copy-device-token")?.addEventListener("click", copyDeviceToken);
-    $("btn-close-device-token")?.addEventListener("click", () => {
-        hideDeviceTokenResult();
-        setDeviceTokenStatus("");
-    });
-}
-
 async function setupAuth() {
-    // Toggle between Login and Register modes
-    function setAuthMode(mode) {
-        authMode = mode;
-        const isReg = mode === "register";
-        $("registerExtraFields")?.classList.toggle("hidden", !isReg);
-        $("registerConfirmField")?.classList.toggle("hidden", !isReg);
-        $("loginSwitchText")?.classList.toggle("hidden", isReg);
-        $("registerSwitchText")?.classList.toggle("hidden", !isReg);
-        const title = $("loginModalTitle");
-        const eyebrow = $("authEyebrow");
-        if (title) title.textContent = isReg ? "Create Account" : "Sign In";
-        if (eyebrow) eyebrow.textContent = isReg ? "NEW ACCOUNT" : "SECURE ACCESS";
-        if (submitButton) {
-            submitButton.innerHTML = isReg
-                ? '<i class="ri-user-add-line"></i> Create account'
-                : '<i class="ri-login-circle-line"></i> Sign in';
-        }
-    }
-
-    $("toggleAuthMode")?.addEventListener("click", () => setAuthMode("register"));
-    $("toggleAuthMode2")?.addEventListener("click", () => setAuthMode("login"));
-
-    // Login / register form submission
-    const loginForm = $("loginForm");
-    const submitButton = $("submitLoginButton");
-    setAuthMode("login");
+    // Login-only form (registration is disabled in this deployment).
+    const loginForm = $("#loginForm");
+    const submitButton = $("#submitLoginButton");
 
     // Guards against duplicate submissions from double-clicks or repeated Enter.
     let authSubmitInProgress = false;
 
     function clearAuthError() {
-        const errorEl = $("loginError");
+        const errorEl = $("#loginError");
 
         if (errorEl) {
             errorEl.classList.add("hidden");
@@ -956,7 +748,7 @@ async function setupAuth() {
     }
 
     function showAuthError(message) {
-        const errorEl = $("loginError");
+        const errorEl = $("#loginError");
 
         if (!errorEl) {
             return;
@@ -975,7 +767,7 @@ async function setupAuth() {
      * Validate locally first so the user gets an actionable sentence instead
      * of a raw FastAPI 422 validation payload.
      */
-    function validateAuthInput({ mode, fullName, email, username, password, confirm }) {
+    function validateLoginInput({ username, password }) {
         if (!username) {
             return "Please enter your username.";
         }
@@ -986,26 +778,6 @@ async function setupAuth() {
 
         if (!password) {
             return "Please enter your password.";
-        }
-
-        if (mode !== "register") {
-            return "";
-        }
-
-        if (!fullName) {
-            return "Please enter your full name.";
-        }
-
-        if (password.length < 8) {
-            return "Password must be at least 8 characters long.";
-        }
-
-        if (password !== confirm) {
-            return "Passwords do not match.";
-        }
-
-        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            return "Please enter a valid email address or leave it blank.";
         }
 
         return "";
@@ -1022,29 +794,11 @@ async function setupAuth() {
             // Always start from a clean error state.
             clearAuthError();
 
-            const username = $("loginUsername")?.value.trim() || "";
-            const password = $("loginPassword")?.value || "";
-            const rememberMe = $("rememberMe")?.checked || false;
-            const isRegister = authMode === "register";
+            const username = $("#loginUsername")?.value.trim() || "";
+            const password = $("#loginPassword")?.value || "";
+            const rememberMe = $("#rememberMe")?.checked || false;
 
-            const fullName = isRegister
-                ? $("registerFullName")?.value.trim() || ""
-                : "";
-            const email = isRegister
-                ? $("registerEmail")?.value.trim() || ""
-                : "";
-            const confirm = isRegister
-                ? $("registerConfirmPassword")?.value || ""
-                : "";
-
-            const validationError = validateAuthInput({
-                mode: authMode,
-                fullName,
-                email,
-                username,
-                password,
-                confirm,
-            });
+            const validationError = validateLoginInput({ username, password });
 
             if (validationError) {
                 showAuthError(validationError);
@@ -1055,35 +809,7 @@ async function setupAuth() {
             submitButton.disabled = true;
 
             try {
-                if (isRegister) {
-                    await performRegister({
-                        full_name: fullName,
-                        email: email || null,
-                        username,
-                        password,
-                        confirm_password: confirm,
-                    });
-
-                    // Registration does not create a session; return to sign in.
-                    setAuthMode("login");
-                    clearAuthError();
-
-                    const passwordField = $("loginPassword");
-                    const confirmField = $("registerConfirmPassword");
-
-                    if (passwordField) passwordField.value = "";
-                    if (confirmField) confirmField.value = "";
-
-                    showToast("Account created. Please sign in.", "success");
-                    passwordField?.focus();
-                    return;
-                }
-
-                await performLogin(
-                    username,
-                    password,
-                    rememberMe
-                );
+                await performLogin(username, password, rememberMe);
 
                 clearAuthError();
 
@@ -1098,39 +824,37 @@ async function setupAuth() {
                     clearUserState();
                     updateUserInterface();
                     openLoginModal();
-                    throw new Error("Unable to confirm your session. Check backend connectivity and browser cookie settings, then sign in again.");
+                    showAuthError("Login succeeded but session cookie was not set. Please check browser cookie settings.");
+                    return;
                 }
+
+                // ---- signed in ----
 
                 isAuthenticated = true;
-                closeLoginModal();
+                currentUser = profile;
+                clearUserState();
                 updateUserInterface();
-                showToast("Signed in successfully.", "success");
-                navigateTo("dashboard");
-                refreshDashboard().catch(() => null);
-            } catch (error) {
-                const message =
-                    (error && error.message) ||
-                    "Sign in failed. Please try again.";
 
-                showAuthError(message);
-                showToast(message, "error");
+                closeLoginModal();
+                showToast(`Welcome back, ${profile.full_name || profile.username}.`, "success");
+                refreshDashboard();
+
+            } catch (error) {
+                console.error("Login error:", error);
+                showAuthError(error.message || "Login failed. Please check your credentials.");
             } finally {
                 authSubmitInProgress = false;
-
-                if (submitButton) {
-                    submitButton.disabled = false;
-                    setAuthMode(authMode);
-                }
+                submitButton.disabled = false;
             }
         });
     }
 
     // Close login modal buttons
-    $("closeLoginModal")?.addEventListener("click", closeLoginModal);
-    $("cancelLoginButton")?.addEventListener("click", closeLoginModal);
+    $("#closeLoginModal")?.addEventListener("click", closeLoginModal);
+    $("#cancelLoginButton")?.addEventListener("click", closeLoginModal);
 
     // Login button
-    const loginBtn = $("loginItem");
+    const loginBtn = $("#loginItem");
     if (loginBtn) {
         loginBtn.addEventListener("click", () => {
             openLoginModal();
@@ -1138,12 +862,10 @@ async function setupAuth() {
     }
 
     // Logout button
-    const logoutBtn = $("logoutItem");
+    const logoutBtn = $("#logoutItem");
     if (logoutBtn) {
         logoutBtn.addEventListener("click", async () => {
             await performLogout();
-            showToast("Signed out successfully", "success");
-            navigateTo("dashboard");
         });
     }
 }
@@ -4219,7 +3941,6 @@ async function initializeApp() {
     setupRefreshButton();
     setupSettings();
     setupAddDevice();
-    setupDeviceToken();
     setupAuth();
     setupReadingForm();
     setupCameraUpload();

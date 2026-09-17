@@ -342,14 +342,9 @@ async function apiRequest(path, options = {}) {
    ========================================================= */
 
 async function checkAuth() {
-    try {
-        const data = await apiRequest("/auth/check");
-        isAuthenticated = data && data.authenticated === true;
-        return isAuthenticated;
-    } catch (error) {
-        isAuthenticated = false;
-        return false;
-    }
+    currentUser = await fetchCurrentUser();
+    isAuthenticated = !!currentUser;
+    return isAuthenticated;
 }
 
 async function fetchCurrentUser() {
@@ -905,13 +900,7 @@ async function setupAuth() {
 
 async function loadLatestReading() {
     try {
-        let data;
-
-        try {
-            data = await apiRequest("/readings/latest");
-        } catch {
-            data = await apiRequest("/readings/latest/");
-        }
+        const data = await apiRequest("/readings/latest");
 
         const normalized = normalizeReadings(data);
 
@@ -934,13 +923,7 @@ async function loadLatestReading() {
 
 async function loadAllReadings() {
     try {
-        let data;
-
-        try {
-            data = await apiRequest("/readings/");
-        } catch {
-            data = await apiRequest("/readings");
-        }
+        const data = await apiRequest("/readings/");
 
         readingsCache = normalizeReadings(data);
 
@@ -3695,7 +3678,9 @@ function startAutoRefresh() {
     }
 
     refreshTimer = setInterval(() => {
-        refreshDashboard();
+        if (isAuthenticated) {
+            refreshDashboard();
+        }
     }, REFRESH_INTERVAL);
 }
 
@@ -3992,7 +3977,6 @@ async function initializeApp() {
     showAuthLoadingState("Checking sign-in status…");
     const authenticated = await checkAuth();
     if (authenticated) {
-        await fetchCurrentUser();
         updateUserInterface();
         hideAuthLoadingState();
         const initialPage =

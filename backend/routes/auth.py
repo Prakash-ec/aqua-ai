@@ -7,8 +7,7 @@ Endpoints:
 - POST /auth/login          — Admin login with username/password
 - POST /auth/logout         — Logout current session
 - GET  /auth/session        — Get current session info
-- GET  /auth/check          — Check if user is authenticated
-- GET  /auth/me             — Get current user details
+- GET  /auth/me             — Get current user details (session check)
 """
 
 import hashlib
@@ -19,7 +18,6 @@ from datetime import datetime, timedelta, timezone
 import bcrypt
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -528,25 +526,6 @@ async def get_session(
         is_admin=session.get("is_admin", False),
         expires_at=session.get("expires_at"),
     )
-
-
-@router.get("/check")
-async def check_auth(
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """
-    Lightweight auth check that returns 200 when authenticated and 401 when
-    not.  No session data is leaked - only the status code matters.
-    """
-    token = _extract_token(request)
-    session = validate_session_token(token, db) if token else None
-    if not session:
-        return JSONResponse(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"authenticated": False},
-        )
-    return {"authenticated": True}
 
 
 @router.get("/me", response_model=MeResponse)

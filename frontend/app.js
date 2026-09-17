@@ -5,21 +5,46 @@
     Aqua AI Frontend Application
     --------------------------------
     Backend:
-    http://127.0.0.1:8000 during local development
+    http://127.0.0.1:8001 during local development
 
-    Change API_BASE_URL when using Render.
+    Any deployed (non-local) HTTPS origin automatically targets the
+    production backend https://aqua-ai-wz4s.onrender.com.
 */
 
 const DEFAULT_LOCAL_API_URL = "http://127.0.0.1:8001";
 
 /*
- * Production backend mapped per known frontend origin so the app works
+ * Production backend matched to known frontend origins so the app works
  * without requiring the user to configure `aqua_api_url` in Settings.
  */
 const PRODUCTION_API_URL_BY_ORIGIN = {
+    "https://vacproject.netlify.app": "https://aqua-ai-wz4s.onrender.com",
     "https://aqua-ai.netlify.app": "https://aqua-ai-wz4s.onrender.com",
     "https://aqua-ai-frontend.netlify.app": "https://aqua-ai-wz4s.onrender.com",
 };
+
+const PRODUCTION_API_URL = "https://aqua-ai-wz4s.onrender.com";
+
+/*
+ * Treat these as local development origins where the default local
+ * backend should be used instead of the hosted production API.
+ */
+const LOCAL_ORIGINS = new Set([
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:5500",
+    "http://127.0.0.1:5500",
+    "http://localhost:8001",
+    "http://127.0.0.1:8001",
+]);
+
+/*
+ * True when the current window origin points at a local development
+ * host (localhost, loopback IP, or a localhost port range).
+ */
+function isLocalOrigin(origin) {
+    return LOCAL_ORIGINS.has(origin);
+}
 
 let API_BASE_URL =
     localStorage.getItem("aqua_api_url") ||
@@ -31,7 +56,9 @@ const REFRESH_INTERVAL = 15000;
  * Determine the API base URL, in priority order:
  *   1. User-configured `aqua_api_url` in localStorage (Settings).
  *   2. Production backend matched to the current frontend origin.
- *   3. Default local backend for local development.
+ *   3. Robust production fallback for any non-local deployed origin
+ *      (e.g. future Netlify or other hosting domains).
+ *   4. Default local backend for local development.
  */
 function getApiBaseUrl() {
     const stored = localStorage.getItem("aqua_api_url");
@@ -39,9 +66,15 @@ function getApiBaseUrl() {
         return stored.replace(/\/+$/, "");
     }
 
-    const productionUrl = PRODUCTION_API_URL_BY_ORIGIN[window.location.origin];
+    const origin = window.location.origin;
+
+    const productionUrl = PRODUCTION_API_URL_BY_ORIGIN[origin];
     if (productionUrl) {
         return productionUrl;
+    }
+
+    if (window.location.protocol === "https:" && !isLocalOrigin(origin)) {
+        return PRODUCTION_API_URL;
     }
 
     return DEFAULT_LOCAL_API_URL;

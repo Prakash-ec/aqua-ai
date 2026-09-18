@@ -4438,3 +4438,404 @@ body.quality-unknown .quality-score-circle {
     color: #991b1b;
     background: #fee2e2;
 }
+
+/* =========================================================
+   WATER USAGE SECTION
+   ========================================================= */
+
+.water-usage-card {
+    margin-top: 22px;
+}
+
+.water-usage-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 20px 0 16px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 8px;
+}
+
+.water-usage-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    transition: var(--transition);
+    cursor: pointer;
+}
+
+.water-usage-tab:hover:not(.active) {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+    border-color: var(--border-strong);
+}
+
+.water-usage-tab.active {
+    color: var(--primary-dark);
+    background: var(--primary-light);
+    border-color: var(--primary);
+}
+
+.water-usage-tab i {
+    font-size: 16px;
+}
+
+.water-usage-panels {
+    min-height: 200px;
+}
+
+.water-usage-panel {
+    display: none;
+    animation: panelFadeIn 0.2s ease;
+}
+
+.water-usage-panel.active {
+    display: block;
+}
+
+@keyframes panelFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.water-usage-content {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.water-usage-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 16px;
+}
+
+.water-usage-section h5 {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.water-usage-assessment {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 12px;
+    background: var(--bg-soft);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+}
+
+.water-usage-crops {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.water-usage-crop {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--bg-soft);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+}
+
+.water-usage-crop .crop-ok {
+    font-size: 10px;
+    color: var(--status-normal);
+    background: var(--status-normal-bg);
+    padding: 2px 6px;
+    border-radius: var(--radius-full);
+    font-weight: 600;
+}
+
+.water-usage-crop .crop-restriction {
+    font-size: 10px;
+    color: var(--status-monitor);
+    background: var(--status-monitor-bg);
+    padding: 2px 6px;
+    border-radius: var(--radius-full);
+    font-weight: 600;
+}
+
+.water-usage-crop.restricted {
+    border-color: var(--status-monitor-border);
+    background: var(--status-monitor-bg);
+    color: var(--status-monitor);
+}
+
+.water-usage-considerations {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.8;
+}
+
+.water-usage-considerations li {
+    margin-bottom: 6px;
+}
+
+.water-usage-warnings {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.water-usage-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.water-usage-warning.critical {
+    background: var(--status-critical-bg);
+    border: 1px solid var(--status-critical-border);
+    color: var(--status-critical);
+}
+
+.water-usage-warning.caution {
+    background: var(--status-monitor-bg);
+    border: 1px solid var(--status-monitor-border);
+    color: var(--status-monitor);
+}
+
+.water-usage-warning i {
+    flex-shrink: 0;
+    margin-top: 1px;
+    font-size: 14px;
+}
+
+.water-usage-industry-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+}
+
+.water-usage-industry-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.industry-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    background: var(--bg-soft);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.industry-card-header h6 {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.industry-suitability {
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.industry-suitability.suitability-good {
+    color: var(--status-normal);
+    background: var(--status-normal-bg);
+}
+
+.industry-suitability.suitability-fair {
+    color: var(--status-monitor);
+    background: var(--status-monitor-bg);
+}
+
+.industry-suitability.suitability-poor {
+    color: var(--status-critical);
+    background: var(--status-critical-bg);
+}
+
+.industry-card-body {
+    padding: 12px 14px;
+}
+
+.industry-card-body p {
+    margin: 6px 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.industry-card-body strong {
+    color: var(--text-primary);
+}
+
+.water-usage-general-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 12px;
+}
+
+.water-usage-general-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.water-usage-general-card.good {
+    border-color: var(--status-normal-border);
+}
+
+.water-usage-general-card.fair {
+    border-color: var(--status-monitor-border);
+}
+
+.water-usage-general-card.poor {
+    border-color: var(--status-critical-border);
+}
+
+.general-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    background: var(--bg-soft);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.general-card-header h6 {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.general-suitability {
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.general-suitability.suitability-good {
+    color: var(--status-normal);
+    background: var(--status-normal-bg);
+}
+
+.general-suitability.suitability-fair {
+    color: var(--status-monitor);
+    background: var(--status-monitor-bg);
+}
+
+.general-suitability.suitability-poor {
+    color: var(--status-critical);
+    background: var(--status-critical-bg);
+}
+
+.water-usage-general-card .general-reason {
+    margin: 12px 14px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.water-usage-drinking-warning {
+    background: var(--status-critical-bg) !important;
+    border-color: var(--status-critical-border) !important;
+}
+
+.water-usage-drinking-warning h5 {
+    color: var(--status-critical);
+}
+
+.drinking-warning {
+    color: var(--status-critical) !important;
+    font-size: 12px;
+    line-height: 1.7;
+}
+
+.drinking-warning strong {
+    color: var(--status-critical);
+}
+
+.water-usage-limitation {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 20px;
+    padding: 14px 16px;
+    border: 1px solid var(--status-monitor-border);
+    border-radius: var(--radius-md);
+    background: var(--status-monitor-bg);
+    color: var(--status-monitor);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.water-usage-limitation i {
+    flex-shrink: 0;
+    margin-top: 1px;
+    font-size: 16px;
+}
+
+.water-usage-limitation strong {
+    color: var(--text-primary);
+}
+
+@media (max-width: 650px) {
+    .water-usage-tabs {
+        gap: 6px;
+    }
+
+    .water-usage-tab {
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+
+    .water-usage-tab i {
+        font-size: 14px;
+    }
+
+    .water-usage-industry-grid,
+    .water-usage-general-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .water-usage-limitation {
+        font-size: 11px;
+        padding: 12px 14px;
+    }
+}

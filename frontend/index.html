@@ -1433,6 +1433,52 @@
 
                         </article>
 
+                        <!-- Water Usage Section -->
+                        <article class="content-card water-usage-card" id="waterUsageCard" hidden>
+                            <div class="content-card-header">
+                                <div>
+                                    <h3>WATER USAGE</h3>
+                                    <p>Explore potential uses based on the visual water assessment.</p>
+                                </div>
+                            </div>
+
+                            <div class="water-usage-tabs" role="tablist" aria-label="Water usage categories">
+                                <button class="water-usage-tab active" role="tab" aria-selected="true" data-usage-tab="agriculture" id="tabAgriculture">
+                                    <span>🌱 Agriculture</span>
+                                </button>
+                                <button class="water-usage-tab" role="tab" aria-selected="false" data-usage-tab="industry" id="tabIndustry">
+                                    <span>🏭 Industry</span>
+                                </button>
+                                <button class="water-usage-tab" role="tab" aria-selected="false" data-usage-tab="general" id="tabGeneral">
+                                    <span>🏠 General Use</span>
+                                </button>
+                            </div>
+
+                            <div class="water-usage-panels">
+                                <div class="water-usage-panel active" role="tabpanel" aria-labelledby="tabAgriculture" id="panelAgriculture">
+                                    <div class="water-usage-content" id="waterUsageAgriculture"></div>
+                                </div>
+                                <div class="water-usage-panel" role="tabpanel" aria-labelledby="tabIndustry" id="panelIndustry">
+                                    <div class="water-usage-content" id="waterUsageIndustry"></div>
+                                </div>
+                                <div class="water-usage-panel" role="tabpanel" aria-labelledby="tabGeneral" id="panelGeneral">
+                                    <div class="water-usage-content" id="waterUsageGeneral"></div>
+                                </div>
+                            </div>
+
+                            <div class="water-usage-limitation">
+                                <i class="ri-information-line"></i>
+                                <div>
+                                    <strong>Important:</strong>
+                                    This recommendation is based on visible characteristics detected by the camera.
+                                    Camera analysis cannot measure chemical, microbiological, or dissolved contaminants.
+                                    Confirm suitability with appropriate water-quality testing before using the water
+                                    for drinking, irrigation, food processing, sensitive industrial processes,
+                                    or other critical applications.
+                                </div>
+                            </div>
+                        </article>
+
                     </div>
 
                     <!-- Camera chatbot -->

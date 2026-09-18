@@ -2482,8 +2482,320 @@ function setupSettings() {
                 const stored = localStorage.getItem("aqua_ai_provider");
                 if (stored && [...providerSelect.options].some((o) => o.value === stored)) {
                     providerSelect.value = stored;
-                }
+}
+}
+
+function renderWaterUsage(analysis) {
+    if (!analysis || typeof analysis !== "object") {
+        return;
+    }
+
+    const agriculturePanel = $("waterUsageAgriculture");
+    const industryPanel = $("waterUsageIndustry");
+    const generalPanel = $("waterUsageGeneral");
+    const waterUsageCard = $("waterUsageCard");
+
+    if (!agriculturePanel || !industryPanel || !generalPanel || !waterUsageCard) {
+        return;
+    }
+
+    const riskLevel = getCameraAnalysisField(analysis, "risk_level", "risk");
+    const waterColor = getCameraAnalysisField(analysis, "water_color", "color");
+    const foamDetected = getCameraAnalysisField(analysis, "foam_detected", "foam");
+    const algaeDetected = getCameraAnalysisField(analysis, "algae_detected", "algae");
+    const particlesDetected = getCameraAnalysisField(analysis, "particles_detected", "particles");
+    const microplasticsDetected = getCameraAnalysisField(analysis, "possible_microplastics", "microplastics");
+    const oilLayerDetected = getCameraAnalysisField(analysis, "oil_layer_detected", "oil_layer");
+    const confidence = getCameraAnalysisField(analysis, "confidence");
+    const recommendation = getCameraAnalysisField(analysis, "recommendation");
+    const limitations = getCameraAnalysisField(analysis, "limitations");
+
+    const isHighRisk = riskLevel === "High";
+    const isMediumRisk = riskLevel === "Medium";
+    const isLowRisk = riskLevel === "Low";
+
+    const warnings = [];
+    if (oilLayerDetected) warnings.push({ type: "critical", message: "Oil layer detected. Not recommended for irrigation or sensitive uses without treatment." });
+    if (microplasticsDetected) warnings.push({ type: "critical", message: "Possible microplastics detected. Avoid direct agricultural or domestic use without treatment/testing." });
+    if (algaeDetected) warnings.push({ type: "caution", message: "Algae-like growth detected. May affect irrigation systems and water quality." });
+    if (foamDetected) warnings.push({ type: "caution", message: "Foam detected. Possible contamination or organic matter presence." });
+
+    function makeWarningHTML(items) {
+        if (!items.length) return "";
+        return items.map(w => `<div class="water-usage-warning ${w.type}"><i class="ri-${w.type === "critical" ? "error-warning-line" : "alert-line"}"></i>${escapeHtml(w.message)}</div>`).join("");
+    }
+
+    function renderAgriculture() {
+        let html = "";
+
+        if (warnings.length) {
+            html += `<div class="water-usage-warnings">${makeWarningHTML(warnings)}</div>`;
+        }
+
+        html += `
+            <div class="water-usage-section">
+                <h5>Irrigation Suitability</h5>
+                <p class="water-usage-assessment">${getIrrigationAssessment(riskLevel, oilLayerDetected, microplasticsDetected, algaeDetected)}</p>
+            </div>
+        `;
+
+        html += `
+            <div class="water-usage-section">
+                <h5>Crop Categories</h5>
+                <div class="water-usage-crops">
+                    ${renderCropCategories(riskLevel, oilLayerDetected, microplasticsDetected)}
+                </div>
+            </div>
+        `;
+
+        html += `
+            <div class="water-usage-section">
+                <h5>Considerations</h5>
+                <ul class="water-usage-considerations">
+                    ${renderAgricultureConsiderations(riskLevel, oilLayerDetected, microplasticsDetected, algaeDetected, foamDetected)}
+                </ul>
+            </div>
+        `;
+
+        return html;
+    }
+
+    function getIrrigationAssessment(riskLevel, oilDetected, microplasticsDetected, algaeDetected) {
+        if (oilDetected || microplasticsDetected) {
+            return "Not recommended for direct irrigation based on the visual assessment. Further testing and treatment required.";
+        }
+        if (isHighRisk) {
+            return "Not recommended for direct irrigation based on the visual assessment. Further testing is required.";
+        }
+        if (isMediumRisk) {
+            return "Use caution. Additional water-quality testing is recommended before irrigation.";
+        }
+        return "Potentially suitable for preliminary irrigation consideration. Additional testing recommended.";
+    }
+
+    function renderCropCategories(riskLevel, oilDetected, microplasticsDetected) {
+        const crops = [
+            { name: "Rice", category: "Cereals" },
+            { name: "Wheat", category: "Cereals" },
+            { name: "Maize", category: "Cereals" },
+            { name: "Cotton", category: "Fiber" },
+            { name: "Vegetables", category: "Horticulture" },
+            { name: "Fruits", category: "Horticulture" },
+            { name: "Pulses", category: "Legumes" },
+            { name: "Oilseeds", category: "Oil Crops" }
+        ];
+
+        const restricted = oilDetected || microplasticsDetected || isHighRisk;
+
+        return crops.map(crop => `
+            <span class="water-usage-crop ${restricted ? "restricted" : ""}">
+                ${escapeHtml(crop.name)}
+                ${restricted ? '<span class="crop-restriction">Testing required</span>' : '<span class="crop-ok">Potentially suitable</span>'}
+            </span>
+        `).join("");
+    }
+
+    function renderAgricultureConsiderations(riskLevel, oilDetected, microplasticsDetected, algaeDetected, foamDetected) {
+        const items = [];
+        items.push("Camera analysis cannot measure dissolved salts, heavy metals, or pathogens.");
+        items.push("Chemical and microbiological testing required before agricultural use.");
+        if (oilDetected) items.push("Oil layer detected — may clog irrigation systems and contaminate soil.");
+        if (microplasticsDetected) items.push("Possible microplastics — long-term soil accumulation risk unknown.");
+        if (algaeDetected) items.push("Algae may clog drip irrigation and affect water quality.");
+        if (foamDetected) items.push("Foam indicates possible organic contamination or surfactants.");
+        if (isHighRisk) items.push("High visual risk — not suitable for direct irrigation without treatment.");
+        if (isMediumRisk) items.push("Medium visual risk — testing strongly recommended before use.");
+        return items.map(item => `<li>${escapeHtml(item)}</li>`).join("");
+    }
+
+    function renderIndustry() {
+        let html = "";
+
+        if (warnings.length) {
+            html += `<div class="water-usage-warnings">${makeWarningHTML(warnings)}</div>`;
+        }
+
+        html += `
+            <div class="water-usage-section">
+                <h5>Industrial Applications</h5>
+                <div class="water-usage-industry-grid">
+                    ${renderIndustryApplications(riskLevel, oilLayerDetected, microplasticsDetected, algaeDetected)}
+                </div>
+            </div>
+        `;
+
+        html += `
+            <div class="water-usage-section">
+                <h5>Sensitive Applications — Testing Required</h5>
+                <ul class="water-usage-considerations">
+                    <li>Boilers & cooling towers — require chemical testing for scaling/corrosion potential.</li>
+                    <li>High-purity manufacturing — dissolved solids and microbiological testing mandatory.</li>
+                    <li>Electronics manufacturing — ultra-pure water standards; visual assessment insufficient.</li>
+                    <li>Food/pharmaceutical processing — full microbiological and chemical validation required.</li>
+                </ul>
+            </div>
+        `;
+
+        return html;
+    }
+
+    function renderIndustryApplications(riskLevel, oilDetected, microplasticsDetected, algaeDetected) {
+        const apps = [
+            {
+                name: "Cooling / Process Water",
+                suitability: oilDetected || microplasticsDetected ? "Not recommended" : (isHighRisk ? "Limited" : (isMediumRisk ? "Conditional" : "Potentially suitable")),
+                reason: oilDetected ? "Oil layer causes fouling and corrosion" : microplasticsDetected ? "Particles cause system fouling" : isHighRisk ? "High visual contamination risk" : isMediumRisk ? "Moderate contamination — pre-treatment needed" : "Low visual contamination",
+                testing: "Water chemistry, scaling/corrosion indices, microbiological testing"
+            },
+            {
+                name: "Cleaning / Washing",
+                suitability: oilDetected ? "Not recommended" : (isHighRisk ? "Limited" : "Potentially suitable"),
+                reason: oilDetected ? "Oil residue on cleaned surfaces" : isHighRisk ? "Visible contamination may affect cleaning quality" : "Low visual contamination",
+                testing: "Microbiological testing if food-contact surfaces"
+            },
+            {
+                name: "Construction (Concrete, Dust Suppression)",
+                suitability: oilDetected ? "Avoid" : (isHighRisk ? "Conditional" : "Potentially suitable"),
+                reason: oilDetected ? "Oil affects concrete curing" : isHighRisk ? "Visible contamination may affect material quality" : "Acceptable for non-critical use",
+                testing: "pH, suspended solids, oil/grease testing"
+            },
+            {
+                name: "Non-Critical Manufacturing",
+                suitability: oilDetected || microplasticsDetected ? "Not recommended" : (isHighRisk ? "Limited" : "Potentially suitable"),
+                reason: oilDetected ? "Oil contamination in products" : microplasticsDetected ? "Particle inclusion risk" : isHighRisk ? "Visible quality concerns" : "Low visual risk",
+                testing: "Depends on process sensitivity"
             }
+        ];
+
+        return apps.map(app => `
+            <div class="water-usage-industry-card">
+                <div class="industry-card-header">
+                    <h6>${escapeHtml(app.name)}</h6>
+                    <span class="industry-suitability ${getSuitabilityClass(app.suitability)}">${escapeHtml(app.suitability)}</span>
+                </div>
+                <div class="industry-card-body">
+                    <p><strong>Reason:</strong> ${escapeHtml(app.reason)}</p>
+                    <p><strong>Testing required:</strong> ${escapeHtml(app.testing)}</p>
+                </div>
+            </div>
+        `).join("");
+    }
+
+    function getSuitabilityClass(suitability) {
+        const s = suitability.toLowerCase();
+        if (s.includes("not recommended") || s.includes("avoid")) return "suitability-poor";
+        if (s.includes("limited") || s.includes("conditional")) return "suitability-fair";
+        if (s.includes("potentially suitable")) return "suitability-good";
+        return "suitability-fair";
+    }
+
+    function renderGeneral() {
+        let html = "";
+
+        if (warnings.length) {
+            html += `<div class="water-usage-warnings">${makeWarningHTML(warnings)}</div>`;
+        }
+
+        html += `
+            <div class="water-usage-section">
+                <h5>Potential Non-Potable Uses</h5>
+                <div class="water-usage-general-grid">
+                    ${renderGeneralUses(riskLevel, oilLayerDetected, microplasticsDetected, algaeDetected, foamDetected)}
+                </div>
+            </div>
+        `;
+
+        html += `
+            <div class="water-usage-section water-usage-drinking-warning">
+                <h5><i class="ri-water-flash-line"></i> Drinking & Cooking</h5>
+                <p class="drinking-warning">
+                    <strong>Camera analysis alone cannot determine drinking-water safety.</strong>
+                    Microbiological and chemical testing is required.
+                    Visual assessment cannot detect pathogens, dissolved chemicals, heavy metals, or other contaminants.
+                </p>
+            </div>
+        `;
+
+        return html;
+    }
+
+    function renderGeneralUses(riskLevel, oilDetected, microplasticsDetected, algaeDetected, foamDetected) {
+        const uses = [
+            {
+                name: "Gardening / Irrigation",
+                suitability: oilDetected || microplasticsDetected ? "Not recommended" : (isHighRisk ? "Limited" : (isMediumRisk ? "Conditional" : "Potentially suitable")),
+                reason: getGeneralReason("Gardening", oilDetected, microplasticsDetected, algaeDetected, foamDetected, isHighRisk, isMediumRisk)
+            },
+            {
+                name: "Landscaping / Ornamental",
+                suitability: oilDetected ? "Not recommended" : (isHighRisk ? "Limited" : "Potentially suitable"),
+                reason: oilDetected ? "Oil damages plants and soil" : isHighRisk ? "Visible contamination risk" : "Low visual risk for ornamental use"
+            },
+            {
+                name: "Toilet Flushing",
+                suitability: "Potentially suitable",
+                reason: "Non-contact use; visual quality less critical"
+            },
+            {
+                name: "Outdoor Cleaning (Paths, Equipment)",
+                suitability: oilDetected ? "Avoid" : (isHighRisk ? "Limited" : "Potentially suitable"),
+                reason: oilDetected ? "Oil residue on surfaces" : isHighRisk ? "Visible contamination" : "Acceptable for non-contact cleaning"
+            },
+            {
+                name: "Vehicle / Equipment Washing",
+                suitability: oilDetected ? "Not recommended" : (isHighRisk ? "Conditional" : "Potentially suitable"),
+                reason: oilDetected ? "Oil streaks on paint" : isHighRisk ? "May leave residue" : "Acceptable for general washing"
+            }
+        ];
+
+        return uses.map(use => `
+            <div class="water-usage-general-card ${getSuitabilityClass(use.suitability).replace("suitability-", "")}">
+                <div class="general-card-header">
+                    <h6>${escapeHtml(use.name)}</h6>
+                    <span class="general-suitability ${getSuitabilityClass(use.suitability)}">${escapeHtml(use.suitability)}</span>
+                </div>
+                <p class="general-reason">${escapeHtml(use.reason)}</p>
+            </div>
+        `).join("");
+    }
+
+    function getGeneralReason(category, oilDetected, microplasticsDetected, algaeDetected, foamDetected, isHigh, isMedium) {
+        if (oilDetected) return "Oil contamination affects all uses";
+        if (microplasticsDetected) return "Microplastic accumulation risk";
+        if (isHigh) return "High visual contamination — testing required";
+        if (isMedium) return "Moderate visual risk — testing recommended";
+        return "Low visual contamination — suitable for non-potable use";
+    }
+
+    agriculturePanel.innerHTML = renderAgriculture();
+    industryPanel.innerHTML = renderIndustry();
+    generalPanel.innerHTML = renderGeneral();
+
+    waterUsageCard.hidden = false;
+}
+
+function switchWaterUsageTab(tabName) {
+    const tabs = document.querySelectorAll(".water-usage-tab");
+    const panels = document.querySelectorAll(".water-usage-panel");
+
+    tabs.forEach(tab => {
+        const isActive = tab.dataset.usageTab === tabName;
+        tab.classList.toggle("active", isActive);
+        tab.setAttribute("aria-selected", isActive);
+    });
+
+    panels.forEach(panel => {
+        panel.classList.toggle("active", panel.id === `panel${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`);
+    });
+}
+
+// Add tab click handlers
+document.addEventListener("click", (e) => {
+    const tab = e.target.closest(".water-usage-tab");
+    if (tab) {
+        switchWaterUsageTab(tab.dataset.usageTab);
+    }
+});
         } catch (error) {
             console.warn("Could not load AI providers:", error.message);
         }
@@ -3144,6 +3456,11 @@ function renderCameraResult(data) {
                 )}</p>
             </div>
         `;
+    }
+
+    // Render Water Usage section based on analysis
+    if (analysis && typeof analysis === "object") {
+        renderWaterUsage(analysis);
     }
 }
 

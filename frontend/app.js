@@ -188,10 +188,7 @@ let cameraChatHistory = [];
 let isAuthenticated = false;
 let currentUser = null;
 
-
-const AUTH_CHECK_INTERVAL = 30000; // 30 seconds
-let authCheckTimer = null;
-
+const DEMO_AUTH_KEY = "aqua_admin_logged_in";
 
 const $ = (id) => document.getElementById(id);
 
@@ -488,7 +485,7 @@ function updateUserInterface() {
             usernameEl.textContent = currentUser.full_name || currentUser.username;
         }
         if (roleEl) {
-            roleEl.textContent = currentUser.is_admin ? "Administrator" : "User";
+            roleEl.textContent = currentUser.is_admin ? "ADMIN" : "User";
         }
         if (avatarEl) {
             const initials = (currentUser.full_name || currentUser.username)
@@ -759,11 +756,10 @@ function populateDeviceInformation(devices) {
 }
 
 async function setupAuth() {
-    // Login-only form (registration is disabled in this deployment).
+    // Demo login form - accepts any username/password
     const loginForm = $("loginForm");
     const submitButton = $("submitLoginButton");
 
-    // Guards against duplicate submissions from double-clicks or repeated Enter.
     let authSubmitInProgress = false;
 
     function clearAuthError() {
@@ -791,26 +787,6 @@ async function setupAuth() {
         errorEl.classList.remove("hidden");
     }
 
-    /*
-     * Validate locally first so the user gets an actionable sentence instead
-     * of a raw FastAPI 422 validation payload.
-     */
-    function validateLoginInput({ username, password }) {
-        if (!username) {
-            return "Please enter your username.";
-        }
-
-        if (username.length < 3) {
-            return "Username must be at least 3 characters long.";
-        }
-
-        if (!password) {
-            return "Please enter your password.";
-        }
-
-        return "";
-    }
-
     if (loginForm) {
         loginForm.addEventListener("submit", async (event) => {
             event.preventDefault();
@@ -819,17 +795,13 @@ async function setupAuth() {
                 return;
             }
 
-            // Always start from a clean error state.
             clearAuthError();
 
             const username = $("loginUsername")?.value.trim() || "";
             const password = $("loginPassword")?.value || "";
-            const rememberMe = $("rememberMe")?.checked || false;
 
-            const validationError = validateLoginInput({ username, password });
-
-            if (validationError) {
-                showAuthError(validationError);
+            if (!username || !password) {
+                showAuthError("Please enter both username and password.");
                 return;
             }
 
@@ -837,39 +809,10 @@ async function setupAuth() {
             submitButton.disabled = true;
 
             try {
-                await performLogin(username, password, rememberMe);
-
-                clearAuthError();
-
-                // Confirm that the browser accepted the HttpOnly session cookie.
-                const profile = await fetchCurrentUser();
-
-                if (!profile) {
-                    // A successful login POST is not enough if the browser rejected
-                    // its cookie (for example, cross-site cookie restrictions).
-                    isAuthenticated = false;
-                    currentUser = null;
-                    clearUserState();
-                    updateUserInterface();
-                    openLoginModal();
-                    showAuthError("Login succeeded but session cookie was not set. Please check browser cookie settings.");
-                    return;
-                }
-
-                // ---- signed in ----
-
-                isAuthenticated = true;
-                currentUser = profile;
-                clearUserState();
-                updateUserInterface();
-
-                closeLoginModal();
-                showToast(`Welcome back, ${profile.full_name || profile.username}.`, "success");
-                refreshDashboard();
-
+                performDemoLogin(username, password);
             } catch (error) {
                 console.error("Login error:", error);
-                showAuthError(error.message || "Login failed. Please check your credentials.");
+                showAuthError(error.message || "Login failed.");
             } finally {
                 authSubmitInProgress = false;
                 submitButton.disabled = false;
@@ -892,8 +835,8 @@ async function setupAuth() {
     // Logout button
     const logoutBtn = $("logoutItem");
     if (logoutBtn) {
-        logoutBtn.addEventListener("click", async () => {
-            await performLogout();
+        logoutBtn.addEventListener("click", () => {
+            performDemoLogout();
         });
     }
 }
@@ -2155,39 +2098,8 @@ function navigateTo(pageName) {
 
     setText("breadcrumbCurrent", pageLabels[page] || "Dashboard");
 
-    // Auth guard: redirect to login for protected pages when not authenticated.
-    const protectedPages = new Set([
-        "camera",
-        "analysis",
-        "device",
-        "settings",
-        "reports",
-        "profile",
-        "trends",
-        "admin",
-    ]);
-
-    if (protectedPages.has(page) && !isAuthenticated) {
-        openLoginModal("Please sign in to access this page.");
-        return;
-    }
-
-    // Admin guard: only admins may open the admin page.
+    // Admin page is available for demo admin user
     if (page === "admin") {
-        const isAdmin =
-            isAuthenticated && currentUser && currentUser.is_admin === true;
-
-        const adminNavItem = $("adminNavItem");
-
-        if (adminNavItem) {
-            adminNavItem.classList.toggle("hidden", !isAdmin);
-        }
-
-        if (!isAdmin) {
-            navigateTo("dashboard");
-            return;
-        }
-
         loadAdminData();
     }
 
@@ -4288,14 +4200,10 @@ async function initializeApp() {
     setupSimulator();
     setupWindowEvents();
 
-    // Gate every private load behind the session check.  Nothing that
-    // touches devices/readings/camera history is fetched until the
-    // backend confirms who is signed in.
-    showAuthLoadingState("Checking sign-in status…");
-    const authenticated = await checkAuth();
+    // Check demo auth state from localStorage
+    const authenticated = checkDemoAuth();
     if (authenticated) {
         updateUserInterface();
-        hideAuthLoadingState();
         const initialPage =
             window.location.hash.replace("#", "") || "dashboard";
         navigateTo(initialPage);
@@ -4305,64 +4213,11 @@ async function initializeApp() {
         currentUser = null;
         clearUserState();
         updateUserInterface();
-        hideAuthLoadingState();
         navigateTo("dashboard");
         openLoginModal("Please sign in to continue.");
     }
 
     startAutoRefresh();
-
-    // Start periodic auth checks regardless of initial auth state.
-    if (authCheckTimer) {
-        clearInterval(authCheckTimer);
-    }
-    authCheckTimer = setInterval(() => {
-        checkAuth().then((ok) => {
-            if (!ok && isAuthenticated) {
-                isAuthenticated = false;
-                currentUser = null;
-                clearUserState();
-                updateUserInterface();
-                showToast("Session expired. Please sign in again.", "warning");
-                openLoginModal("Session expired. Please sign in again.");
-            } else if (!ok) {
-                isAuthenticated = false;
-                currentUser = null;
-                clearUserState();
-                updateUserInterface();
-            }
-        });
-    }, AUTH_CHECK_INTERVAL);
-}
-
-/*
- * Authentication loading state: an explicit overlay-style notice in the
- * header area so the page never shows private/blank dashboard data while
- * the session is being confirmed.
- */
-function showAuthLoadingState(message) {
-    let banner = document.getElementById("authLoadingBanner");
-    if (!banner) {
-        banner = document.createElement("div");
-        banner.id = "authLoadingBanner";
-        banner.className = "auth-loading-banner";
-        banner.setAttribute("role", "status");
-        const main = document.querySelector("main") || document.body;
-        if (main.firstChild) {
-            main.insertBefore(banner, main.firstChild);
-        } else {
-            main.appendChild(banner);
-        }
-    }
-    banner.textContent = message || "Checking sign-in status…";
-    banner.classList.remove("hidden");
-}
-
-function hideAuthLoadingState() {
-    const banner = document.getElementById("authLoadingBanner");
-    if (banner) {
-        banner.classList.add("hidden");
-    }
 }
 
 /*

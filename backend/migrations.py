@@ -54,16 +54,20 @@ def _fix_camera_prediction_column(engine: Engine) -> None:
         if pred_col is None:
             return
         
-        # Check if the column type is VARCHAR with limited length
+        # Check if the column type is VARCHAR/CHARACTER VARYING with limited length
+        # PostgreSQL reports VARCHAR as CHARACTER VARYING, so check both
         col_type = str(pred_col["type"]).upper()
-        if "VARCHAR" in col_type and "100" in col_type:
+        if ("VARCHAR" in col_type or "CHARACTER VARYING" in col_type) and "100" in col_type:
             with engine.begin() as connection:
                 connection.execute(
                     text("ALTER TABLE camera_predictions ALTER COLUMN prediction TYPE TEXT")
                 )
             print("Fixed camera_predictions.prediction: VARCHAR(100) -> TEXT")
     except Exception as error:
-        print(f"Migration warning for camera_predictions.prediction: {type(error).__name__}")
+        print(
+            f"Migration FAILED for camera_predictions.prediction: "
+            f"{type(error).__name__}: {error}"
+        )
 
 
 def run_migrations(engine: Engine, metadata=None) -> None:

@@ -265,38 +265,54 @@ class MeResponse(BaseModel):
 AUTH_COOKIE_NAME = "aqua_auth_token"
 AUTH_COOKIE_PATH = "/"
 AUTH_COOKIE_HTTP_ONLY = True
-# Secure flag: True in production (HTTPS), False in development (HTTP)
+
 _auth_secure_env = os.getenv("AUTH_COOKIE_SECURE", "").strip().lower()
-if _auth_secure_env in ("1", "true", "yes", "on"):
-    AUTH_COOKIE_SECURE = True
-elif _auth_secure_env in ("0", "false", "no", "off"):
-    AUTH_COOKIE_SECURE = False
-else:
-    # Auto-detect: secure if ENVIRONMENT=production
-    AUTH_COOKIE_SECURE = os.getenv("ENVIRONMENT", "development").strip().lower() == "production"
-AUTH_COOKIE_SAMESITE = os.getenv(
-    "AUTH_COOKIE_SAMESITE",
-    # "lax" is correct when the frontend is served from the same site as the
-    # API. A frontend on a different site (for example a local dev server on
-    # http://127.0.0.1:5500 calling the Render backend) does NOT receive a
-    # Lax cookie, so the session would be lost immediately after login.
-    # Browsers only accept SameSite=None together with Secure=True, so the
-    # default follows the Secure flag and stays "lax" for local HTTP.
-    "none" if AUTH_COOKIE_SECURE else "lax",
-).strip().lower()
-# Validate SameSite value
-if AUTH_COOKIE_SAMESITE not in ("strict", "lax", "none"):
-    AUTH_COOKIE_SAMESITE = "lax"
-# Partitioned (CHIPS): key the cookie jar by top-level site so the session
-# cookie keeps working for cross-site API calls once browsers block
-# third-party cookies by default. The CHIPS spec only accepts the attribute
-# for Secure cookies with SameSite=None, so it follows both flags.
-AUTH_COOKIE_PARTITIONED = (
-    AUTH_COOKIE_SECURE and AUTH_COOKIE_SAMESITE == "none"
-)
+_auth_secure_explicit = _auth_secure_env in ("1", "true", "yes", "on", "0", "false", "no", "off")
+_auth_samesite_env = os.getenv("AUTH_COOKIE_SAMESITE", "").strip().lower()
 
 
-def _emit_partitioned(response: Response) -> None:
+def _resolve_cookie_security(request: Request | None) -> tuple[bool, str, bool]:
+    """Resolve the (secure, samesite, partitioned) attributes per request.
+
+    An explicit ``AUTH_COOKIE_SECURE`` value always wins. Otherwise the
+    cookie is made ``Secure`` when the request actually arrives over HTTPS,
+    so a frontend on another site (for example the Netlify app calling the
+    Render backend) receives a cookie that the browser will store and send
+    back. Without this, a deployment that was not started with
+    ``ENVIRONMENT=production`` sends a non-secure ``SameSite=Lax`` cookie
+    that Chrome drops for cross-site requests, and ``/auth/me`` stays 401.
+    Browsers only accept ``SameSite=None`` together with ``Secure=True``,
+    so the default SameSite follows the Secure flag and stays ``lax`` for
+    local HTTP.
+    """
+    if _auth_secure_explicit:
+        secure = _auth_secure_env in ("1", "true", "yes", "on")
+    elif request is not None:
+        # Check X-Forwarded-Proto header (standard for reverse proxies like Cloudflare, nginx)
+        forwarded_proto = request.headers.get("x-forwarded-proto", "").strip().lower()
+        if forwarded_proto == "https":
+            secure = True
+        elif request.url and request.url.scheme.lower() == "https":
+            secure = True
+        else:
+            secure = os.getenv("ENVIRONMENT", "development").strip().lower() == "production"
+    else:
+        secure = os.getenv("ENVIRONMENT", "development").strip().lower() == "production"
+
+    if _auth_samesite_env in ("strict", "lax", "none"):
+        samesite = _auth_samesite_env
+    else:
+        samesite = "none" if secure else "lax"
+
+    # Partitioned (CHIPS): key the cookie jar by top-level site so the
+    # session cookie keeps working for cross-site API calls once browsers
+    # block third-party cookies by default. The spec only accepts the
+    # attribute for Secure cookies with SameSite=None, so it follows both.
+    partitioned = secure and samesite == "none"
+    return secure, samesite, partitioned
+
+
+def _emit_partitioned(response: Response, partitioned: bool) -> None:
     """
     Append the CHIPS ``Partitioned`` attribute to the last Set-Cookie header.
 
@@ -306,7 +322,7 @@ def _emit_partitioned(response: Response) -> None:
     cookie per top-level site (keeping cross-site sessions alive under
     third-party-cookie blocking) and older clients simply ignore it.
     """
-    if not AUTH_COOKIE_PARTITIONED:
+    if not partitioned:
         return
     for index in range(len(response.raw_headers) - 1, -1, -1):
         name, value = response.raw_headers[index]
@@ -319,26 +335,33 @@ def _emit_partitioned(response: Response) -> None:
             return
 
 
-def _set_auth_cookie(response: Response, token: str, remember_me: bool = False) -> None:
+def _set_auth_cookie(
+    response: Response,
+    token: str,
+    remember_me: bool = False,
+    request: Request | None = None,
+) -> None:
     """Set the auth cookie with a max_age matching the session expiry."""
+    secure, samesite, partitioned = _resolve_cookie_security(request)
     expires_at = _compute_expires_at(remember_me)
     max_age = int(os.getenv(
         "AUTH_SESSION_MAX_AGE_SECONDS",
-        str(int((expires_at - datetime.now(timezone.utc)).total_seconds())),
+        str(int((expires_at - datetime.now(timezone.utc)).total_seconds()) + 1),
     ))
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=token,
         path=AUTH_COOKIE_PATH,
         httponly=AUTH_COOKIE_HTTP_ONLY,
-        secure=AUTH_COOKIE_SECURE,
-        samesite=AUTH_COOKIE_SAMESITE,
+        secure=secure,
+        samesite=samesite,
         max_age=max_age,
     )
-    _emit_partitioned(response)
+    _emit_partitioned(response, partitioned)
 
 
-def _clear_auth_cookie(response: Response) -> None:
+def _clear_auth_cookie(response: Response, request: Request | None = None) -> None:
+    secure, samesite, partitioned = _resolve_cookie_security(request)
     # Use set_cookie directly (not delete_cookie) so that a Partitioned
     # cookie can be cleared from the same partitioned jar it was created in.
     response.set_cookie(
@@ -346,12 +369,12 @@ def _clear_auth_cookie(response: Response) -> None:
         value="",
         path=AUTH_COOKIE_PATH,
         httponly=AUTH_COOKIE_HTTP_ONLY,
-        secure=AUTH_COOKIE_SECURE,
-        samesite=AUTH_COOKIE_SAMESITE,
+        secure=secure,
+        samesite=samesite,
         max_age=0,
         expires=0,
     )
-    _emit_partitioned(response)
+    _emit_partitioned(response, partitioned)
 
 
 def _extract_token(request: Request) -> str | None:
@@ -458,7 +481,7 @@ async def login(
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
-    _set_auth_cookie(response, token, remember_me=body.remember_me)
+    _set_auth_cookie(response, token, remember_me=body.remember_me, request=request)
 
     # Update last_login timestamp (naive UTC to match DateTime column)
     user.last_login = datetime.utcnow()
@@ -545,7 +568,7 @@ async def logout(
     token = _extract_token(request)
     if token:
         revoke_session(token, db)
-    _clear_auth_cookie(response)
+    _clear_auth_cookie(response, request=request)
     return {"success": True, "message": "Logged out"}
 
 

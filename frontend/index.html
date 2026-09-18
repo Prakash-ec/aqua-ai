@@ -5,11 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Aqua AI | Smart Water Quality Monitoring</title>
+    <title>Aqua AI | Water Quality Monitoring</title>
 
     <meta
         name="description"
-        content="Aqua AI smart water quality monitoring dashboard with live sensor readings, AI camera analysis, trends and intelligent water-quality insights."
+        content="Aqua AI water quality monitoring dashboard with live sensor readings, camera analysis and water-quality trends."
     >
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -49,7 +49,7 @@
 
                     <div class="brand-text">
                         <h1>Aqua<span>AI</span></h1>
-                        <p>Water intelligence</p>
+                        <p>Water monitoring</p>
                     </div>
                 </div>
 
@@ -80,7 +80,7 @@
 
             <nav class="main-navigation" aria-label="Main navigation">
 
-                <p class="navigation-label">MAIN MENU</p>
+                <p class="navigation-label">Monitoring</p>
 
                 <button
                     class="nav-item active"
@@ -106,7 +106,7 @@
                     type="button"
                 >
                     <i class="ri-test-tube-line"></i>
-                    <span>pH Level</span>
+                    <span>pH</span>
                 </button>
 
                 <button
@@ -127,7 +127,7 @@
                     <span>TDS</span>
                 </button>
 
-                <p class="navigation-label">INTELLIGENCE</p>
+                <p class="navigation-label">Analysis</p>
 
                 <button
                     class="nav-item"
@@ -135,8 +135,7 @@
                     type="button"
                 >
                     <i class="ri-camera-ai-line"></i>
-                    <span>AI Camera</span>
-                    <span class="nav-badge">AI</span>
+                    <span>Camera</span>
                 </button>
 
                 <button
@@ -144,7 +143,7 @@
                     data-page="analysis"
                     type="button"
                 >
-                    <i class="ri-brain-line"></i>
+                    <i class="ri-bar-chart-box-line"></i>
                     <span>Analysis</span>
                 </button>
 
@@ -166,7 +165,7 @@
                     <span>Reports</span>
                 </button>
 
-                <p class="navigation-label">MANAGEMENT</p>
+                <p class="navigation-label">Manage</p>
 
                 <button
                     class="nav-item"
@@ -236,15 +235,15 @@
                     </div>
 
                     <div>
-                        <strong>Smart water insights</strong>
-                        <p>Monitor water quality with AI-powered intelligence.</p>
+                        <strong>Live readings</strong>
+                        <p>Sensor values refresh automatically while your device is online.</p>
                     </div>
 
                 </div>
 
                 <div class="sidebar-footer">
                     <span class="footer-dot"></span>
-                    <span>Aqua AI System</span>
+                    <span>Aqua</span>
                     <span class="footer-version">v1.0</span>
                 </div>
 
@@ -287,7 +286,7 @@
                             id="connectionDot"
                         ></span>
 
-                        <span id="connectionText">Checking backend</span>
+                        <span id="connectionText">Checking connection</span>
 
                     </div>
 
@@ -346,8 +345,8 @@
                     <div class="page-heading-row">
 
                         <div>
-                            <p class="page-eyebrow">DASHBOARD</p>
-                            <h2>Water Quality Overview</h2>
+                            <p class="page-eyebrow">Dashboard</p>
+                            <h2>Water Quality Dashboard</h2>
                             <p class="page-description">
                                 Monitor live sensor readings and understand the current condition of your water.
                             </p>
@@ -509,16 +508,11 @@
                                 <div class="sensor-card-icon">
                                     <i class="ri-temp-hot-line"></i>
                                 </div>
-
-                                <span class="sensor-card-menu">
-                                    <i class="ri-more-2-fill"></i>
-                                </span>
                             </div>
 
                             <div class="sensor-card-label">
                                 Temperature
                             </div>
-
                             <div class="sensor-value-row">
                                 <strong id="temperatureValue">--</strong>
                                 <span>°C</span>
@@ -564,10 +558,6 @@
                                 <div class="sensor-card-icon">
                                     <i class="ri-test-tube-line"></i>
                                 </div>
-
-                                <span class="sensor-card-menu">
-                                    <i class="ri-more-2-fill"></i>
-                                </span>
                             </div>
 
                             <div class="sensor-card-label">
@@ -619,10 +609,6 @@
                                 <div class="sensor-card-icon">
                                     <i class="ri-contrast-drop-2-line"></i>
                                 </div>
-
-                                <span class="sensor-card-menu">
-                                    <i class="ri-more-2-fill"></i>
-                                </span>
                             </div>
 
                             <div class="sensor-card-label">
@@ -674,14 +660,10 @@
                                 <div class="sensor-card-icon">
                                     <i class="ri-flask-line"></i>
                                 </div>
-
-                                <span class="sensor-card-menu">
-                                    <i class="ri-more-2-fill"></i>
-                                </span>
                             </div>
 
                             <div class="sensor-card-label">
-                                Total Dissolved Solids
+                                TDS
                             </div>
 
                             <div class="sensor-value-row">
@@ -870,11 +852,11 @@
 
                                 <div>
                                     <h3>Quick insights</h3>
-                                    <p>Important information from your system.</p>
+                                    <p>Status and notes about your monitoring.</p>
                                 </div>
 
                                 <div class="content-card-header-icon">
-                                    <i class="ri-sparkling-2-line"></i>
+                                    <i class="ri-lightbulb-line"></i>
                                 </div>
 
                             </div>
@@ -888,10 +870,9 @@
                                     </div>
 
                                     <div class="insight-content">
-                                        <strong>Waiting for sensor data</strong>
+                                        <strong>Waiting for readings</strong>
                                         <p>
-                                            Connect a device to receive water-quality
-                                            insights.
+                                            Connect a device to start receiving readings.
                                         </p>
                                     </div>
 
@@ -904,7 +885,7 @@
                                     </div>
 
                                     <div class="insight-content">
-                                        <strong>AI Camera available</strong>
+                                        <strong>Camera analysis available</strong>
                                         <p>
                                             Analyze visible water characteristics
                                             using the camera.
@@ -920,10 +901,10 @@
                                     </div>
 
                                     <div class="insight-content">
-                                        <strong>Database monitoring</strong>
+                                        <strong>Readings history</strong>
                                         <p>
-                                            Sensor readings will appear here after
-                                            successful synchronization.
+                                            Readings appear here once your device
+                                            starts syncing data.
                                         </p>
                                     </div>
 
@@ -1029,8 +1010,8 @@
 
                     <div class="page-heading-row">
                         <div>
-                            <p class="page-eyebrow">SENSOR DETAILS</p>
-                            <h2>Temperature monitoring</h2>
+                            <p class="page-eyebrow">Temperature</p>
+                            <h2>Temperature Monitoring</h2>
                             <p class="page-description">
                                 Understand changes in water temperature over time.
                             </p>
@@ -1054,7 +1035,7 @@
                         <article class="metric-info-card">
                             <span>Monitoring status</span>
                             <strong id="temperatureDetailConnection">Offline</strong>
-                            <p>Based on backend connection</p>
+                            <p>Live connection status</p>
                         </article>
 
                     </div>
@@ -1071,7 +1052,7 @@
                         <div class="large-empty-chart" id="temperatureChart">
                             <i class="ri-line-chart-line"></i>
                             <strong>Temperature chart</strong>
-                            <p>Historical sensor data will appear here.</p>
+                            <p>No readings yet.</p>
                         </div>
 
                     </article>
@@ -1089,8 +1070,8 @@
 
                     <div class="page-heading-row">
                         <div>
-                            <p class="page-eyebrow">SENSOR DETAILS</p>
-                            <h2>pH level monitoring</h2>
+                            <p class="page-eyebrow">pH</p>
+                            <h2>pH Monitoring</h2>
                             <p class="page-description">
                                 Monitor acidity and alkalinity in your water.
                             </p>
@@ -1114,7 +1095,7 @@
                         <article class="metric-info-card">
                             <span>Monitoring status</span>
                             <strong id="phDetailConnection">Offline</strong>
-                            <p>Based on backend connection</p>
+                            <p>Live connection status</p>
                         </article>
 
                     </div>
@@ -1131,7 +1112,7 @@
                         <div class="large-empty-chart" id="phChart">
                             <i class="ri-line-chart-line"></i>
                             <strong>pH chart</strong>
-                            <p>Historical sensor data will appear here.</p>
+                            <p>No readings yet.</p>
                         </div>
 
                     </article>
@@ -1149,8 +1130,8 @@
 
                     <div class="page-heading-row">
                         <div>
-                            <p class="page-eyebrow">SENSOR DETAILS</p>
-                            <h2>Turbidity monitoring</h2>
+                            <p class="page-eyebrow">Turbidity</p>
+                            <h2>Turbidity Monitoring</h2>
                             <p class="page-description">
                                 Track water clarity and suspended particles.
                             </p>
@@ -1174,7 +1155,7 @@
                         <article class="metric-info-card">
                             <span>Monitoring status</span>
                             <strong id="turbidityDetailConnection">Offline</strong>
-                            <p>Based on backend connection</p>
+                            <p>Live connection status</p>
                         </article>
 
                     </div>
@@ -1191,7 +1172,7 @@
                         <div class="large-empty-chart" id="turbidityChart">
                             <i class="ri-line-chart-line"></i>
                             <strong>Turbidity chart</strong>
-                            <p>Historical sensor data will appear here.</p>
+                            <p>No readings yet.</p>
                         </div>
 
                     </article>
@@ -1209,8 +1190,8 @@
 
                     <div class="page-heading-row">
                         <div>
-                            <p class="page-eyebrow">SENSOR DETAILS</p>
-                            <h2>TDS monitoring</h2>
+                            <p class="page-eyebrow">TDS</p>
+                            <h2>TDS Monitoring</h2>
                             <p class="page-description">
                                 Monitor total dissolved solids in water.
                             </p>
@@ -1234,7 +1215,7 @@
                         <article class="metric-info-card">
                             <span>Monitoring status</span>
                             <strong id="tdsDetailConnection">Offline</strong>
-                            <p>Based on backend connection</p>
+                            <p>Live connection status</p>
                         </article>
 
                     </div>
@@ -1251,7 +1232,7 @@
                         <div class="large-empty-chart" id="tdsChart">
                             <i class="ri-line-chart-line"></i>
                             <strong>TDS chart</strong>
-                            <p>Historical sensor data will appear here.</p>
+                            <p>No readings yet.</p>
                         </div>
 
                     </article>
@@ -1259,7 +1240,7 @@
                 </section>
 
                 <!-- =========================================
-                     AI CAMERA PAGE
+                     CAMERA PAGE
                 ========================================== -->
                 <section
                     class="page-section"
@@ -1270,18 +1251,14 @@
                     <div class="page-heading-row">
 
                         <div>
-                            <p class="page-eyebrow">AI INTELLIGENCE</p>
-                            <h2>AI Camera analysis</h2>
+                            <p class="page-eyebrow">Camera Analysis</p>
+                            <h2>Camera Analysis</h2>
                             <p class="page-description">
-                                Inspect visible water characteristics using
-                                image-based AI analysis.
+                                Upload or capture a water image to screen visible
+                                characteristics such as foam, colour changes and
+                                suspended particles.
                             </p>
                         </div>
-
-                        <span class="ai-page-badge">
-                            <i class="ri-sparkling-2-line"></i>
-                            AI powered
-                        </span>
 
                     </div>
 
@@ -1389,7 +1366,7 @@
                                 <div>
                                     <h3>Analysis result</h3>
                                     <p>
-                                        AI-generated observations from your image.
+                                        Observations returned for your image.
                                     </p>
                                 </div>
 
@@ -1430,7 +1407,7 @@
                                     </div>
 
                                     <div>
-                                        <span>AI observation</span>
+                                        <span>Observations</span>
                                         <h4 id="cameraResultTitle">
                                             Analysis completed
                                         </h4>
@@ -1490,7 +1467,7 @@
                             id="cameraChatContext"
                         >
                             <span class="context-dot offline"></span>
-                            <span class="context-label">No camera analysis available</span>
+                            <span class="context-label">No analysis available yet</span>
                         </div>
 
                         <div
@@ -1558,8 +1535,8 @@
                     <div class="page-heading-row">
 
                         <div>
-                            <p class="page-eyebrow">INTELLIGENT INSIGHTS</p>
-                            <h2>Water quality analysis</h2>
+                            <p class="page-eyebrow">Analysis</p>
+                            <h2>Water Quality Analysis</h2>
                             <p class="page-description">
                                 Understand the combined condition of your water
                                 readings.
@@ -1681,10 +1658,10 @@
                                 </div>
 
                                 <div>
-                                    <strong>Waiting for sensor data</strong>
+                                    <strong>Waiting for readings</strong>
                                     <p>
-                                        Recommendations will be generated when
-                                        readings are available.
+                                        Recommendations appear once readings
+                                        are available.
                                     </p>
                                 </div>
                             </div>
@@ -1707,7 +1684,7 @@
                     <div class="page-heading-row">
 
                         <div>
-                            <p class="page-eyebrow">HISTORICAL DATA</p>
+                            <p class="page-eyebrow">Trends</p>
                             <h2>Water quality trends</h2>
                             <p class="page-description">
                                 Explore how your sensor readings change over time.
@@ -1761,7 +1738,7 @@
                         <div class="large-empty-chart" id="trendsChart">
                             <i class="ri-line-chart-line"></i>
                             <strong>Trend visualization</strong>
-                            <p>Historical data will appear here.</p>
+                            <p>No readings in this time range yet.</p>
                         </div>
 
                     </article>
@@ -1835,10 +1812,10 @@
                     <div class="page-heading-row">
 
                         <div>
-                            <p class="page-eyebrow">HARDWARE MANAGEMENT</p>
-                            <h2>Device management</h2>
+                            <p class="page-eyebrow">Devices</p>
+                            <h2>Device Management</h2>
                             <p class="page-description">
-                                Manage your Aqua AI water monitoring devices.
+                                Manage the sensor devices connected to your account.
                             </p>
                         </div>
 
@@ -1860,7 +1837,7 @@
                             <div class="content-card-header">
                                 <div>
                                     <h3>Your devices</h3>
-                                    <p>Devices registered with the backend.</p>
+                                    <p>Devices connected to your account.</p>
                                 </div>
                             </div>
 
@@ -1871,10 +1848,9 @@
 
                                 <div class="device-list-empty">
                                     <i class="ri-cpu-line"></i>
-                                    <strong>No devices loaded</strong>
+                                    <strong>No devices yet</strong>
                                     <p>
-                                        Add a device or connect to the backend
-                                        to view registered devices.
+                                        Add a device to start receiving readings.
                                     </p>
                                 </div>
 
@@ -1947,10 +1923,10 @@
                     <div class="page-heading-row">
 
                         <div>
-                            <p class="page-eyebrow">SYSTEM CONFIGURATION</p>
+                            <p class="page-eyebrow">Settings</p>
                             <h2>Settings</h2>
                             <p class="page-description">
-                                Configure backend connectivity and AI preferences.
+                                Manage your connection, display and analysis preferences.
                             </p>
                         </div>
 
@@ -1962,15 +1938,15 @@
 
                             <div class="content-card-header">
                                 <div>
-                                    <h3>Backend connection</h3>
-                                    <p>Configure the Aqua AI API endpoint.</p>
+                                    <h3>Connection</h3>
+                                    <p>Address used to load your readings.</p>
                                 </div>
                             </div>
 
                             <form id="backendSettingsForm" class="settings-form">
 
                                 <label for="backendUrlInput">
-                                    Backend API URL
+                                    Server address
                                 </label>
 
                                 <input
@@ -1989,7 +1965,7 @@
                                     type="submit"
                                 >
                                     <i class="ri-save-line"></i>
-                                    Save backend URL
+                                    Save connection
                                 </button>
 
                             </form>
@@ -2000,15 +1976,15 @@
 
                             <div class="content-card-header">
                                 <div>
-                                    <h3>AI provider preferences</h3>
-                                    <p>Choose the preferred AI provider and model.</p>
+                                    <h3>Analysis preferences</h3>
+                                    <p>Choose the service used for camera and chat analysis.</p>
                                 </div>
                             </div>
 
                             <form id="aiSettingsForm" class="settings-form">
 
                                 <label for="aiProviderSelect">
-                                    Preferred AI provider
+                                    Preferred service
                                 </label>
 
                                 <select
@@ -2022,7 +1998,7 @@
                                 </select>
 
                                 <label for="aiModelInput">
-                                    Preferred model
+                                    Model (optional)
                                 </label>
 
                                 <input
@@ -2032,8 +2008,8 @@
                                 >
 
                                 <p class="form-help">
-                                    Provider availability depends on the backend
-                                    configuration and API limits.
+                                    Available options depend on your monitoring
+                                    server. Leave the model blank to use the default.
                                 </p>
 
                                 <button
@@ -2041,7 +2017,7 @@
                                     type="submit"
                                 >
                                     <i class="ri-save-line"></i>
-                                    Save AI settings
+                                    Save preferences
                                 </button>
 
                             </form>
@@ -2121,7 +2097,7 @@
                                 </div>
 
                                 <div>
-                                    <span>Frontend mode</span>
+                                    <span>Access mode</span>
                                     <strong>Public dashboard</strong>
                                 </div>
 
@@ -2149,7 +2125,7 @@
                     <div class="page-heading-row">
 
                         <div>
-                            <p class="page-eyebrow">WATER QUALITY REPORTS</p>
+                            <p class="page-eyebrow">Reports</p>
                             <h2>Reports</h2>
                             <p class="page-description">
                                 Review water-quality readings and summaries from your connected device.
@@ -2249,7 +2225,7 @@
                         <div class="report-empty-state" id="reportsEmptyState">
                             <i class="ri-inbox-2-line"></i>
                             <strong>No readings yet</strong>
-                            <p>Sensor readings will appear here after the device synchronises data with the backend.</p>
+                            <p>Sensor readings will appear here once your device sends data.</p>
                         </div>
 
                         <div class="report-table-wrapper hidden" id="reportsTableWrapper">
@@ -2287,7 +2263,7 @@
                     <div class="page-heading-row">
 
                         <div>
-                            <p class="page-eyebrow">USER PREFERENCES</p>
+                            <p class="page-eyebrow">Profile</p>
                             <h2>Profile</h2>
                             <p class="page-description">
                                 View local monitoring preferences and application information.
@@ -2305,7 +2281,7 @@
                             </div>
 
                             <div class="profile-details">
-                                <strong id="profileDisplayName">Aqua AI User</strong>
+                                <strong id="profileDisplayName">Aqua User</strong>
                                 <span id="profileDisplayRole">Water Quality Monitoring User</span>
                             </div>
 
@@ -2332,7 +2308,7 @@
                             </div>
 
                             <div class="metric-info-card">
-                                <span class="metric-label">Backend status</span>
+                                <span class="metric-label">Connection status</span>
                                 <strong id="profileBackendStatus">Offline</strong>
                                 <span id="profileBackendUrl">http://127.0.0.1:8001</span>
                             </div>
@@ -2350,19 +2326,19 @@
 
                         <button class="nav-card-button" data-page="device" type="button">
                             <i class="ri-hardware-2-line"></i>
-                            <strong>Device monitoring</strong>
+                            <strong>Devices</strong>
                             <span>Manage connected devices</span>
                         </button>
 
                         <button class="nav-card-button" data-page="settings" type="button">
                             <i class="ri-settings-4-line"></i>
-                            <strong>Sensor settings</strong>
+                            <strong>Settings</strong>
                             <span>Configure preferences</span>
                         </button>
 
                         <button class="nav-card-button" data-page="camera" type="button">
                             <i class="ri-camera-3-line"></i>
-                            <strong>AI Camera</strong>
+                            <strong>Camera Analysis</strong>
                             <span>Analyse water visually</span>
                         </button>
 
@@ -2377,15 +2353,15 @@
                     <div class="profile-info-card">
                         <div class="info-card-row">
                             <span class="info-label">Application</span>
-                            <span id="profileAppVersion">Aqua AI v1.0.0</span>
+                            <span id="profileAppVersion">Aqua v1.0.0</span>
                         </div>
                         <div class="info-card-row">
-                            <span class="info-label">Frontend mode</span>
+                            <span class="info-label">Access mode</span>
                             <span>Public dashboard</span>
                         </div>
                         <div class="info-card-row">
                             <span class="info-label">Data source</span>
-                            <span id="profileDataSource">Connected backend</span>
+                            <span id="profileDataSource">Live device readings</span>
                         </div>
                         <div class="info-card-row">
                             <span class="info-label">ESP32 integration</span>
@@ -2553,11 +2529,11 @@
 
                 <div>
                     <span class="footer-dot"></span>
-                    Aqua AI monitoring system
+                    Aqua monitoring system
                 </div>
 
                 <div>
-                    Built for intelligent water-quality monitoring
+                    Water quality monitoring dashboard
                 </div>
 
             </footer>
@@ -2607,7 +2583,7 @@
                     type="text"
                     id="newDeviceName"
                     required
-                    placeholder="Aqua AI Device 1"
+                    placeholder="Device 1"
                 >
 
                 <label for="newDeviceType">
@@ -2672,7 +2648,7 @@
 
                 <div>
                     <p class="page-eyebrow" id="authEyebrow">SECURE ACCESS</p>
-                    <h3 id="loginModalTitle">Admin Login</h3>
+                    <h3 id="loginModalTitle">Sign in</h3>
                 </div>
 
                 <button

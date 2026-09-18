@@ -1,0 +1,66 @@
+[1mdiff --git a/backend/routes/auth.py b/backend/routes/auth.py[m
+[1mindex bf80c2a..f754204 100644[m
+[1m--- a/backend/routes/auth.py[m
+[1m+++ b/backend/routes/auth.py[m
+[36m@@ -287,6 +287,36 @@[m [mAUTH_COOKIE_SAMESITE = os.getenv([m
+ # Validate SameSite value[m
+ if AUTH_COOKIE_SAMESITE not in ("strict", "lax", "none"):[m
+     AUTH_COOKIE_SAMESITE = "lax"[m
+[32m+[m[32m# Partitioned (CHIPS): key the cookie jar by top-level site so the session[m
+[32m+[m[32m# cookie keeps working for cross-site API calls once browsers block[m
+[32m+[m[32m# third-party cookies by default. The CHIPS spec only accepts the attribute[m
+[32m+[m[32m# for Secure cookies with SameSite=None, so it follows both flags.[m
+[32m+[m[32mAUTH_COOKIE_PARTITIONED = ([m
+[32m+[m[32m    AUTH_COOKIE_SECURE and AUTH_COOKIE_SAMESITE == "none"[m
+[32m+[m[32m)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef _emit_partitioned(response: Response) -> None:[m
+[32m+[m[32m    """[m
+[32m+[m[32m    Append the CHIPS ``Partitioned`` attribute to the last Set-Cookie header.[m
+[32m+[m
+[32m+[m[32m    Starlette can only emit ``Partitioned`` on Python 3.14+, but Render runs[m
+[32m+[m[32m    3.11, so the attribute is appended to the raw header instead. It is a[m
+[32m+[m[32m    pure extension attribute: browsers that understand it partition the[m
+[32m+[m[32m    cookie per top-level site (keeping cross-site sessions alive under[m
+[32m+[m[32m    third-party-cookie blocking) and older clients simply ignore it.[m
+[32m+[m[32m    """[m
+[32m+[m[32m    if not AUTH_COOKIE_PARTITIONED:[m
+[32m+[m[32m        return[m
+[32m+[m[32m    for index in range(len(response.raw_headers) - 1, -1, -1):[m
+[32m+[m[32m        name, value = response.raw_headers[index][m
+[32m+[m[32m        if name.lower() == b"set-cookie":[m
+[32m+[m[32m            if b"; Partitioned" not in value:[m
+[32m+[m[32m                response.raw_headers[index] = ([m
+[32m+[m[32m                    name,[m
+[32m+[m[32m                    value.rstrip().rstrip(b";") + b"; Partitioned",[m
+[32m+[m[32m                )[m
+[32m+[m[32m            return[m
+ [m
+ [m
+ def _set_auth_cookie(response: Response, token: str, remember_me: bool = False) -> None:[m
+[36m@@ -305,16 +335,23 @@[m [mdef _set_auth_cookie(response: Response, token: str, remember_me: bool = False)[m
+         samesite=AUTH_COOKIE_SAMESITE,[m
+         max_age=max_age,[m
+     )[m
+[32m+[m[32m    _emit_partitioned(response)[m
+ [m
+ [m
+ def _clear_auth_cookie(response: Response) -> None:[m
+[31m-    response.delete_cookie([m
+[32m+[m[32m    # Use set_cookie directly (not delete_cookie) so that a Partitioned[m
+[32m+[m[32m    # cookie can be cleared from the same partitioned jar it was created in.[m
+[32m+[m[32m    response.set_cookie([m
+         key=AUTH_COOKIE_NAME,[m
+[32m+[m[32m        value="",[m
+         path=AUTH_COOKIE_PATH,[m
+         httponly=AUTH_COOKIE_HTTP_ONLY,[m
+         secure=AUTH_COOKIE_SECURE,[m
+         samesite=AUTH_COOKIE_SAMESITE,[m
+[32m+[m[32m        max_age=0,[m
+[32m+[m[32m        expires=0,[m
+     )[m
+[32m+[m[32m    _emit_partitioned(response)[m
+ [m
+ [m
+ def _extract_token(request: Request) -> str | None:[m

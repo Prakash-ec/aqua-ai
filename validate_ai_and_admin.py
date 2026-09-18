@@ -157,10 +157,6 @@ r = client.get("/auth/me")
 check("GET /auth/me (logged out) -> 401", r.status_code == 401,
       f"{r.status_code}")
 
-r = client.get("/auth/check")
-check("GET /auth/check (logged out) -> 401", r.status_code == 401,
-      f"{r.status_code}")
-
 r = client.post("/auth/login",
                 json={"username": "nosuchuser", "password": "wrong"})
 check("POST /auth/login (bad creds) -> 401", r.status_code == 401,

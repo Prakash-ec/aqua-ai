@@ -293,7 +293,7 @@ function setConnectionStatus(online, message = "") {
 
     if (connectionText) {
         connectionText.textContent =
-            message || (online ? "Backend connected" : "Backend offline");
+            message || (online ? "Connected" : "Offline");
     }
 
     const statusLabel = $("backendStatus");
@@ -634,8 +634,8 @@ function renderDeviceList(devices) {
         listElement.innerHTML = `
             <div class="device-list-empty">
                 <i class="ri-wifi-off-line"></i>
-                <strong>No devices registered</strong>
-                <p>Connect an ESP32 or another sensor device to get started.</p>
+                <strong>No devices yet</strong>
+                <p>Add a device to start receiving readings.</p>
             </div>
         `;
         return;
@@ -949,13 +949,13 @@ async function checkBackend() {
         setConnectionStatus(
             true,
             data?.status === "healthy"
-                ? "Backend connected"
-                : "Backend online"
+                ? "Connected"
+                : "Connected"
         );
 
         return true;
     } catch {
-        setConnectionStatus(false, "Backend offline");
+        setConnectionStatus(false, "Offline");
         return false;
     }
 }
@@ -976,14 +976,14 @@ async function refreshDashboard() {
         if (!backendOnline) {
             updateQualityUI(
                 null,
-                "Backend unavailable",
+                "Offline",
                 "unknown",
-                "Could not reach the Aqua AI backend. Check the server and the API URL in Settings, then retry."
+                "Could not reach the monitoring server. Check your connection in Settings, then try again."
             );
 
             setText(
                 "lastRefreshTime",
-                "Retry failed - backend unreachable",
+                "Retry failed - server unreachable",
                 "--"
             );
 
@@ -1808,7 +1808,7 @@ function renderDivChart(container, readings) {
         container.innerHTML = `
             <i class="ri-line-chart-line"></i>
             <strong>Trend visualization</strong>
-            <p>Historical sensor data will appear here.</p>
+            <p>No readings in this time range yet.</p>
         `;
         return;
     }
@@ -2099,8 +2099,8 @@ function navigateTo(pageName) {
             "Monitor total dissolved solids in the water."
         ],
         camera: [
-            "AI Camera Analysis",
-            "Use visual AI assistance to screen visible water characteristics."
+            "Camera Analysis",
+            "Upload or capture a water image to screen visible water characteristics."
         ],
         device: [
             "Device Management",
@@ -2116,7 +2116,7 @@ function navigateTo(pageName) {
         ],
         settings: [
             "Settings",
-            "Configure backend and AI preferences."
+            "Manage your connection and analysis preferences."
         ],
         reports: [
             "Water Quality Reports",
@@ -2143,7 +2143,7 @@ function navigateTo(pageName) {
         ph: "pH",
         turbidity: "Turbidity",
         tds: "TDS",
-        camera: "AI Camera",
+        camera: "Camera",
         device: "Device",
         trends: "Trends",
         analysis: "Analysis",
@@ -2379,7 +2379,7 @@ function setupSettings() {
             const value = apiInput.value.trim();
 
             if (!value) {
-                alert("Please enter a valid backend URL.");
+                alert("Please enter a valid server address.");
                 return;
             }
 
@@ -2392,7 +2392,7 @@ function setupSettings() {
 
             API_BASE_URL = normalized;
 
-            alert("Backend URL saved. The page will reload.");
+            alert("Connection saved. The page will reload.");
             window.location.reload();
         });
     }
@@ -2455,7 +2455,7 @@ function setupSettings() {
                 );
             }
 
-            alert("AI settings saved.");
+            alert("Preferences saved.");
         });
     }
 
@@ -2862,7 +2862,7 @@ async function analyzeCameraImage() {
         resultText.innerHTML = `
             <div class="loading">
                 <span class="spinner"></span>
-                AI is analyzing the image...
+                Analyzing the image...
             </div>
         `;
     }
@@ -3138,7 +3138,7 @@ function renderCameraResult(data) {
     if (legacyContainer) {
         legacyContainer.innerHTML = `
             <div class="analysis-item">
-                <label>AI Analysis</label>
+                <label>Analysis</label>
                 <p>${escapeHtml(
                     String(observation || agentAnswer || "No result was returned.")
                 )}</p>
@@ -3305,10 +3305,10 @@ function updateChatContextIndicators() {
         if (dot && label) {
             if (latestReading) {
                 dot.className = "context-dot online";
-                label.textContent = "Using latest sensor reading";
+                label.textContent = "Using latest reading";
             } else {
                 dot.className = "context-dot offline";
-                label.textContent = "Sensor reading unavailable";
+                label.textContent = "No readings available yet";
             }
         }
     }
@@ -3321,10 +3321,10 @@ function updateChatContextIndicators() {
         if (dot && label) {
             if (latestCameraAnalysis) {
                 dot.className = "context-dot online";
-                label.textContent = "Using latest camera analysis";
+                label.textContent = "Using latest analysis";
             } else {
                 dot.className = "context-dot offline";
-                label.textContent = "No camera analysis available";
+                label.textContent = "No analysis available yet";
             }
         }
     }

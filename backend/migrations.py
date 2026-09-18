@@ -35,6 +35,37 @@ def _column_exists(engine: Engine, table: str, column: str) -> bool:
         return False
 
 
+def _fix_camera_prediction_column(engine: Engine) -> None:
+    """
+    Fix camera_predictions.prediction column type from VARCHAR(100) to TEXT.
+    
+    The production database was created with VARCHAR(100) but the model
+    expects TEXT (unlimited length). AI analysis observations can exceed
+    100 characters, causing data truncation errors on INSERT.
+    """
+    try:
+        inspector = inspect(engine)
+        if "camera_predictions" not in inspector.get_table_names():
+            return
+        
+        columns = {c["name"]: c for c in inspector.get_columns("camera_predictions")}
+        pred_col = columns.get("prediction")
+        
+        if pred_col is None:
+            return
+        
+        # Check if the column type is VARCHAR with limited length
+        col_type = str(pred_col["type"]).upper()
+        if "VARCHAR" in col_type and "100" in col_type:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE camera_predictions ALTER COLUMN prediction TYPE TEXT")
+                )
+            print("Fixed camera_predictions.prediction: VARCHAR(100) -> TEXT")
+    except Exception as error:
+        print(f"Migration warning for camera_predictions.prediction: {type(error).__name__}")
+
+
 def run_migrations(engine: Engine, metadata=None) -> None:
     """
     Apply all guarded migrations.
@@ -51,6 +82,9 @@ def run_migrations(engine: Engine, metadata=None) -> None:
 
     # ---- Device API token (ESP32 ingestion authentication) ----
     _add_token_hash_column(engine)
+
+    # ---- Fix camera_predictions.prediction column type ----
+    _fix_camera_prediction_column(engine)
 
     # ---- Generic, model-driven repair of every remaining missing column ----
     # ``Base.metadata.create_all`` cannot alter a table that already exists,

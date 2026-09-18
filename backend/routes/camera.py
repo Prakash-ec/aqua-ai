@@ -594,41 +594,51 @@ async def analyze_camera(
             }
 
         # -------------------------------------------------
-        # Save prediction
+        # Save prediction (optional - don't block response on DB failure)
         # -------------------------------------------------
 
-        prediction = CameraPrediction(
-            device_id=validated_device_id,
-            user_id=(
-                session.get("user_id")
-                if session
-                else None
-            ),
-            image_path=safe_filename,
-            prediction=analysis[
-                "overall_observation"
-            ],
-            confidence=analysis[
-                "confidence"
-            ],
-            details=json.dumps(
-                analysis,
-                ensure_ascii=False,
-            ),
-        )
+        prediction_id = None
+        try:
+            prediction = CameraPrediction(
+                device_id=validated_device_id,
+                user_id=(
+                    session.get("user_id")
+                    if session
+                    else None
+                ),
+                image_path=safe_filename,
+                prediction=analysis[
+                    "overall_observation"
+                ],
+                confidence=analysis[
+                    "confidence"
+                ],
+                details=json.dumps(
+                    analysis,
+                    ensure_ascii=False,
+                ),
+            )
 
-        db.add(prediction)
-        db.commit()
-        db.refresh(prediction)
+            db.add(prediction)
+            db.commit()
+            db.refresh(prediction)
+            prediction_id = prediction.id
+
+        except SQLAlchemyError as database_error:
+            db.rollback()
+            print(
+                "[CAMERA DATABASE ERROR] Failed to save prediction (continuing anyway):",
+                str(database_error),
+            )
+            # Don't raise - the AI analysis succeeded, return it anyway
 
         # -------------------------------------------------
-        # Return result
+        # Return result (always return AI analysis, even if DB save failed)
         # -------------------------------------------------
 
-        return {
+        response = {
             "success": True,
             "message": "Image analyzed successfully.",
-            "prediction_id": prediction.id,
             "analysis": analysis,
             "agent_answer": agent_answer,
             "metadata": {
@@ -650,6 +660,15 @@ async def analyze_camera(
                 "image_size_bytes": len(image_bytes),
             },
         }
+
+        if prediction_id is not None:
+            response["prediction_id"] = prediction_id
+            response["saved_to_database"] = True
+        else:
+            response["saved_to_database"] = False
+            response["message"] = "Image analyzed successfully (database save failed, but analysis is returned)."
+
+        return response
 
     except HTTPException:
         raise

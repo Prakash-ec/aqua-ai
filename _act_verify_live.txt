@@ -1,0 +1,91 @@
+﻿[Dashboard] /readings/latest response: {
+  device_id: 1,
+  temperature: 26,
+  ph: 7.2,
+  turbidity: 1.8,
+  tds: 320,
+  id: 1853,
+  recorded_at: '2026-09-19T12:09:39.847720'
+}
+[Dashboard] normalized readings: [
+  {
+    id: 1853,
+    device_id: 1,
+    temperature: 26,
+    ph: 7.2,
+    turbidity: 1.8,
+    tds: 320,
+    recorded_at: '2026-09-19T12:09:39.847720'
+  }
+]
+[Dashboard] latestReading set to: {
+  id: 1853,
+  device_id: 1,
+  temperature: 26,
+  ph: 7.2,
+  turbidity: 1.8,
+  tds: 320,
+  recorded_at: '2026-09-19T12:09:39.847720'
+}
+[Dashboard] /readings/latest response: {
+  device_id: 1,
+  temperature: 26,
+  ph: 7.2,
+  turbidity: 1.8,
+  tds: 320,
+  id: 1853,
+  recorded_at: '2026-09-19T12:09:39.847720'
+}
+[Dashboard] normalized readings: [
+  {
+    id: 1853,
+    device_id: 1,
+    temperature: 26,
+    ph: 7.2,
+    turbidity: 1.8,
+    tds: 320,
+    recorded_at: '2026-09-19T12:09:39.847720'
+  }
+]
+[Dashboard] latestReading set to: {
+  id: 1853,
+  device_id: 1,
+  temperature: 26,
+  ph: 7.2,
+  turbidity: 1.8,
+  tds: 320,
+  recorded_at: '2026-09-19T12:09:39.847720'
+}
+mode=live hash=#analysis
+sections: open=13 close=13
+
+=== ANALYSIS DOM STATE ===
+notice                : 
+noticeClass           : analysis-notice hidden
+retryButton           : false
+readingTime           : 19 Sept 2026, 12:09 pm
+overallBadge          : CAUTION | overall-status-badge caution
+overallTitle          : Caution
+overallDescription    : Outside the preferred screening references: Turbidity. The remaining parameters are within their configured references.
+temp / cond           : 26.0 / Normal
+ph / cond             : 7.20 / Normal
+turbidity / cond      : 1.80 / Caution
+tds / cond            : 320.0 / Normal
+derived               : Normal | Normal | No salinity restriction indicated | Caution | Normal | Complete | Fresh
+why                   : The current pH is 7.20, which falls within the configured general screening range (6.5ΓÇô8.5). Turbidity is 1.80 NTU, which indicates some suspended-material concern compared with the 1 NTU target. TDS is 320.0 mg/L, which is at or below the configured 500 mg/L reference level. Temperature is 26.0 ┬░C, which is within the configured general monitoring range (5ΓÇô35 ┬░C).pH 7.20 falls within the configured general screening
+concerns              : Turbidity is above the preferred screening target.
+recommendations       : Monitoring Continue monitoring the water quality regularly and compare new readings against the configured screening references. Turbidity Investigate the source of suspended particles and consider filtration or settling where appropriate. Agriculture Check EC, SAR, sodium, chloride and boron before making irrigation d
+limitations           : 5 items
+agriculture           : Agriculture screeningNo major salinity concern indicated by TDS screeningWhypH 7.20 is within the general irrigation screening range (6.5ΓÇô8.4).TDS 320.0 mg/L is at or below the configured 450 mg/L TDS-based salinity screening level.Turbidity 1.80 NTU exceeds t
+industry              : Preliminary industry screeningFurther treatment/testing recommendedIndustry requirements vary by process. This is a preliminary screening based on the available sensor parameters only.WhypH 7.20 falls within the configured general screening range (6.5ΓÇô8.5).TDS
+general               : General / non-potable screeningUse cautionWhypH 7.20 falls within the configured general screening range (6.5ΓÇô8.5).TDS 320.0 mg/L is at or below the configured 500 mg/L reference level.Turbidity 1.80 NTU is above the preferred 1 NTU target, but within the broa
+drinking              : Preliminary Drinking-Water ScreeningOne or more parameters are outside the preferred screening targets, but within the broader reference levels. These sensors still cannot confirm drinking-water safety.WhypH 7.20 falls within the configured general screening range (6.5ΓÇô8.5).TDS 320.0 mg/L is at or below the configured 
+forbiddenClaimFound   : false
+
+=== PHASE 2: tabs + navigation must not refetch ===
+requests after clicking 4 tabs: 0 []
+active panel after tab click : panelAnalysisDrinking
+requests during navigation  : 0 []
+
+=== JS ERRORS ===
+none

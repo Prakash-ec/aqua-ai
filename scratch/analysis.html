@@ -1,0 +1,147 @@
+<section
+                    class="page-section"
+                    id="page-analysis"
+                    data-page-section="analysis"
+                >
+                    <div class="page-heading-row">
+                        <div>
+                            <p class="page-eyebrow">Analysis</p>
+                            <h2>Analysis</h2>
+                            <p class="page-description" id="analysisSubtitle">
+                                Understand your water quality and discover suitable applications.
+                            </p>
+                        </div>
+                        <div class="page-heading-actions">
+                            <div class="last-updated" id="analysisLastUpdated">
+                                <i class="ri-time-line"></i>
+                                <span>Latest reading</span>
+                                <strong id="analysisReadingTime">--</strong>
+                            </div>
+                            <button
+                                class="an-refresh"
+                                type="button"
+                                data-action="refresh"
+                                aria-label="Refresh analysis data"
+                            >
+                                <i class="ri-refresh-line"></i>
+                                <span>Refresh</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="analysis-notice hidden" id="analysisNotice" role="status" aria-live="polite"></div>
+
+                    <!-- Water quality summary -->
+                    <article class="content-card an-summary-card">
+                        <div class="an-kicker-row">
+                            <span class="an-kicker">Water quality</span>
+                        </div>
+                        <div id="analysisSummary"></div>
+                    </article>
+
+                    <!-- Current parameters -->
+                    <article class="content-card">
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Current parameters</h3>
+                                <p>Latest readings from the connected sensor.</p>
+                            </div>
+                        </div>
+                        <div id="analysisCurrentParams"></div>
+                    </article>
+
+                    <!-- Derived indicators -->
+                    <article class="content-card">
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Derived indicators</h3>
+                                <p>Calculated from the raw sensor values.</p>
+                            </div>
+                        </div>
+                        <div id="analysisDerivedParams"></div>
+                    </article>
+
+                    <!-- Score breakdown -->
+                    <article class="content-card">
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Score breakdown</h3>
+                                <p>Components that produce the analytical score.</p>
+                            </div>
+                        </div>
+                        <div id="analysisScoreSection"></div>
+                    </article>
+
+                    <!-- Predicted Applications -->
+                    <article class="content-card">
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Predicted Applications</h3>
+                                <p>Deterministic application screening from sensor data.</p>
+                            </div>
+                        </div>
+
+                        <div class="an-tabs" role="tablist" aria-label="Application categories">
+                            <button class="an-tab active" role="tab" aria-selected="true" data-an-tab="agriculture" type="button">Agriculture</button>
+                            <button class="an-tab" role="tab" aria-selected="false" data-an-tab="industrial" type="button">Industry</button>
+                            <button class="an-tab" role="tab" aria-selected="false" data-an-tab="domestic" type="button">Domestic</button>
+                            <button class="an-tab" role="tab" aria-selected="false" data-an-tab="drinking" type="button">Drinking</button>
+                            <button class="an-tab" role="tab" aria-selected="false" data-an-tab="general" type="button">General utility</button>
+                        </div>
+
+                        <div class="an-tab-panel active" data-an-panel="agriculture" role="tabpanel">
+                            <div class="an-panel-head">
+                                <div class="an-section-heading">Crop suitability</div>
+                                <p class="an-panel-sub">Estimated suitability based on pH, salinity, temperature and turbidity.</p>
+                            </div>
+                            <div id="analysisCropSection"></div>
+                            <p class="an-panel-note">Prediction only — actual crop suitability depends on soil, climate and other factors.</p>
+                        </div>
+
+                        <div class="an-tab-panel" data-an-panel="industrial" role="tabpanel">
+                            <div class="an-panel-head">
+                                <div class="an-section-heading">Industrial applications</div>
+                                <p class="an-panel-sub">Preliminary screening against common industrial water uses.</p>
+                            </div>
+                            <div id="analysisIndustrialSection"></div>
+                        </div>
+
+                        <div class="an-tab-panel" data-an-panel="domestic" role="tabpanel">
+                            <div class="an-panel-head">
+                                <div class="an-section-heading">Domestic applications</div>
+                                <p class="an-panel-sub">Non-potable household uses estimated from the sensor values.</p>
+                            </div>
+                            <div id="analysisDomesticSection"></div>
+                        </div>
+
+                        <div class="an-tab-panel" data-an-panel="drinking" role="tabpanel">
+                            <div class="an-panel-head">
+                                <div class="an-section-heading">Water / drinking screening</div>
+                                <p class="an-panel-sub">Screening based only on the available sensor parameters. This is not a laboratory drinking-water certification.</p>
+                            </div>
+                            <div id="analysisDrinkingSection"></div>
+                        </div>
+
+                        <div class="an-tab-panel" data-an-panel="general" role="tabpanel">
+                            <div class="an-panel-head">
+                                <div class="an-section-heading">General utility applications</div>
+                                <p class="an-panel-sub">General purpose uses estimated from the sensor values.</p>
+                            </div>
+                            <div id="analysisGeneralSection"></div>
+                        </div>
+
+                        <details class="an-limitations">
+                            <summary>
+                                <i class="ri-information-line" aria-hidden="true"></i>
+                                <span>Analysis limitations</span>
+                                <i class="ri-arrow-down-s-line an-limitations-chevron" aria-hidden="true"></i>
+                            </summary>
+                            <div class="an-limitations-body">
+                                <p>This analysis uses only the four measured parameters: pH, TDS (dissolved solids), turbidity and temperature.</p>
+                                <p>It does not measure, and therefore cannot assess: dissolved oxygen, DO, BOD, COD, hardness, alkalinity, nitrate, phosphate, heavy metals, chlorine or microbial quality.</p>
+                                <p>Application predictions are screening estimates based on the measured parameters only.</p>
+                            </div>
+                        </details>
+                    </article>
+
+                </section>

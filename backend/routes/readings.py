@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models import Device, WaterReading
 from backend.schemas import WaterReadingCreate, WaterReadingResponse
+from backend.services.alert_service import process_reading_alerts
 
 
 router = APIRouter(
@@ -139,6 +140,12 @@ def ingest_reading(
         db.commit()
         db.refresh(new_reading)
 
+        # Evaluate alerts (never break ingestion)
+        try:
+            process_reading_alerts(db, new_reading)
+        except Exception:
+            pass
+
         return new_reading
 
     except SQLAlchemyError:
@@ -193,6 +200,11 @@ def create_reading(
         db.add(new_reading)
         db.commit()
         db.refresh(new_reading)
+
+        try:
+            process_reading_alerts(db, new_reading)
+        except Exception:
+            pass
 
         return new_reading
 

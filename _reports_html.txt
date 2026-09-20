@@ -1,0 +1,196 @@
+<section
+                    class="page-section"
+                    id="page-reports"
+                    data-page-section="reports"
+                >
+
+                    <div class="page-heading-row">
+
+                        <div>
+                            <p class="page-eyebrow">Aqua AI Water Quality Report</p>
+                            <h2>Water Quality Report</h2>
+                            <p class="page-description">
+                                Current sensor-based water quality summary and application analysis.
+                            </p>
+                        </div>
+
+                        <div class="page-heading-actions report-actions">
+
+                            <button
+                                class="secondary-button"
+                                id="reportRefreshButton"
+                                type="button"
+                            >
+                                <i class="ri-refresh-line"></i>
+                                Refresh
+                            </button>
+
+                            <button
+                                class="primary-button"
+                                id="reportPrintButton"
+                                type="button"
+                            >
+                                <i class="ri-printer-line"></i>
+                                Print Report
+                            </button>
+
+                        </div>
+
+                    </div>
+
+                    <div id="reportContent">
+
+                        <div class="report-loading" id="reportLoading">
+                            <span class="spinner"></span>
+                            <p>Loading latest reading…</p>
+                        </div>
+
+                        <div class="report-error hidden" id="reportError">
+                            <i class="ri-error-warning-line"></i>
+                            <strong id="reportErrorTitle">Unable to load report data</strong>
+                            <p id="reportErrorMessage">Check the backend connection and try again.</p>
+                            <button class="secondary-button" id="reportRetryButton" type="button">
+                                <i class="ri-refresh-line"></i> Retry
+                            </button>
+                        </div>
+
+                        <div id="reportBody" class="hidden">
+
+                            <article class="content-card report-header-card">
+                                <div class="report-header-grid">
+                                    <div>
+                                        <span class="metric-label">Device</span>
+                                        <strong id="rptDeviceName">--</strong>
+                                    </div>
+                                    <div>
+                                        <span class="metric-label">Reading</span>
+                                        <strong id="rptReadingTime">--</strong>
+                                    </div>
+                                    <div>
+                                        <span class="metric-label">Report status</span>
+                                        <strong id="rptStatus">--</strong>
+                                    </div>
+                                    <div>
+                                        <span class="metric-label">Freshness</span>
+                                        <strong id="rptFreshness">--</strong>
+                                    </div>
+                                </div>
+                            </article>
+
+                            <div class="report-exec-grid">
+
+                                <article class="content-card report-score-card">
+                                    <div class="score-ring" id="rptScoreRing" role="img" aria-label="Aqua AI score">
+                                        <svg viewBox="0 0 120 120" aria-hidden="true">
+                                            <circle cx="60" cy="60" r="52" class="score-ring-track"></circle>
+                                            <circle cx="60" cy="60" r="52" class="score-ring-fill" id="rptScoreArc"></circle>
+                                        </svg>
+                                        <div class="score-ring-text">
+                                            <strong id="rptScore">--</strong>
+                                            <span>/ 100</span>
+                                        </div>
+                                    </div>
+                                    <div class="report-score-meta">
+                                        <strong id="rptScoreLabel">--</strong>
+                                        <p>Aqua AI Score</p>
+                                    </div>
+                                </article>
+
+                                <article class="content-card">
+                                    <div class="content-card-header">
+                                        <div>
+                                            <h3>Executive summary</h3>
+                                            <p>Generated from the latest reading.</p>
+                                        </div>
+                                    </div>
+                                    <ul class="report-bullets" id="rptSummaryBullets"></ul>
+                                </article>
+
+                            </div>
+
+                            <article class="content-card">
+                                <div class="content-card-header">
+                                    <div>
+                                        <h3>Current parameters</h3>
+                                        <p>Measured values with configured status.</p>
+                                    </div>
+                                </div>
+                                <div class="report-param-grid" id="rptParamGrid"></div>
+                            </article>
+
+                            <article class="content-card">
+                                <div class="content-card-header">
+                                    <div>
+                                        <h3>Quality breakdown</h3>
+                                        <p>Deterministic Aqua AI sub-scores.</p>
+                                    </div>
+                                </div>
+                                <div id="rptBreakdown"></div>
+                            </article>
+
+                            <div class="report-attention-grid" id="rptAttentionGrid">
+
+                                <article class="content-card" id="rptAttentionCard">
+                                    <div class="content-card-header">
+                                        <div>
+                                            <h3>What needs attention?</h3>
+                                        </div>
+                                    </div>
+                                    <ul class="report-bullets" id="rptAttentionList"></ul>
+                                </article>
+
+                                <article class="content-card" id="rptGoodCard">
+                                    <div class="content-card-header">
+                                        <div>
+                                            <h3>What&rsquo;s going well?</h3>
+                                        </div>
+                                    </div>
+                                    <ul class="report-bullets" id="rptGoodList"></ul>
+                                </article>
+
+                            </div>
+
+                            <article class="content-card">
+                                <div class="content-card-header">
+                                    <div>
+                                        <h3>Application insights</h3>
+                                        <p>Same calculations as the Analysis page.</p>
+                                    </div>
+                                </div>
+                                <div class="report-insights-grid" id="rptInsights"></div>
+                            </article>
+
+                            <article class="content-card">
+                                <div class="content-card-header">
+                                    <div>
+                                        <h3>Key observations</h3>
+                                        <p>Supported by the current data only.</p>
+                                    </div>
+                                </div>
+                                <ul class="report-bullets" id="rptObservations"></ul>
+                            </article>
+
+                            <article class="content-card report-limits-card">
+                                <div class="content-card-header">
+                                    <div>
+                                        <h3>Limitations</h3>
+                                    </div>
+                                </div>
+                                <p>
+                                    Aqua AI provides sensor-based water-quality analysis and
+                                    visual screening. Results are intended for monitoring and
+                                    decision support and do not replace laboratory testing,
+                                    regulatory certification, or professional assessment.
+                                </p>
+                                <p>
+                                    Drinking-water suitability shown here is screening-only
+                                    and should not be interpreted as a certification of
+                                    potability.
+                                </p>
+                            </article>
+
+                        </div>
+
+                    </div>
+
+                </section>

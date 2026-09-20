@@ -296,6 +296,70 @@ class User(Base):
 
 
 # =========================================================
+# ALERT CONTACT MODEL
+# =========================================================
+
+class AlertContact(Base):
+    __tablename__ = "alert_contacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=True)
+    # Legacy SMS columns remain in DB but are no longer used
+    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    sms_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    email_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="TRUE")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="TRUE")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+# =========================================================
+# ALERT MODEL
+# =========================================================
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, index=True)
+    reading_id: Mapped[int | None] = mapped_column(ForeignKey("water_readings.id", ondelete="SET NULL"), nullable=True, index=True)
+    parameter: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="critical")
+    current_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    threshold_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), index=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    email_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    sms_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    device: Mapped["Device | None"] = relationship("Device")
+    reading: Mapped["WaterReading | None"] = relationship("WaterReading")
+
+
+# =========================================================
+# ALERT CONFIGURATION MODEL
+# =========================================================
+
+class AlertConfiguration(Base):
+    __tablename__ = "alert_configuration"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    ph_min: Mapped[float] = mapped_column(Float, nullable=False, default=5.5)
+    ph_max: Mapped[float] = mapped_column(Float, nullable=False, default=9.0)
+    turbidity_max: Mapped[float] = mapped_column(Float, nullable=False, default=10.0)
+    tds_max: Mapped[float] = mapped_column(Float, nullable=False, default=1500.0)
+    temperature_max: Mapped[float] = mapped_column(Float, nullable=False, default=40.0)
+    cooldown_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    alerts_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+# =========================================================
 # USER SESSION MODEL (for database-backed sessions)
 # =========================================================
 

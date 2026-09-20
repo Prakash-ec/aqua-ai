@@ -1,0 +1,136 @@
+import re
+
+with open('frontend/index.html', 'r', encoding='utf-8') as f:
+    html = f.read()
+
+new_analysis_html = """                <section
+                    class="page-section"
+                    id="page-analysis"
+                    data-page-section="analysis"
+                >
+
+                    <div class="page-heading-row">
+                        <div>
+                            <p class="page-eyebrow">Intelligence</p>
+                            <h2>Analysis</h2>
+                            <p class="page-description">
+                                Technical assessment of water quality metrics.
+                            </p>
+                        </div>
+                        <div class="page-heading-actions">
+                            <div class="last-updated" id="analysisLastUpdated">
+                                <i class="ri-time-line"></i>
+                                <span>Latest reading</span>
+                                <strong id="analysisReadingTime">--</strong>
+                            </div>
+                            <button
+                                class="primary-button"
+                                type="button"
+                                data-action="refresh"
+                                aria-label="Refresh analysis data"
+                            >
+                                <i class="ri-refresh-line"></i>
+                                Refresh
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="analysis-notice hidden" id="analysisNotice" role="status" aria-live="polite"></div>
+
+                    <!-- 1. Water Quality Summary -->
+                    <article class="content-card">
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Water Quality Summary</h3>
+                            </div>
+                        </div>
+                        <div id="analysisSummary" style="padding-top: 16px;"></div>
+                    </article>
+
+                    <!-- 2. Current Parameters -->
+                    <article class="content-card">
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Current Parameters</h3>
+                                <p>Measured by sensors.</p>
+                            </div>
+                        </div>
+                        <div id="analysisCurrentParams" style="padding-top: 16px;"></div>
+                    </article>
+
+                    <!-- 3. Derived Parameters -->
+                    <article class="content-card">
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Derived Parameters</h3>
+                                <p>Calculated from measured sensor parameters.</p>
+                            </div>
+                        </div>
+                        <div id="analysisDerivedParams" style="padding-top: 16px;"></div>
+                    </article>
+                    
+                    <!-- 4. Score Breakdown -->
+                    <article class="content-card">
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Score Breakdown</h3>
+                                <p>Components that produce the analytical score.</p>
+                            </div>
+                        </div>
+                        <div id="analysisScoreSection" style="padding-top: 16px;"></div>
+                        <div id="analysisKeyLimitingFactor" style="margin-top: 16px;"></div>
+                    </article>
+
+                    <!-- 5. Application Suitability -->
+                    <article class="content-card">
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Application Suitability</h3>
+                                <p>Deterministic screening for various use cases based on available data.</p>
+                            </div>
+                        </div>
+
+                        <div class="an-tabs" role="tablist" aria-label="Application categories" style="margin-top: 16px;">
+                            <button class="an-tab active" role="tab" aria-selected="true" data-an-tab="agriculture" type="button">Agriculture</button>
+                            <button class="an-tab" role="tab" aria-selected="false" data-an-tab="industrial" type="button">Industry</button>
+                            <button class="an-tab" role="tab" aria-selected="false" data-an-tab="domestic" type="button">Domestic</button>
+                            <button class="an-tab" role="tab" aria-selected="false" data-an-tab="drinking" type="button">Drinking</button>
+                            <button class="an-tab" role="tab" aria-selected="false" data-an-tab="general" type="button">General Utility</button>
+                        </div>
+
+                        <div class="an-tab-panel active" data-an-panel="agriculture" role="tabpanel">
+                            <div id="analysisCropSection"></div>
+                        </div>
+
+                        <div class="an-tab-panel" data-an-panel="industrial" role="tabpanel">
+                            <div id="analysisIndustrialSection"></div>
+                        </div>
+
+                        <div class="an-tab-panel" data-an-panel="domestic" role="tabpanel">
+                            <div id="analysisDomesticSection"></div>
+                        </div>
+
+                        <div class="an-tab-panel" data-an-panel="drinking" role="tabpanel">
+                            <div id="analysisDrinkingSection"></div>
+                        </div>
+
+                        <div class="an-tab-panel" data-an-panel="general" role="tabpanel">
+                            <div id="analysisGeneralSection"></div>
+                        </div>
+
+                        <div class="technical-limitations" style="margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border-light);">
+                            <h4 style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Analytical Limitations</h4>
+                            <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5;">
+                                This analysis uses only four measured parameters (pH, TDS, turbidity, temperature). 
+                                It does not measure or assess: dissolved oxygen, BOD, COD, hardness, alkalinity, nitrate, phosphate, heavy metals, chlorine, or microbial quality. 
+                                Application predictions are screening estimates only.
+                            </p>
+                        </div>
+                    </article>
+
+                </section>"""
+
+html = re.sub(r'<section\s+class="page-section"[^>]*id="page-analysis".*?</section>', new_analysis_html, html, flags=re.DOTALL)
+
+with open('frontend/index.html', 'w', encoding='utf-8') as f:
+    f.write(html)

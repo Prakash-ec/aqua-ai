@@ -9,7 +9,8 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 # LOAD ENVIRONMENT VARIABLES
 # =========================================================
 
-load_dotenv()
+from pathlib import Path as _Path
+load_dotenv(_Path(__file__).resolve().parents[1] / ".env", override=True)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 

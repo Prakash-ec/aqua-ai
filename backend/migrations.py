@@ -70,6 +70,48 @@ def _fix_camera_prediction_column(engine: Engine) -> None:
         )
 
 
+def _fix_water_readings_foreign_key(engine: Engine) -> None:
+    """
+    Ensure water_readings_device_id_fkey uses ON DELETE CASCADE.
+    
+    If the constraint currently uses NO ACTION or another rule, update it
+    inside a transaction to CASCADE so deleting a device cascades to its readings.
+    """
+    try:
+        with engine.connect() as connection:
+            res = connection.execute(
+                text("""
+                    SELECT rc.delete_rule
+                    FROM information_schema.table_constraints AS tc
+                    JOIN information_schema.referential_constraints AS rc
+                        ON tc.constraint_name = rc.constraint_name
+                    WHERE tc.table_name = 'water_readings'
+                      AND tc.constraint_name = 'water_readings_device_id_fkey'
+                """)
+            ).scalar()
+
+        if res and res.upper() == "CASCADE":
+            # Already ON DELETE CASCADE, nothing to do
+            return
+
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE water_readings DROP CONSTRAINT IF EXISTS water_readings_device_id_fkey")
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE water_readings ADD CONSTRAINT water_readings_device_id_fkey "
+                    "FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE"
+                )
+            )
+        print("Updated water_readings_device_id_fkey: ON DELETE CASCADE")
+    except Exception as error:
+        print(
+            f"Migration error for water_readings_device_id_fkey: "
+            f"{type(error).__name__}: {error}"
+        )
+
+
 def run_migrations(engine: Engine, metadata=None) -> None:
     """
     Apply all guarded migrations.
@@ -90,6 +132,9 @@ def run_migrations(engine: Engine, metadata=None) -> None:
     # ---- Fix camera_predictions.prediction column type ----
     _fix_camera_prediction_column(engine)
 
+    # ---- Fix water_readings.device_id foreign key to CASCADE ----
+    _fix_water_readings_foreign_key(engine)
+
     # ---- Generic, model-driven repair of every remaining missing column ----
     # ``Base.metadata.create_all`` cannot alter a table that already exists,
     # so a production database created from an older model version can be
@@ -103,7 +148,39 @@ def run_migrations(engine: Engine, metadata=None) -> None:
 
     sync_schema_with_models(engine, metadata)
 
+    # ---- Repair legacy alert_contacts flag values (NULL -> TRUE) ----
+    # Databases created before ``email_enabled``/``active`` existed (or before
+    # the TRUE backfill) can hold NULL/False for every contact, which silently
+    # excludes recipients from automatic email.  Only NULLs are repaired, so
+    # an explicit opt-out (False) is never overwritten.
+    _repair_alert_contact_flags(engine)
+
     print("Aqua AI database migrations verified.")
+
+
+def _repair_alert_contact_flags(engine: Engine) -> None:
+    """Set NULL ``alert_contacts.active``/``email_enabled`` to TRUE."""
+    try:
+        inspector = inspect(engine)
+        if "alert_contacts" not in inspector.get_table_names():
+            return
+        columns = {c["name"] for c in inspector.get_columns("alert_contacts")}
+        updates = []
+        if "active" in columns:
+            updates.append("active = COALESCE(active, TRUE)")
+        if "email_enabled" in columns:
+            updates.append("email_enabled = COALESCE(email_enabled, TRUE)")
+        if not updates:
+            return
+        with engine.begin() as connection:
+            connection.execute(
+                text(f"UPDATE alert_contacts SET {', '.join(updates)}")
+            )
+    except Exception as error:  # pragma: no cover - defensive
+        print(
+            "Migration note: alert_contacts flags left as-is "
+            f"({type(error).__name__})"
+        )
 
 
 def _add_token_hash_column(engine: Engine) -> None:
@@ -213,6 +290,8 @@ _TRUE_DEFAULT_COLUMNS = {
     ("devices", "is_active"),
     ("users", "is_active"),
     ("users", "is_admin"),
+    ("alert_contacts", "active"),
+    ("alert_contacts", "email_enabled"),
 }
 
 

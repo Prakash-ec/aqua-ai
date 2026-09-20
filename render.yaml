@@ -23,3 +23,7 @@ services:
         sync: false
       - key: ENVIRONMENT
         value: production
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ALERT_FROM_EMAIL
+        value: onboarding@resend.dev

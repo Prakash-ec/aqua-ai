@@ -5,7 +5,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Load environment variables before importing application modules.
-load_dotenv()
+# Use explicit path + override so newly added RESEND_* vars are picked up even if process was started before .env was updated.
+BASE_DIR_PRELOAD = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR_PRELOAD / ".env", override=True)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +20,7 @@ from backend.database import Base, engine
 
 from backend.routes.devices import router as devices_router
 from backend.routes.readings import router as readings_router
+from backend.routes.alerts import router as alerts_router
 from backend.routes.camera import router as camera_router
 from backend.routes.chat import router as chat_router
 from backend.routes.ai import router as ai_router
@@ -197,6 +200,7 @@ app.add_middleware(
 
 app.include_router(devices_router)
 app.include_router(readings_router)
+app.include_router(alerts_router)
 app.include_router(camera_router)
 app.include_router(chat_router)
 app.include_router(ai_router)

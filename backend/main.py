@@ -49,7 +49,8 @@ allowed_origins = [
     "http://127.0.0.1:8000",
     "http://localhost:8001",
     "http://127.0.0.1:8001",
-    "https://vacproject.netlify.app",
+    "https://vacprojectv1.netlify.app",
+    "https://spectacular-blini-861768.netlify.app",
     "https://aqua-ai.netlify.app",
     "https://aqua-ai-frontend.netlify.app",
 ]
@@ -189,7 +190,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=False,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
     allow_headers=["*"],
 )
 

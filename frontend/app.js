@@ -18,6 +18,8 @@ const DEFAULT_LOCAL_API_URL = "http://127.0.0.1:8001";
  * without requiring the user to configure `aqua_api_url` in Settings.
  */
 const PRODUCTION_API_URL_BY_ORIGIN = {
+    "https://vacprojectv1.netlify.app": "https://aqua-ai-wz4s.onrender.com",
+    "https://spectacular-blini-861768.netlify.app": "https://aqua-ai-wz4s.onrender.com",
     "https://vacproject.netlify.app": "https://aqua-ai-wz4s.onrender.com",
     "https://aqua-ai.netlify.app": "https://aqua-ai-wz4s.onrender.com",
     "https://aqua-ai-frontend.netlify.app": "https://aqua-ai-wz4s.onrender.com",
@@ -46,39 +48,47 @@ function isLocalOrigin(origin) {
     return LOCAL_ORIGINS.has(origin);
 }
 
-let API_BASE_URL =
-    localStorage.getItem("aqua_api_url") ||
-    DEFAULT_LOCAL_API_URL;
-
 const REFRESH_INTERVAL = 15000;
 
 /*
  * Determine the API base URL, in priority order:
- *   1. User-configured `aqua_api_url` in localStorage (Settings).
+ *   1. User-configured `aqua_api_url` in localStorage (Settings),
+ *      ignoring stale local addresses if running on production HTTPS.
  *   2. Production backend matched to the current frontend origin.
  *   3. Robust production fallback for any non-local deployed origin
  *      (e.g. future Netlify or other hosting domains).
  *   4. Default local backend for local development.
  */
 function getApiBaseUrl() {
+    const origin = window.location.origin;
+    const isLocal = isLocalOrigin(origin);
+
     const stored = localStorage.getItem("aqua_api_url");
     if (stored && stored.trim() !== "") {
-        return stored.replace(/\/+$/, "");
-    }
+        const trimmed = stored.trim().replace(/\/+$/, "");
+        const isStoredLocal =
+            trimmed.includes("127.0.0.1") ||
+            trimmed.includes("localhost");
 
-    const origin = window.location.origin;
+        // Stale local values in localStorage must not override production HTTPS.
+        if (isLocal || !isStoredLocal) {
+            return trimmed;
+        }
+    }
 
     const productionUrl = PRODUCTION_API_URL_BY_ORIGIN[origin];
     if (productionUrl) {
         return productionUrl;
     }
 
-    if (window.location.protocol === "https:" && !isLocalOrigin(origin)) {
+    if (window.location.protocol === "https:" || !isLocal) {
         return PRODUCTION_API_URL;
     }
 
     return DEFAULT_LOCAL_API_URL;
 }
+
+let API_BASE_URL = getApiBaseUrl();
 
 /*
  * Show a transient toast in #toastContainer.
@@ -312,18 +322,19 @@ function setConnectionStatus(online, message = "") {
 async function apiRequest(path, options = {}) {
     const url = `${getApiBaseUrl()}${path}`;
 
-    const response = await fetch(url,
-        {
-            ...options,
-            headers: {
-                Accept: "application/json",
-                ...(options.body instanceof FormData
-                    ? {}
-                    : { "Content-Type": "application/json" }),
-                ...(options.headers || {})
-            }
-        }
-    );
+    const headers = {
+        Accept: "application/json",
+        ...(options.headers || {})
+    };
+
+    if (options.body && !(options.body instanceof FormData) && !headers["Content-Type"]) {
+        headers["Content-Type"] = "application/json";
+    }
+
+    const response = await fetch(url, {
+        ...options,
+        headers
+    });
 
     let data = null;
 

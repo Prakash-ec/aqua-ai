@@ -194,16 +194,6 @@
                     <span>Settings</span>
                 </button>
 
-                <button
-                    class="nav-item hidden"
-                    id="adminNavItem"
-                    data-page="admin"
-                    type="button"
-                >
-                    <i class="ri-shield-line"></i>
-                    <span>Admin</span>
-                </button>
-
                 <div class="nav-divider"></div>
 
                 <button
@@ -342,17 +332,22 @@
                     data-page-section="dashboard"
                 >
 
-                    <div class="page-heading-row">
+                    <div class="page-heading-row dashboard-header">
 
                         <div>
                             <p class="page-eyebrow">Dashboard</p>
-                            <h2>Water Quality Dashboard</h2>
+                            <h2>Aqua AI Dashboard</h2>
                             <p class="page-description">
-                                Monitor live sensor readings and understand the current condition of your water.
+                                Smart water-quality monitoring and analysis
                             </p>
                         </div>
 
-                        <div class="page-heading-actions">
+                        <div class="page-heading-actions dashboard-header-actions">
+
+                            <div class="sensor-pill" id="dashboardSensorPill" role="status" aria-live="polite">
+                                <span class="sensor-dot checking" id="dashboardSensorDot"></span>
+                                <span id="dashboardSensorText">Checking…</span>
+                            </div>
 
                             <div class="last-updated">
                                 <i class="ri-time-line"></i>
@@ -373,6 +368,8 @@
 
                     </div>
 
+                    <div id="dashboardNotice" class="dashboard-notice hidden" role="status" aria-live="polite"></div>
+
                     <!-- Dashboard summary -->
                     <div class="dashboard-summary-grid">
 
@@ -381,7 +378,7 @@
                             <div class="summary-card-header">
                                 <div>
                                     <span class="summary-label">
-                                        Overall water quality
+                                        Aqua AI Analytical Score
                                     </span>
                                     <h3 id="qualityStatusText">Waiting for data</h3>
                                 </div>
@@ -393,7 +390,7 @@
 
                             <div class="quality-score-layout">
 
-                                <div class="quality-score-circle" id="qualityScoreCircle">
+                                <div class="quality-score-circle" id="qualityScoreCircle" role="img" aria-label="Aqua AI analytical score">
 
                                     <div class="quality-score-inner">
                                         <strong id="qualityScore">--</strong>
@@ -422,6 +419,15 @@
                                             <span id="qualityScaleProgress"></span>
                                         </div>
                                         <span>100</span>
+                                    </div>
+
+                                    <div class="score-breakdown" id="qualityBreakdown" aria-label="Score breakdown">
+                                    </div>
+
+                                    <div class="latest-reading-line">
+                                        <span class="latest-reading-label">Latest Reading</span>
+                                        <strong id="dashboardReadingTime">--</strong>
+                                        <span class="stale-badge hidden" id="staleBadge">● Data may be stale</span>
                                     </div>
 
                                 </div>
@@ -515,14 +521,13 @@
                             </div>
                             <div class="sensor-value-row">
                                 <strong id="temperatureValue">--</strong>
-                                <span>°C</span>
                             </div>
 
                             <div class="sensor-status-row">
                                 <span class="sensor-status neutral" id="temperatureStatus">
                                     Waiting
                                 </span>
-                                <span class="sensor-reference">
+                                <span class="sensor-reference" id="temperatureDescription">
                                     Recommended: 20–30°C
                                 </span>
                             </div>
@@ -573,7 +578,7 @@
                                 <span class="sensor-status neutral" id="phStatus">
                                     Waiting
                                 </span>
-                                <span class="sensor-reference">
+                                <span class="sensor-reference" id="phDescription">
                                     Neutral: 7.0
                                 </span>
                             </div>
@@ -624,7 +629,7 @@
                                 <span class="sensor-status neutral" id="turbidityStatus">
                                     Waiting
                                 </span>
-                                <span class="sensor-reference">
+                                <span class="sensor-reference" id="turbidityDescription">
                                     Lower is clearer
                                 </span>
                             </div>
@@ -675,7 +680,7 @@
                                 <span class="sensor-status neutral" id="tdsStatus">
                                     Waiting
                                 </span>
-                                <span class="sensor-reference">
+                                <span class="sensor-reference" id="tdsDescription">
                                     Depends on water use
                                 </span>
                             </div>
@@ -844,6 +849,28 @@
 
                             </div>
 
+                            <div class="dashboard-recent-wrap">
+                                <h4 class="dashboard-recent-title">Recent readings</h4>
+                                <div class="table-scroll">
+                                    <table class="dashboard-recent-table" aria-label="Recent sensor readings">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">Time</th>
+                                                <th scope="col">pH</th>
+                                                <th scope="col">TDS</th>
+                                                <th scope="col">Turbidity</th>
+                                                <th scope="col">Temp</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="dashboardRecentTableBody">
+                                            <tr class="recent-empty-row">
+                                                <td colspan="5">No readings yet</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
                         </article>
 
                         <article class="content-card quick-insights-card">
@@ -851,8 +878,8 @@
                             <div class="content-card-header">
 
                                 <div>
-                                    <h3>Quick insights</h3>
-                                    <p>Status and notes about your monitoring.</p>
+                                    <h3>Current Water Quality</h3>
+                                    <p>Deterministic summary from the latest reading.</p>
                                 </div>
 
                                 <div class="content-card-header-icon">
@@ -861,55 +888,43 @@
 
                             </div>
 
-                            <div class="insights-list" id="quickInsightsList">
+                            <ul class="wq-summary-list" id="dashboardQualitySummary">
+                                <li class="wq-summary-empty">Waiting for readings…</li>
+                            </ul>
 
-                                <div class="insight-item">
-
-                                    <div class="insight-icon neutral">
-                                        <i class="ri-information-line"></i>
-                                    </div>
-
-                                    <div class="insight-content">
-                                        <strong>Waiting for readings</strong>
-                                        <p>
-                                            Connect a device to start receiving readings.
-                                        </p>
-                                    </div>
-
-                                </div>
-
-                                <div class="insight-item">
-
-                                    <div class="insight-icon neutral">
-                                        <i class="ri-camera-lens-line"></i>
-                                    </div>
-
-                                    <div class="insight-content">
-                                        <strong>Camera analysis available</strong>
-                                        <p>
-                                            Analyze visible water characteristics
-                                            using the camera.
-                                        </p>
-                                    </div>
-
-                                </div>
-
-                                <div class="insight-item">
-
-                                    <div class="insight-icon neutral">
-                                        <i class="ri-database-2-line"></i>
-                                    </div>
-
-                                    <div class="insight-content">
-                                        <strong>Readings history</strong>
-                                        <p>
-                                            Readings appear here once your device
-                                            starts syncing data.
-                                        </p>
-                                    </div>
-
-                                </div>
-
+                            <div class="quick-actions-grid" aria-label="Quick actions">
+                                <button
+                                    class="quick-action-button"
+                                    data-page-target="camera"
+                                    type="button"
+                                >
+                                    <i class="ri-camera-line"></i>
+                                    <span>AI Camera</span>
+                                </button>
+                                <button
+                                    class="quick-action-button"
+                                    data-page-target="analysis"
+                                    type="button"
+                                >
+                                    <i class="ri-bar-chart-box-line"></i>
+                                    <span>Analysis</span>
+                                </button>
+                                <button
+                                    class="quick-action-button"
+                                    data-page-target="trends"
+                                    type="button"
+                                >
+                                    <i class="ri-line-chart-line"></i>
+                                    <span>Trends</span>
+                                </button>
+                                <button
+                                    class="quick-action-button"
+                                    data-page-target="device"
+                                    type="button"
+                                >
+                                    <i class="ri-cpu-line"></i>
+                                    <span>Device</span>
+                                </button>
                             </div>
 
                             <button
@@ -1022,7 +1037,7 @@
 
                         <article class="metric-highlight-card temperature-highlight">
                             <span>Current temperature</span>
-                            <strong id="temperatureDetailValue">-- °C</strong>
+                            <strong id="temperatureDetailValue">--</strong>
                             <p id="temperatureDetailStatus">Waiting for data</p>
                         </article>
 
@@ -1433,52 +1448,6 @@
 
                         </article>
 
-                        <!-- Water Usage Section -->
-                        <article class="content-card water-usage-card" id="waterUsageCard" hidden>
-                            <div class="content-card-header">
-                                <div>
-                                    <h3>WATER USAGE</h3>
-                                    <p>Explore potential uses based on the visual water assessment.</p>
-                                </div>
-                            </div>
-
-                            <div class="water-usage-tabs" role="tablist" aria-label="Water usage categories">
-                                <button class="water-usage-tab active" role="tab" aria-selected="true" data-usage-tab="agriculture" id="tabAgriculture">
-                                    <span>🌱 Agriculture</span>
-                                </button>
-                                <button class="water-usage-tab" role="tab" aria-selected="false" data-usage-tab="industry" id="tabIndustry">
-                                    <span>🏭 Industry</span>
-                                </button>
-                                <button class="water-usage-tab" role="tab" aria-selected="false" data-usage-tab="general" id="tabGeneral">
-                                    <span>🏠 General Use</span>
-                                </button>
-                            </div>
-
-                            <div class="water-usage-panels">
-                                <div class="water-usage-panel active" role="tabpanel" aria-labelledby="tabAgriculture" id="panelAgriculture">
-                                    <div class="water-usage-content" id="waterUsageAgriculture"></div>
-                                </div>
-                                <div class="water-usage-panel" role="tabpanel" aria-labelledby="tabIndustry" id="panelIndustry">
-                                    <div class="water-usage-content" id="waterUsageIndustry"></div>
-                                </div>
-                                <div class="water-usage-panel" role="tabpanel" aria-labelledby="tabGeneral" id="panelGeneral">
-                                    <div class="water-usage-content" id="waterUsageGeneral"></div>
-                                </div>
-                            </div>
-
-                            <div class="water-usage-limitation">
-                                <i class="ri-information-line"></i>
-                                <div>
-                                    <strong>Important:</strong>
-                                    This recommendation is based on visible characteristics detected by the camera.
-                                    Camera analysis cannot measure chemical, microbiological, or dissolved contaminants.
-                                    Confirm suitability with appropriate water-quality testing before using the water
-                                    for drinking, irrigation, food processing, sensitive industrial processes,
-                                    or other critical applications.
-                                </div>
-                            </div>
-                        </article>
-
                     </div>
 
                     <!-- Camera chatbot -->
@@ -1569,7 +1538,7 @@
 
                 </section>
 
-                <!-- =========================================
+<!-- =========================================
                      ANALYSIS PAGE
                 ========================================== -->
                 <section
@@ -1577,146 +1546,150 @@
                     id="page-analysis"
                     data-page-section="analysis"
                 >
-
                     <div class="page-heading-row">
-
                         <div>
                             <p class="page-eyebrow">Analysis</p>
-                            <h2>Water Quality Analysis</h2>
-                            <p class="page-description">
-                                Understand the combined condition of your water
-                                readings.
+                            <h2>Analysis</h2>
+                            <p class="page-description" id="analysisSubtitle">
+                                Understand your water quality and discover suitable applications.
                             </p>
                         </div>
-
+                        <div class="page-heading-actions">
+                            <div class="last-updated" id="analysisLastUpdated">
+                                <i class="ri-time-line"></i>
+                                <span>Latest reading</span>
+                                <strong id="analysisReadingTime">--</strong>
+                            </div>
+                            <button
+                                class="an-refresh"
+                                type="button"
+                                data-action="refresh"
+                                aria-label="Refresh analysis data"
+                            >
+                                <i class="ri-refresh-line"></i>
+                                <span>Refresh</span>
+                            </button>
+                        </div>
                     </div>
 
-                    <div class="analysis-overview-grid">
+                    <div class="analysis-notice hidden" id="analysisNotice" role="status" aria-live="polite"></div>
 
-                        <article class="content-card analysis-score-card">
+                    <!-- Water quality summary -->
+                    <article class="content-card an-summary-card">
+                        <div class="an-kicker-row">
+                            <span class="an-kicker">Water quality</span>
+                        </div>
+                        <div id="analysisSummary"></div>
+                    </article>
 
-                            <div class="content-card-header">
-                                <div>
-                                    <h3>Water quality score</h3>
-                                    <p>Calculated from available sensor readings.</p>
-                                </div>
-                            </div>
-
-                            <div class="large-analysis-score">
-
-                                <div class="quality-score-circle large" id="analysisScoreCircle">
-
-                                    <div class="quality-score-inner">
-                                        <strong id="analysisScore">--</strong>
-                                        <span>/100</span>
-                                    </div>
-
-                                </div>
-
-                                <div>
-                                    <span
-                                        class="quality-status-badge unknown"
-                                        id="analysisStatusBadge"
-                                    >
-                                        UNKNOWN
-                                    </span>
-
-                                    <h4 id="analysisStatusTitle">
-                                        Waiting for readings
-                                    </h4>
-
-                                    <p id="analysisStatusDescription">
-                                        Connect a sensor device to generate
-                                        a quality assessment.
-                                    </p>
-                                </div>
-
-                            </div>
-
-                        </article>
-
-                        <article class="content-card analysis-parameters-card">
-
-                            <div class="content-card-header">
-                                <div>
-                                    <h3>Parameter overview</h3>
-                                    <p>Current sensor condition.</p>
-                                </div>
-                            </div>
-
-                            <div class="parameter-list">
-
-                                <div class="parameter-row">
-                                    <span>
-                                        <i class="ri-temp-hot-line"></i>
-                                        Temperature
-                                    </span>
-                                    <strong id="analysisTemperature">--</strong>
-                                </div>
-
-                                <div class="parameter-row">
-                                    <span>
-                                        <i class="ri-test-tube-line"></i>
-                                        pH
-                                    </span>
-                                    <strong id="analysisPh">--</strong>
-                                </div>
-
-                                <div class="parameter-row">
-                                    <span>
-                                        <i class="ri-contrast-drop-2-line"></i>
-                                        Turbidity
-                                    </span>
-                                    <strong id="analysisTurbidity">--</strong>
-                                </div>
-
-                                <div class="parameter-row">
-                                    <span>
-                                        <i class="ri-flask-line"></i>
-                                        TDS
-                                    </span>
-                                    <strong id="analysisTds">--</strong>
-                                </div>
-
-                            </div>
-
-                        </article>
-
-                    </div>
-
-                    <article class="content-card analysis-recommendations-card">
-
+                    <!-- Current parameters -->
+                    <article class="content-card">
                         <div class="content-card-header">
                             <div>
-                                <h3>Recommendations</h3>
-                                <p>Suggested actions based on available data.</p>
+                                <h3>Current parameters</h3>
+                                <p>Latest readings from the connected sensor.</p>
+                            </div>
+                        </div>
+                        <div id="analysisCurrentParams"></div>
+                    </article>
+
+                    <!-- Derived indicators -->
+                    <article class="content-card">
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Derived indicators</h3>
+                                <p>Calculated from the raw sensor values.</p>
+                            </div>
+                        </div>
+                        <div id="analysisDerivedParams"></div>
+                    </article>
+
+                    <!-- Score breakdown -->
+                    <article class="content-card">
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Score breakdown</h3>
+                                <p>Components that produce the analytical score.</p>
+                            </div>
+                        </div>
+                        <div id="analysisScoreSection"></div>
+                    </article>
+
+                    <!-- Predicted Applications -->
+                    <article class="content-card">
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Predicted Applications</h3>
+                                <p>Deterministic application screening from sensor data.</p>
                             </div>
                         </div>
 
-                        <div
-                            class="recommendations-list"
-                            id="recommendationsList"
-                        >
-
-                            <div class="recommendation-item">
-                                <div class="recommendation-icon">
-                                    <i class="ri-information-line"></i>
-                                </div>
-
-                                <div>
-                                    <strong>Waiting for readings</strong>
-                                    <p>
-                                        Recommendations appear once readings
-                                        are available.
-                                    </p>
-                                </div>
-                            </div>
-
+                        <div class="an-tabs" role="tablist" aria-label="Application categories">
+                            <button class="an-tab active" role="tab" aria-selected="true" data-an-tab="agriculture" type="button">Agriculture</button>
+                            <button class="an-tab" role="tab" aria-selected="false" data-an-tab="industrial" type="button">Industry</button>
+                            <button class="an-tab" role="tab" aria-selected="false" data-an-tab="domestic" type="button">Domestic</button>
+                            <button class="an-tab" role="tab" aria-selected="false" data-an-tab="drinking" type="button">Drinking</button>
+                            <button class="an-tab" role="tab" aria-selected="false" data-an-tab="general" type="button">General utility</button>
                         </div>
 
+                        <div class="an-tab-panel active" data-an-panel="agriculture" role="tabpanel">
+                            <div class="an-panel-head">
+                                <div class="an-section-heading">Crop suitability</div>
+                                <p class="an-panel-sub">Estimated suitability based on pH, salinity, temperature and turbidity.</p>
+                            </div>
+                            <div id="analysisCropSection"></div>
+                            <p class="an-panel-note">Prediction only — actual crop suitability depends on soil, climate and other factors.</p>
+                        </div>
+
+                        <div class="an-tab-panel" data-an-panel="industrial" role="tabpanel">
+                            <div class="an-panel-head">
+                                <div class="an-section-heading">Industrial applications</div>
+                                <p class="an-panel-sub">Preliminary screening against common industrial water uses.</p>
+                            </div>
+                            <div id="analysisIndustrialSection"></div>
+                        </div>
+
+                        <div class="an-tab-panel" data-an-panel="domestic" role="tabpanel">
+                            <div class="an-panel-head">
+                                <div class="an-section-heading">Domestic applications</div>
+                                <p class="an-panel-sub">Non-potable household uses estimated from the sensor values.</p>
+                            </div>
+                            <div id="analysisDomesticSection"></div>
+                        </div>
+
+                        <div class="an-tab-panel" data-an-panel="drinking" role="tabpanel">
+                            <div class="an-panel-head">
+                                <div class="an-section-heading">Water / drinking screening</div>
+                                <p class="an-panel-sub">Screening based only on the available sensor parameters. This is not a laboratory drinking-water certification.</p>
+                            </div>
+                            <div id="analysisDrinkingSection"></div>
+                        </div>
+
+                        <div class="an-tab-panel" data-an-panel="general" role="tabpanel">
+                            <div class="an-panel-head">
+                                <div class="an-section-heading">General utility applications</div>
+                                <p class="an-panel-sub">General purpose uses estimated from the sensor values.</p>
+                            </div>
+                            <div id="analysisGeneralSection"></div>
+                        </div>
+
+                        <details class="an-limitations">
+                            <summary>
+                                <i class="ri-information-line" aria-hidden="true"></i>
+                                <span>Analysis limitations</span>
+                                <i class="ri-arrow-down-s-line an-limitations-chevron" aria-hidden="true"></i>
+                            </summary>
+                            <div class="an-limitations-body">
+                                <p>This analysis uses only the four measured parameters: pH, TDS (dissolved solids), turbidity and temperature.</p>
+                                <p>It does not measure, and therefore cannot assess: dissolved oxygen, DO, BOD, COD, hardness, alkalinity, nitrate, phosphate, heavy metals, chlorine or microbial quality.</p>
+                                <p>Application predictions are screening estimates based on the measured parameters only.</p>
+                            </div>
+                        </details>
                     </article>
 
                 </section>
+
+
 
                 <!-- =========================================
                      TRENDS PAGE
@@ -1727,122 +1700,132 @@
                     data-page-section="trends"
                 >
 
-                    <div class="page-heading-row">
+                    <div class="page-heading-row trends-header">
 
                         <div>
                             <p class="page-eyebrow">Trends</p>
-                            <h2>Water quality trends</h2>
+                            <h2>Trends</h2>
                             <p class="page-description">
-                                Explore how your sensor readings change over time.
+                                Historical sensor readings and water-quality changes over time
                             </p>
                         </div>
 
-                        <div class="page-heading-actions">
+                        <div class="page-heading-actions trends-header-actions">
+                            <label class="sr-only" for="trendsRangeSelect">Time range</label>
                             <select
                                 class="standard-select"
-                                id="trendParameterSelect"
+                                id="trendsRangeSelect"
+                                aria-label="Time range"
                             >
-                                <option value="quality">Quality score</option>
-                                <option value="temperature">Temperature</option>
-                                <option value="ph">pH</option>
-                                <option value="turbidity">Turbidity</option>
-                                <option value="tds">TDS</option>
+                                <option value="1H">1 Hour</option>
+                                <option value="6H">6 Hours</option>
+                                <option value="24H" selected>24 Hours</option>
+                                <option value="7D">7 Days</option>
+                                <option value="ALL">All Available</option>
                             </select>
+                            <button
+                                class="primary-button"
+                                id="trendsRefreshButton"
+                                type="button"
+                            >
+                                <i class="ri-refresh-line"></i>
+                                Refresh
+                            </button>
                         </div>
 
                     </div>
 
-                    <article class="content-card trends-main-card">
+                    <div id="trendsNotice" class="trends-notice hidden" role="status" aria-live="polite"></div>
 
+                    <article class="content-card trends-overview-card" aria-label="Historical overview">
                         <div class="content-card-header">
-
                             <div>
-                                <h3 id="trendChartTitle">Quality score trend</h3>
-                                <p id="trendChartDescription">
-                                    Historical quality score data.
-                                </p>
+                                <h3>Historical Overview</h3>
+                                <p>Actual readings for the selected period.</p>
                             </div>
-
-                            <div class="time-filter" id="trendsTimeFilter">
-
-                                <button class="time-filter-button active" data-range="24H" type="button">
-                                    24H
-                                </button>
-
-                                <button class="time-filter-button" data-range="7D" type="button">
-                                    7D
-                                </button>
-
-                                <button class="time-filter-button" data-range="30D" type="button">
-                                    30D
-                                </button>
-
-                            </div>
-
                         </div>
-
-                        <div class="large-empty-chart" id="trendsChart">
-                            <i class="ri-line-chart-line"></i>
-                            <strong>Trend visualization</strong>
-                            <p>No readings in this time range yet.</p>
-                        </div>
-
+                        <ul class="trends-overview-list">
+                            <li><span>Readings:</span> <strong id="trendsCount">--</strong></li>
+                            <li><span>Period:</span> <strong id="trendsPeriod">--</strong></li>
+                            <li><span>Last reading:</span> <strong id="trendsLastReading">--</strong></li>
+                        </ul>
                     </article>
 
-                    <div class="trend-summary-grid">
+                    <div class="trends-grid">
 
-                        <article class="metric-info-card">
-                            <span>Average</span>
-                            <strong id="trendAverage">--</strong>
-                            <p>Selected time range</p>
+                        <article class="content-card trend-card" aria-label="pH trend">
+                            <div class="content-card-header">
+                                <div>
+                                    <h3>pH Trend</h3>
+                                    <p>Acidity and alkalinity over time.</p>
+                                </div>
+                                <span class="trend-unit">pH</span>
+                            </div>
+                            <div class="trend-stats">
+                                <div class="trend-stat"><span>Latest</span><strong id="trendsPhLatest">--</strong></div>
+                                <div class="trend-stat"><span>Average</span><strong id="trendsPhAverage">--</strong></div>
+                                <div class="trend-stat"><span>Minimum</span><strong id="trendsPhMinimum">--</strong></div>
+                                <div class="trend-stat"><span>Maximum</span><strong id="trendsPhMaximum">--</strong></div>
+                            </div>
+                            <div class="trend-chart" id="trendsChartPh" role="img" aria-label="pH line chart"></div>
+                            <p class="trend-note hidden" id="trendsNotePh"></p>
                         </article>
 
-                        <article class="metric-info-card">
-                            <span>Minimum</span>
-                            <strong id="trendMinimum">--</strong>
-                            <p>Selected time range</p>
+                        <article class="content-card trend-card" aria-label="TDS trend">
+                            <div class="content-card-header">
+                                <div>
+                                    <h3>TDS Trend</h3>
+                                    <p>Dissolved solids over time.</p>
+                                </div>
+                                <span class="trend-unit">mg/L</span>
+                            </div>
+                            <div class="trend-stats">
+                                <div class="trend-stat"><span>Latest</span><strong id="trendsTdsLatest">--</strong></div>
+                                <div class="trend-stat"><span>Average</span><strong id="trendsTdsAverage">--</strong></div>
+                                <div class="trend-stat"><span>Minimum</span><strong id="trendsTdsMinimum">--</strong></div>
+                                <div class="trend-stat"><span>Maximum</span><strong id="trendsTdsMaximum">--</strong></div>
+                            </div>
+                            <div class="trend-chart" id="trendsChartTds" role="img" aria-label="TDS line chart"></div>
+                            <p class="trend-note hidden" id="trendsNoteTds"></p>
                         </article>
 
-                        <article class="metric-info-card">
-                            <span>Maximum</span>
-                            <strong id="trendMaximum">--</strong>
-                            <p>Selected time range</p>
+                        <article class="content-card trend-card" aria-label="Turbidity trend">
+                            <div class="content-card-header">
+                                <div>
+                                    <h3>Turbidity Trend</h3>
+                                    <p>Water clarity over time.</p>
+                                </div>
+                                <span class="trend-unit">NTU</span>
+                            </div>
+                            <div class="trend-stats">
+                                <div class="trend-stat"><span>Latest</span><strong id="trendsTurbidityLatest">--</strong></div>
+                                <div class="trend-stat"><span>Average</span><strong id="trendsTurbidityAverage">--</strong></div>
+                                <div class="trend-stat"><span>Minimum</span><strong id="trendsTurbidityMinimum">--</strong></div>
+                                <div class="trend-stat"><span>Maximum</span><strong id="trendsTurbidityMaximum">--</strong></div>
+                            </div>
+                            <div class="trend-chart" id="trendsChartTurbidity" role="img" aria-label="Turbidity line chart"></div>
+                            <p class="trend-note hidden" id="trendsNoteTurbidity"></p>
+                        </article>
+
+                        <article class="content-card trend-card" aria-label="Temperature trend">
+                            <div class="content-card-header">
+                                <div>
+                                    <h3>Temperature Trend</h3>
+                                    <p>Water temperature over time.</p>
+                                </div>
+                                <span class="trend-unit">°C</span>
+                            </div>
+                            <div class="trend-stats">
+                                <div class="trend-stat"><span>Latest</span><strong id="trendsTemperatureLatest">--</strong></div>
+                                <div class="trend-stat"><span>Average</span><strong id="trendsTemperatureAverage">--</strong></div>
+                                <div class="trend-stat"><span>Minimum</span><strong id="trendsTemperatureMinimum">--</strong></div>
+                                <div class="trend-stat"><span>Maximum</span><strong id="trendsTemperatureMaximum">--</strong></div>
+                            </div>
+                            <div class="trend-chart" id="trendsChartTemperature" role="img" aria-label="Temperature line chart"></div>
+                            <p class="trend-note hidden" id="trendsNoteTemperature"></p>
                         </article>
 
                     </div>
-
-                    <article class="content-card readings-history-card">
-
-                        <div class="content-card-header">
-                            <div>
-                                <h3>Recent readings</h3>
-                                <p>Latest water-quality readings from the connected sensors.</p>
-                            </div>
-                        </div>
-
-                        <div class="readings-table-scroll">
-
-                            <table class="readings-table">
-
-                                <thead>
-                                    <tr>
-                                        <th>ID</th>
-                                        <th>Device</th>
-                                        <th>Temp °C</th>
-                                        <th>pH</th>
-                                        <th>Turbidity NTU</th>
-                                        <th>TDS mg/L</th>
-                                        <th>Recorded</th>
-                                    </tr>
-                                </thead>
-
-                                <tbody id="readingsTableBody"></tbody>
-
-                            </table>
-
-                        </div>
-
-                    </article>
 
                 </section>
 
@@ -1855,101 +1838,242 @@
                     data-page-section="device"
                 >
 
-                    <div class="page-heading-row">
+                    <div class="page-heading-row device-header">
 
                         <div>
-                            <p class="page-eyebrow">Devices</p>
-                            <h2>Device Management</h2>
+                            <p class="page-eyebrow">Device</p>
+                            <h2>Device</h2>
                             <p class="page-description">
-                                Manage the sensor devices connected to your account.
+                                ESP32 sensor device and data activity
                             </p>
                         </div>
 
-                        <button
-                            class="primary-button"
-                            id="addDeviceButton"
-                            type="button"
-                        >
-                            <i class="ri-add-line"></i>
-                            Add device
-                        </button>
+                        <div class="page-heading-actions device-header-actions">
+                            <label class="sr-only" for="deviceSelector">Select device</label>
+                            <select
+                                class="standard-select hidden"
+                                id="deviceSelector"
+                                aria-label="Select device"
+                            >
+                            </select>
+                            <button
+                                class="primary-button"
+                                id="deviceRefreshButton"
+                                type="button"
+                            >
+                                <i class="ri-refresh-line"></i>
+                                Refresh
+                            </button>
+                            <button
+                                class="secondary-button"
+                                id="addDeviceButton"
+                                type="button"
+                            >
+                                <i class="ri-add-line"></i>
+                                Add device
+                            </button>
+                        </div>
 
                     </div>
 
-                    <div class="device-management-grid">
+                    <div id="deviceNotice" class="device-notice hidden" role="status" aria-live="polite"></div>
 
-                        <article class="content-card device-list-card">
+                    <div class="device-status-grid">
+
+                        <article class="content-card device-status-card" aria-label="Device status">
 
                             <div class="content-card-header">
                                 <div>
-                                    <h3>Your devices</h3>
-                                    <p>Devices connected to your account.</p>
+                                    <h3>Device Status</h3>
+                                    <p>Data activity from the backend.</p>
+                                </div>
+                                <div class="summary-icon device-icon">
+                                    <i class="ri-cpu-line"></i>
                                 </div>
                             </div>
 
-                            <div
-                                class="device-list"
-                                id="deviceList"
-                            >
-
-                                <div class="device-list-empty">
-                                    <i class="ri-cpu-line"></i>
-                                    <strong>No devices yet</strong>
-                                    <p>
-                                        Add a device to start receiving readings.
-                                    </p>
+                            <div class="device-status-body">
+                                <span
+                                    class="quality-status-badge unknown"
+                                    id="deviceDataBadge"
+                                >
+                                    UNKNOWN
+                                </span>
+                                <div class="device-status-reading">
+                                    <span class="latest-reading-label">Last reading</span>
+                                    <strong id="deviceLastReading">--</strong>
                                 </div>
-
+                                <p class="device-status-message" id="deviceStatusMessage">
+                                    Waiting for device data…
+                                </p>
                             </div>
 
                         </article>
 
-                        <article class="content-card selected-device-card">
+                        <article class="content-card device-info-card" aria-label="Device information">
 
                             <div class="content-card-header">
                                 <div>
-                                    <h3>Selected device</h3>
-                                    <p>Device details and connection status.</p>
+                                    <h3>Device Information</h3>
+                                    <p>Registered device details.</p>
                                 </div>
                             </div>
 
-                            <div class="selected-device-visual">
-                                <div class="large-device-icon">
-                                    <i class="ri-router-line"></i>
-                                </div>
-
-                                <span
-                                    class="device-status-badge offline"
-                                    id="selectedDeviceStatus"
-                                >
-                                    Offline
-                                </span>
-                            </div>
-
-                            <div class="selected-device-details">
-
+                            <div class="device-info-rows">
                                 <div>
-                                    <span>Device name</span>
-                                    <strong id="selectedDeviceName">No device selected</strong>
+                                    <span>Device Name</span>
+                                    <strong id="deviceInfoName">--</strong>
                                 </div>
-
-                                <div>
-                                    <span>Device type</span>
-                                    <strong id="selectedDeviceType">--</strong>
-                                </div>
-
-                                <div>
-                                    <span>Location</span>
-                                    <strong id="selectedDeviceLocation">--</strong>
-                                </div>
-
                                 <div>
                                     <span>Device ID</span>
-                                    <strong id="selectedDeviceId">--</strong>
+                                    <strong id="deviceInfoId">--</strong>
                                 </div>
-
+                                <div>
+                                    <span>Device Type</span>
+                                    <strong id="deviceInfoType">--</strong>
+                                </div>
+                                <div>
+                                    <span>Location</span>
+                                    <strong id="deviceInfoLocation">--</strong>
+                                </div>
                             </div>
 
+                        </article>
+
+                    </div>
+
+                    <article class="content-card device-sensors-card" aria-label="Latest sensor data">
+
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Latest Sensor Data</h3>
+                                <p>Most recent readings from PostgreSQL.</p>
+                            </div>
+                        </div>
+
+                        <div class="device-sensor-grid">
+                            <div class="device-sensor-item">
+                                <span class="device-sensor-label">pH</span>
+                                <strong id="devicePh">--</strong>
+                            </div>
+                            <div class="device-sensor-item">
+                                <span class="device-sensor-label">TDS</span>
+                                <strong id="deviceTds">--</strong>
+                            </div>
+                            <div class="device-sensor-item">
+                                <span class="device-sensor-label">Turbidity</span>
+                                <strong id="deviceTurbidity">--</strong>
+                            </div>
+                            <div class="device-sensor-item">
+                                <span class="device-sensor-label">Temperature</span>
+                                <strong id="deviceTemperature">--</strong>
+                            </div>
+                        </div>
+
+                    </article>
+
+                    <article class="content-card device-activity-card" aria-label="Device activity">
+
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Device Activity</h3>
+                                <p>Reading statistics from the database.</p>
+                            </div>
+                        </div>
+
+                        <div class="device-activity-rows">
+                            <div>
+                                <span>Total readings</span>
+                                <strong id="deviceTotalReadings">--</strong>
+                            </div>
+                            <div>
+                                <span>First reading</span>
+                                <strong id="deviceFirstReading">--</strong>
+                            </div>
+                            <div>
+                                <span>Latest reading</span>
+                                <strong id="deviceLatestReading">--</strong>
+                            </div>
+                            <div>
+                                <span>Readings in last 24 hours</span>
+                                <strong id="deviceLast24h">--</strong>
+                            </div>
+                        </div>
+
+                    </article>
+
+                    <article class="content-card device-recent-card" aria-label="Recent readings">
+
+                        <div class="content-card-header">
+                            <div>
+                                <h3>Recent Readings</h3>
+                                <p>Latest activity, newest first.</p>
+                            </div>
+                        </div>
+
+                        <div class="table-scroll">
+                            <table class="dashboard-recent-table" aria-label="Recent device readings">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Time</th>
+                                        <th scope="col">pH</th>
+                                        <th scope="col">TDS</th>
+                                        <th scope="col">Turbidity</th>
+                                        <th scope="col">Temp</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="deviceRecentBody">
+                                    <tr class="recent-empty-row">
+                                        <td colspan="5">No readings yet</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                    </article>
+
+                    <div class="device-bottom-grid">
+
+                        <article class="content-card device-flow-card" aria-label="Device data flow">
+
+                            <div class="content-card-header">
+                                <div>
+                                    <h3>Data Flow</h3>
+                                    <p>How the device integrates with Aqua AI.</p>
+                                </div>
+                            </div>
+
+                            <ol class="device-flow-steps">
+                                <li><i class="ri-sensor-line"></i>ESP32 Sensors</li>
+                                <li class="device-flow-arrow" aria-hidden="true"><i class="ri-arrow-down-line"></i></li>
+                                <li><i class="ri-server-line"></i>Aqua AI Backend</li>
+                                <li class="device-flow-arrow" aria-hidden="true"><i class="ri-arrow-down-line"></i></li>
+                                <li><i class="ri-database-2-line"></i>PostgreSQL</li>
+                                <li class="device-flow-arrow" aria-hidden="true"><i class="ri-arrow-down-line"></i></li>
+                                <li><i class="ri-dashboard-3-line"></i>Dashboard • Trends • Analysis</li>
+                            </ol>
+
+                        </article>
+
+                        <article class="content-card device-integration-card" aria-label="ESP32 integration">
+
+                            <div class="content-card-header">
+                                <div>
+                                    <h3>ESP32 Integration</h3>
+                                    <p>The ESP32 sends sensor readings to the Aqua AI backend.</p>
+                                </div>
+                            </div>
+
+                            <p class="device-integration-sub">Expected parameters:</p>
+                            <ul class="device-integration-list">
+                                <li>Temperature</li>
+                                <li>pH</li>
+                                <li>TDS</li>
+                                <li>Turbidity</li>
+                            </ul>
+
+                            <p class="device-integration-sub">Endpoint:</p>
+                            <code class="device-endpoint">/readings/ingest</code>
 
                         </article>
 
@@ -1972,7 +2096,7 @@
                             <p class="page-eyebrow">Settings</p>
                             <h2>Settings</h2>
                             <p class="page-description">
-                                Manage your connection, display and analysis preferences.
+                                Application preferences. Stored in this browser only.
                             </p>
                         </div>
 
@@ -1984,37 +2108,22 @@
 
                             <div class="content-card-header">
                                 <div>
-                                    <h3>Connection</h3>
-                                    <p>Address used to load your readings.</p>
+                                    <h3>Appearance</h3>
+                                    <p>Application theme.</p>
                                 </div>
                             </div>
 
-                            <form id="backendSettingsForm" class="settings-form">
-
-                                <label for="backendUrlInput">
-                                    Server address
-                                </label>
-
-                                <input
-                                    type="url"
-                                    id="backendUrlInput"
-                                    placeholder="http://127.0.0.1:8000"
-                                >
-
-                                <p class="form-help">
-                                    Example:
-                                    http://127.0.0.1:8000
-                                </p>
-
-                                <button
-                                    class="primary-button"
-                                    type="submit"
-                                >
-                                    <i class="ri-save-line"></i>
-                                    Save connection
-                                </button>
-
-                            </form>
+                            <div class="settings-option-row">
+                                <div>
+                                    <strong>Theme</strong>
+                                    <p>System follows your device setting.</p>
+                                </div>
+                                <div class="segmented-control" id="settingsThemeControl" role="group" aria-label="Theme">
+                                    <button type="button" data-theme-value="system">System</button>
+                                    <button type="button" data-theme-value="light">Light</button>
+                                    <button type="button" data-theme-value="dark">Dark</button>
+                                </div>
+                            </div>
 
                         </article>
 
@@ -2022,9 +2131,142 @@
 
                             <div class="content-card-header">
                                 <div>
-                                    <h3>Analysis preferences</h3>
-                                    <p>Choose the service used for camera and chat analysis.</p>
+                                    <h3>Dashboard</h3>
+                                    <p>Automatic data refresh behavior.</p>
                                 </div>
+                            </div>
+
+                            <div class="settings-option-row">
+
+                                <div>
+                                    <strong>Refresh dashboard automatically</strong>
+                                    <p>
+                                        Fetch the latest readings on an interval.
+                                        Manual Refresh always works.
+                                    </p>
+                                </div>
+
+                                <label class="toggle-switch">
+                                    <input
+                                        type="checkbox"
+                                        id="autoRefreshToggle"
+                                        checked
+                                    >
+                                    <span class="toggle-slider"></span>
+                                </label>
+
+                            </div>
+
+                            <div class="settings-option-row">
+
+                                <div>
+                                    <strong>Refresh interval</strong>
+                                    <p>
+                                        How often the dashboard refreshes.
+                                    </p>
+                                </div>
+
+                                <select
+                                    id="refreshIntervalSelect"
+                                    class="standard-select"
+                                    aria-label="Refresh interval"
+                                >
+                                    <option value="15000">15 seconds</option>
+                                    <option value="30000">30 seconds</option>
+                                    <option value="60000">60 seconds</option>
+                                </select>
+
+                            </div>
+
+                            <div class="settings-option-row">
+
+                                <div>
+                                    <strong>Remember chat history</strong>
+                                    <p>
+                                        Keep local chat history in this browser.
+                                    </p>
+                                </div>
+
+                                <label class="toggle-switch">
+                                    <input
+                                        type="checkbox"
+                                        id="chatHistoryToggle"
+                                        checked
+                                    >
+                                    <span class="toggle-slider"></span>
+                                </label>
+
+                            </div>
+
+                        </article>
+
+                        <article class="content-card settings-card">
+
+                            <div class="content-card-header">
+                                <div>
+                                    <h3>Data &amp; Units</h3>
+                                    <p>Display formatting only. Stored sensor data is unchanged.</p>
+                                </div>
+                            </div>
+
+                            <div class="settings-option-row">
+                                <div>
+                                    <strong>Temperature</strong>
+                                    <p>Display unit. Values are converted for display only.</p>
+                                </div>
+                                <div class="segmented-control" id="settingsTempControl" role="group" aria-label="Temperature unit">
+                                    <button type="button" data-temp-value="C">&deg;C</button>
+                                    <button type="button" data-temp-value="F">&deg;F</button>
+                                </div>
+                            </div>
+
+                            <div class="system-information-list">
+
+                                <div>
+                                    <span>TDS</span>
+                                    <strong>mg/L</strong>
+                                </div>
+
+                                <div>
+                                    <span>Turbidity</span>
+                                    <strong>NTU</strong>
+                                </div>
+
+                            </div>
+
+                        </article>
+
+                        <article class="content-card settings-card">
+
+                            <div class="content-card-header">
+                                <div>
+                                    <h3>AI &amp; Analysis</h3>
+                                    <p>Informational. Provider configuration stays on the backend.</p>
+                                </div>
+                            </div>
+
+                            <div class="system-information-list">
+
+                                <div>
+                                    <span>AI Assistant</span>
+                                    <strong id="aiAssistantStatus">Checking…</strong>
+                                </div>
+
+                                <div>
+                                    <span>Camera Analysis</span>
+                                    <strong id="cameraAiStatus">Checking…</strong>
+                                </div>
+
+                                <div>
+                                    <span>Water Quality Analysis</span>
+                                    <strong>Available</strong>
+                                </div>
+
+                                <div>
+                                    <span>Provider fallback</span>
+                                    <strong>Enabled</strong>
+                                </div>
+
                             </div>
 
                             <form id="aiSettingsForm" class="settings-form">
@@ -2074,49 +2316,42 @@
 
                             <div class="content-card-header">
                                 <div>
-                                    <h3>Dashboard preferences</h3>
-                                    <p>Control automatic data refresh.</p>
+                                    <h3>Notifications</h3>
+                                    <p>Interface notifications only. No push messages.</p>
                                 </div>
                             </div>
 
                             <div class="settings-option-row">
-
                                 <div>
-                                    <strong>Automatic refresh</strong>
-                                    <p>
-                                        Refresh dashboard readings every 15 seconds.
-                                    </p>
+                                    <strong>Water quality alerts</strong>
+                                    <p>Highlight attention items in the report.</p>
                                 </div>
-
                                 <label class="toggle-switch">
-                                    <input
-                                        type="checkbox"
-                                        id="autoRefreshToggle"
-                                        checked
-                                    >
+                                    <input type="checkbox" id="notifQualityToggle" checked>
                                     <span class="toggle-slider"></span>
                                 </label>
-
                             </div>
 
                             <div class="settings-option-row">
-
                                 <div>
-                                    <strong>Remember chat history</strong>
-                                    <p>
-                                        Keep local chat history in this browser.
-                                    </p>
+                                    <strong>Data stale warning</strong>
+                                    <p>Flag readings older than 24 hours.</p>
                                 </div>
-
                                 <label class="toggle-switch">
-                                    <input
-                                        type="checkbox"
-                                        id="chatHistoryToggle"
-                                        checked
-                                    >
+                                    <input type="checkbox" id="notifStaleToggle" checked>
                                     <span class="toggle-slider"></span>
                                 </label>
+                            </div>
 
+                            <div class="settings-option-row">
+                                <div>
+                                    <strong>Camera analysis notifications</strong>
+                                    <p>Show a confirmation when image analysis completes.</p>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="notifCameraToggle" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
                             </div>
 
                         </article>
@@ -2125,7 +2360,7 @@
 
                             <div class="content-card-header">
                                 <div>
-                                    <h3>System information</h3>
+                                    <h3>Application</h3>
                                     <p>Application and connection details.</p>
                                 </div>
                             </div>
@@ -2139,18 +2374,77 @@
 
                                 <div>
                                     <span>Version</span>
-                                    <strong>1.0.0</strong>
+                                    <strong>1.0</strong>
                                 </div>
 
                                 <div>
-                                    <span>Access mode</span>
-                                    <strong>Public dashboard</strong>
+                                    <span>Environment</span>
+                                    <strong id="appEnvironment">Local</strong>
                                 </div>
 
                                 <div>
-                                    <span>ESP32 integration</span>
-                                    <strong>Planned</strong>
+                                    <span>Backend</span>
+                                    <strong id="appBackendStatus">Checking…</strong>
                                 </div>
+
+                                <div>
+                                    <span>Database</span>
+                                    <strong>Available through backend</strong>
+                                </div>
+
+                                <div>
+                                    <span>API Port</span>
+                                    <strong>8001</strong>
+                                </div>
+
+                            </div>
+
+                            <form id="backendSettingsForm" class="settings-form">
+
+                                <label for="backendUrlInput">
+                                    Server address
+                                </label>
+
+                                <input
+                                    type="url"
+                                    id="backendUrlInput"
+                                    placeholder="http://127.0.0.1:8001"
+                                >
+
+                                <p class="form-help">
+                                    Example:
+                                    http://127.0.0.1:8001
+                                </p>
+
+                                <button
+                                    class="primary-button"
+                                    type="submit"
+                                >
+                                    <i class="ri-save-line"></i>
+                                    Save connection
+                                </button>
+
+                            </form>
+
+                            <div class="settings-option-row">
+
+                                <div>
+                                    <strong>Reset preferences</strong>
+                                    <p>
+                                        Clear Aqua AI display preferences in this
+                                        browser. Readings, devices and backend
+                                        data are not affected.
+                                    </p>
+                                </div>
+
+                                <button
+                                    class="secondary-button"
+                                    id="resetPrefsButton"
+                                    type="button"
+                                >
+                                    <i class="ri-restart-line"></i>
+                                    Reset
+                                </button>
 
                             </div>
 
@@ -2171,126 +2465,226 @@
                     <div class="page-heading-row">
 
                         <div>
-                            <p class="page-eyebrow">Reports</p>
-                            <h2>Reports</h2>
+                            <p class="page-eyebrow">Aqua AI Water Quality Report</p>
+                            <h2>Water Quality Report</h2>
                             <p class="page-description">
-                                Review water-quality readings and summaries from your connected device.
+                                Current sensor-based water quality summary and application analysis.
                             </p>
                         </div>
 
-                    </div>
+                        <div class="page-heading-actions report-actions">
 
-                    <div class="reports-summary-grid">
+                            <button
+                                class="secondary-button"
+                                id="reportRefreshButton"
+                                type="button"
+                                aria-label="Refresh report"
+                            >
+                                <i class="ri-refresh-line"></i>
+                                Refresh Report
+                            </button>
 
-                        <article class="metric-highlight-card">
-                            <span class="metric-label">Latest reading</span>
-                            <strong id="reportsLatestTime">--</strong>
-                            <p id="reportsLatestDevice">No device data</p>
-                        </article>
+                            <button
+                                class="secondary-button"
+                                id="reportCsvButton"
+                                type="button"
+                                aria-label="Export live data as CSV"
+                            >
+                                <i class="ri-download-line"></i>
+                                Export Live Data as CSV
+                            </button>
 
-                        <article class="metric-highlight-card">
-                            <span class="metric-label">Total readings</span>
-                            <strong id="reportsTotalReadings">0</strong>
-                            <p>Available in current range</p>
-                        </article>
+                            <button
+                                class="primary-button"
+                                id="reportPrintButton"
+                                type="button"
+                                aria-label="Print report"
+                            >
+                                <i class="ri-printer-line"></i>
+                                Print Report
+                            </button>
 
-                        <article class="metric-highlight-card">
-                            <span class="metric-label">Quality status</span>
-                            <strong id="reportsQualityStatus">--</strong>
-                            <p id="reportsQualityDescription">Waiting for data</p>
-                        </article>
+                            <button
+                                class="secondary-button"
+                                id="reportPdfButton"
+                                type="button"
+                                aria-label="Download report as PDF"
+                            >
+                                <i class="ri-file-download-line"></i>
+                                Download Report as PDF
+                            </button>
 
-                        <article class="metric-highlight-card">
-                            <span class="metric-label">Device status</span>
-                            <strong id="reportsDeviceStatus">--</strong>
-                            <p id="reportsDeviceName">No device</p>
-                        </article>
-
-                    </div>
-
-                    <div class="reports-filter-bar">
-                        <span class="filter-label">Time range</span>
-                        <div class="time-filter-group" id="reportsTimeFilter">
-                            <button class="time-filter-btn" data-range="1H" type="button">1H</button>
-                            <button class="time-filter-btn" data-range="6H" type="button">6H</button>
-                            <button class="time-filter-btn active" data-range="24H" type="button">24H</button>
-                            <button class="time-filter-btn" data-range="7D" type="button">7D</button>
-                            <button class="time-filter-btn" data-range="30D" type="button">30D</button>
-                        </div>
-                    </div>
-
-<div class="report-content-grid">
-
-                        <article class="content-card report-summary-card">
-
-                            <div class="content-card-header">
-                                <div>
-                                    <h3>Sensor summary</h3>
-                                    <p>Latest values and units from the current range.</p>
-                                </div>
-                            </div>
-
-                            <div class="report-sensor-grid">
-
-                                <div class="report-sensor-item">
-                                    <span class="report-sensor-label">
-                                        <i class="ri-temp-hot-line"></i> Temperature
-                                    </span>
-                                    <span class="report-sensor-value" id="reportsTemperature">-- °C</span>
-                                    <span class="report-sensor-status" id="reportsTemperatureStatus">--</span>
-                                </div>
-
-                                <div class="report-sensor-item">
-                                    <span class="report-sensor-label">
-                                        <i class="ri-test-tube-line"></i> pH Level
-                                    </span>
-                                    <span class="report-sensor-value" id="reportsPh">-- pH</span>
-                                    <span class="report-sensor-status" id="reportsPhStatus">--</span>
-                                </div>
-
-                                <div class="report-sensor-item">
-                                    <span class="report-sensor-label">
-                                        <i class="ri-contrast-drop-2-line"></i> Turbidity
-                                    </span>
-                                    <span class="report-sensor-value" id="reportsTurbidity">-- NTU</span>
-                                    <span class="report-sensor-status" id="reportsTurbidityStatus">--</span>
-                                </div>
-
-                                <div class="report-sensor-item">
-                                    <span class="report-sensor-label">
-                                        <i class="ri-flask-line"></i> TDS
-                                    </span>
-                                    <span class="report-sensor-value" id="reportsTds">-- mg/L</span>
-                                    <span class="report-sensor-status" id="reportsTdsStatus">--</span>
-                                </div>
-
-                            </div>
-
-                        </article>
-
-                        <div class="report-empty-state" id="reportsEmptyState">
-                            <i class="ri-inbox-2-line"></i>
-                            <strong>No readings yet</strong>
-                            <p>Sensor readings will appear here once your device sends data.</p>
                         </div>
 
-                        <div class="report-table-wrapper hidden" id="reportsTableWrapper">
+                    </div>
 
-                            <table class="readings-table" id="reportsReadingsTable">
-                                <caption>Recent readings in selected time range</caption>
-                                <thead>
-                                    <tr>
-                                        <th scope="col">ID</th>
-                                        <th scope="col">Device</th>
-                                        <th scope="col">Temp (&deg;C)</th>
-                                        <th scope="col">pH</th>
-                                        <th scope="col">Turbidity (NTU)</th>
-                                        <th scope="col">TDS (mg/L)</th>
-                                        <th scope="col">Recorded</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="reportsReadingsBody"></tbody>
-                            </table>
+                    <div id="reportContent">
+
+                        <div class="report-loading" id="reportLoading">
+                            <span class="spinner"></span>
+                            <p>Loading latest reading…</p>
+                        </div>
+
+                        <div class="report-error hidden" id="reportError">
+                            <i class="ri-error-warning-line"></i>
+                            <strong id="reportErrorTitle">Unable to load report data</strong>
+                            <p id="reportErrorMessage">Check the backend connection and try again.</p>
+                            <button class="secondary-button" id="reportRetryButton" type="button">
+                                <i class="ri-refresh-line"></i> Retry
+                            </button>
+                        </div>
+
+                        <div id="reportBody" class="hidden">
+
+                            <article class="content-card report-header-card">
+                                <div class="report-title-row">
+                                    <div>
+                                        <h3>Aqua AI</h3>
+                                        <p class="report-subtitle">Water Quality Engineering Report</p>
+                                    </div>
+                                    <span class="report-live-badge">
+                                        <span class="status-dot online"></span>
+                                        LIVE DATA / DATABASE READING
+                                    </span>
+                                </div>
+                                <div class="report-meta-row">
+                                    <span>Generated: <strong id="rptGeneratedAt">--</strong></span>
+                                    <span>Available readings: <strong id="rptReadingCount">--</strong></span>
+                                </div>
+                                <div class="report-header-grid">
+                                    <div>
+                                        <span class="metric-label">Device</span>
+                                        <strong id="rptDeviceName">--</strong>
+                                    </div>
+                                    <div>
+                                        <span class="metric-label">Reading</span>
+                                        <strong id="rptReadingTime">--</strong>
+                                    </div>
+                                    <div>
+                                        <span class="metric-label">Report status</span>
+                                        <strong id="rptStatus">--</strong>
+                                    </div>
+                                    <div>
+                                        <span class="metric-label">Freshness</span>
+                                        <strong id="rptFreshness">--</strong>
+                                    </div>
+                                </div>
+                            </article>
+
+                            <div class="report-exec-grid">
+
+                                <article class="content-card report-score-card">
+                                    <div class="score-ring" id="rptScoreRing" role="img" aria-label="Aqua AI score">
+                                        <svg viewBox="0 0 120 120" aria-hidden="true">
+                                            <circle cx="60" cy="60" r="52" class="score-ring-track"></circle>
+                                            <circle cx="60" cy="60" r="52" class="score-ring-fill" id="rptScoreArc"></circle>
+                                        </svg>
+                                        <div class="score-ring-text">
+                                            <strong id="rptScore">--</strong>
+                                            <span>/ 100</span>
+                                        </div>
+                                    </div>
+                                    <div class="report-score-meta">
+                                        <strong id="rptScoreLabel">--</strong>
+                                        <p>Aqua AI Score</p>
+                                    </div>
+                                </article>
+
+                                <article class="content-card">
+                                    <div class="content-card-header">
+                                        <div>
+                                            <h3>Executive summary</h3>
+                                            <p>Generated from the latest reading.</p>
+                                        </div>
+                                    </div>
+                                    <ul class="report-bullets" id="rptSummaryBullets"></ul>
+                                </article>
+
+                            </div>
+
+                            <article class="content-card">
+                                <div class="content-card-header">
+                                    <div>
+                                        <h3>Current parameters</h3>
+                                        <p>Measured values with configured status.</p>
+                                    </div>
+                                </div>
+                                <div class="report-param-grid" id="rptParamGrid"></div>
+                            </article>
+
+                            <article class="content-card">
+                                <div class="content-card-header">
+                                    <div>
+                                        <h3>Quality breakdown</h3>
+                                        <p>Deterministic Aqua AI sub-scores.</p>
+                                    </div>
+                                </div>
+                                <div id="rptBreakdown"></div>
+                            </article>
+
+                            <div class="report-attention-grid" id="rptAttentionGrid">
+
+                                <article class="content-card" id="rptAttentionCard">
+                                    <div class="content-card-header">
+                                        <div>
+                                            <h3>What needs attention?</h3>
+                                        </div>
+                                    </div>
+                                    <ul class="report-bullets" id="rptAttentionList"></ul>
+                                </article>
+
+                                <article class="content-card" id="rptGoodCard">
+                                    <div class="content-card-header">
+                                        <div>
+                                            <h3>What&rsquo;s going well?</h3>
+                                        </div>
+                                    </div>
+                                    <ul class="report-bullets" id="rptGoodList"></ul>
+                                </article>
+
+                            </div>
+
+                            <article class="content-card">
+                                <div class="content-card-header">
+                                    <div>
+                                        <h3>Application insights</h3>
+                                        <p>Same calculations as the Analysis page.</p>
+                                    </div>
+                                </div>
+                                <div class="report-insights-grid" id="rptInsights"></div>
+                            </article>
+
+                            <article class="content-card">
+                                <div class="content-card-header">
+                                    <div>
+                                        <h3>Key observations</h3>
+                                        <p>Supported by the current data only.</p>
+                                    </div>
+                                </div>
+                                <ul class="report-bullets" id="rptObservations"></ul>
+                            </article>
+
+                            <article class="content-card report-limits-card">
+                                <div class="content-card-header">
+                                    <div>
+                                        <h3>Limitations</h3>
+                                    </div>
+                                </div>
+                                <p>
+                                    Aqua AI provides sensor-based water-quality analysis and
+                                    visual screening. Results are intended for monitoring and
+                                    decision support and do not replace laboratory testing,
+                                    regulatory certification, or professional assessment.
+                                </p>
+                                <p>
+                                    Drinking-water suitability shown here is screening-only
+                                    and should not be interpreted as a certification of
+                                    potability.
+                                </p>
+                                <div class="report-print-footer">
+                                    Aqua AI — Water Quality Engineering Report · Generated from live sensor/database readings
+                                </div>
+                            </article>
 
                         </div>
 
@@ -2312,220 +2706,78 @@
                             <p class="page-eyebrow">Profile</p>
                             <h2>Profile</h2>
                             <p class="page-description">
-                                View local monitoring preferences and application information.
-                            </p>
-                        </div>
-
-                    </div>
-
-                    <div class="profile-card-grid">
-
-                        <article class="profile-card">
-
-                            <div class="profile-avatar">
-                                <span id="profileInitials">AU</span>
-                            </div>
-
-                            <div class="profile-details">
-                                <strong id="profileDisplayName">Aqua User</strong>
-                                <span id="profileDisplayRole">Water Quality Monitoring User</span>
-                            </div>
-
-                        </article>
-
-                        <div class="profile-preferences-grid">
-
-                            <div class="metric-info-card">
-                                <span class="metric-label">Connected device</span>
-                                <strong id="profileDeviceName">No device</strong>
-                                <span id="profileDeviceStatus">Offline</span>
-                            </div>
-
-                            <div class="metric-info-card">
-                                <span class="metric-label">Auto-refresh</span>
-                                <strong id="profileRefreshStatus">Inactive</strong>
-                                <span>15-second interval</span>
-                            </div>
-
-                            <div class="metric-info-card">
-                                <span class="metric-label">Dashboard range</span>
-                                <strong id="profileDashboardRange">24H</strong>
-                                <span>Current time range</span>
-                            </div>
-
-                            <div class="metric-info-card">
-                                <span class="metric-label">Connection status</span>
-                                <strong id="profileBackendStatus">Offline</strong>
-                                <span id="profileBackendUrl">http://127.0.0.1:8001</span>
-                            </div>
-
-                        </div>
-
-                    </div>
-
-                    <div class="profile-section-divider">
-                        <hr>
-                        <span>Quick navigation</span>
-                    </div>
-
-                    <div class="profile-quick-grid">
-
-                        <button class="nav-card-button" data-page="device" type="button">
-                            <i class="ri-hardware-2-line"></i>
-                            <strong>Devices</strong>
-                            <span>Manage connected devices</span>
-                        </button>
-
-                        <button class="nav-card-button" data-page="settings" type="button">
-                            <i class="ri-settings-4-line"></i>
-                            <strong>Settings</strong>
-                            <span>Configure preferences</span>
-                        </button>
-
-                        <button class="nav-card-button" data-page="camera" type="button">
-                            <i class="ri-camera-3-line"></i>
-                            <strong>Camera Analysis</strong>
-                            <span>Analyse water visually</span>
-                        </button>
-
-                        <button class="nav-card-button" data-page="temperature" type="button">
-                            <i class="ri-temp-hot-line"></i>
-                            <strong>Temperature</strong>
-                            <span>View sensor details</span>
-                        </button>
-
-                    </div>
-
-                    <div class="profile-info-card">
-                        <div class="info-card-row">
-                            <span class="info-label">Application</span>
-                            <span id="profileAppVersion">Aqua v1.0.0</span>
-                        </div>
-                        <div class="info-card-row">
-                            <span class="info-label">Access mode</span>
-                            <span>Public dashboard</span>
-                        </div>
-                        <div class="info-card-row">
-                            <span class="info-label">Data source</span>
-                            <span id="profileDataSource">Live device readings</span>
-                        </div>
-                        <div class="info-card-row">
-                            <span class="info-label">ESP32 integration</span>
-                            <span>Planned</span>
-                        </div>
-                    </div>
-
-                </section>
-
-                <!-- =========================================
-                     ADMIN PAGE
-                ========================================== -->
-                <section
-                    class="page-section hidden"
-                    id="page-admin"
-                    data-page-section="admin"
-                >
-
-                    <div class="page-heading-row">
-
-                        <div>
-                            <p class="page-eyebrow">ADMINISTRATION</p>
-                            <h2>Admin Dashboard</h2>
-                            <p class="page-description">
-                                Manage registered users and monitor platform
-                                activity. Administrator access only.
+                                Local demo identity and display preferences for this browser.
                             </p>
                         </div>
 
                         <div class="page-heading-actions">
-
-                            <button
-                                class="primary-button"
-                                id="adminRefreshButton"
-                                type="button"
-                            >
-                                <i class="ri-refresh-line"></i>
-                                Refresh
-                            </button>
-
+                            <span class="demo-profile-badge">
+                                <i class="ri-information-line"></i>
+                                Demo Profile
+                            </span>
                         </div>
 
                     </div>
 
-                    <!-- Admin stats overview -->
-                    <div class="dashboard-summary-grid">
+                    <div class="profile-hero-grid">
 
-                        <article class="summary-card">
+                        <article class="content-card profile-hero-card">
 
-                            <div class="summary-card-header">
-
-                                <div>
-                                    <span class="summary-label">Users</span>
-                                    <h3 id="adminUsersCount">--</h3>
-                                </div>
-
-                                <div class="summary-icon users-icon">
-                                    <i class="ri-user-line"></i>
-                                </div>
-
+                            <div class="profile-avatar profile-avatar-lg">
+                                <span>AD</span>
                             </div>
 
-                            <div class="admin-stats-content">
-
-                                <div class="stat-row">
-                                    <span>Active users:</span>
-                                    <strong id="adminActiveUsers">--</strong>
-                                </div>
-
-                                <div class="stat-row">
-                                    <span>Disabled users:</span>
-                                    <strong id="adminDisabledUsers">--</strong>
-                                </div>
-
-                                <div class="stat-row">
-                                    <span>Administrators:</span>
-                                    <strong id="adminAdminUsers">--</strong>
-                                </div>
-
-                                <div class="stat-row">
-                                    <span>Active sessions:</span>
-                                    <strong id="adminActiveSessions">--</strong>
-                                </div>
-
+                            <div class="profile-hero-text">
+                                <strong>Admin</strong>
+                                <span class="profile-username">@admin</span>
+                                <span class="profile-role">System User &middot; Aqua AI</span>
+                                <span class="profile-status">
+                                    <span class="status-dot online"></span>
+                                    Active
+                                </span>
                             </div>
 
                         </article>
 
-                        <article class="summary-card">
+                        <article class="content-card">
 
-                            <div class="summary-card-header">
-
+                            <div class="content-card-header">
                                 <div>
-                                    <span class="summary-label">Devices</span>
-                                    <h3 id="adminDevicesCount">--</h3>
+                                    <h3>Profile Information</h3>
+                                    <p>Local identity used across the dashboard.</p>
                                 </div>
-
-                                <div class="summary-icon devices-icon">
-                                    <i class="ri-cpu-line"></i>
-                                </div>
-
                             </div>
 
-                            <div class="admin-stats-content">
+                            <div class="system-information-list">
 
-                                <div class="stat-row">
-                                    <span>Online (15m):</span>
-                                    <strong id="adminOnlineDevices">--</strong>
+                                <div>
+                                    <span>Name</span>
+                                    <strong>Admin</strong>
                                 </div>
 
-                                <div class="stat-row">
-                                    <span>Total readings:</span>
-                                    <strong id="adminTotalReadings">--</strong>
+                                <div>
+                                    <span>Username</span>
+                                    <strong>admin</strong>
                                 </div>
 
-                                <div class="stat-row">
-                                    <span>Camera predictions:</span>
-                                    <strong id="adminTotalPredictions">--</strong>
+                                <div>
+                                    <span>Role</span>
+                                    <strong>System User</strong>
+                                </div>
+
+                                <div>
+                                    <span>Application</span>
+                                    <strong>Aqua AI</strong>
+                                </div>
+
+                                <div>
+                                    <span>Account</span>
+                                    <strong>Demo / Local User</strong>
+                                </div>
+
+                                <div>
+                                    <span>Status</span>
+                                    <strong>Active</strong>
                                 </div>
 
                             </div>
@@ -2534,39 +2786,105 @@
 
                     </div>
 
-                    <!-- Admin users management -->
-                    <article class="content-card">
+                    <div class="profile-hero-grid">
 
-                        <div class="content-card-header">
-                            <div>
-                                <h3>User Management</h3>
-                                <p>View and manage registered user accounts.</p>
+                        <article class="content-card">
+
+                            <div class="content-card-header">
+                                <div>
+                                    <h3>Preferences</h3>
+                                    <p>Stored only in this browser. No sign-in required.</p>
+                                </div>
                             </div>
-                        </div>
 
-                        <div class="admin-users-table-container">
-                            <table class="admin-table">
-                                <thead>
-                                    <tr>
-                                        <th>ID</th>
-                                        <th>Username</th>
-                                        <th>Full Name</th>
-                                        <th>Email</th>
-                                        <th>Role</th>
-                                        <th>Status</th>
-                                        <th>Created</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="adminUsersTableBody">
-                                    <tr>
-                                        <td colspan="8">Loading users...</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
+                            <div class="settings-option-row">
+                                <div>
+                                    <strong>Theme</strong>
+                                    <p>Application appearance.</p>
+                                </div>
+                                <div class="segmented-control" id="profileThemeControl" role="group" aria-label="Theme">
+                                    <button type="button" data-theme-value="system">System</button>
+                                    <button type="button" data-theme-value="light">Light</button>
+                                    <button type="button" data-theme-value="dark">Dark</button>
+                                </div>
+                            </div>
 
-                    </article>
+                            <div class="settings-option-row">
+                                <div>
+                                    <strong>Temperature unit</strong>
+                                    <p>Display unit for temperature readings.</p>
+                                </div>
+                                <div class="segmented-control" id="profileTempControl" role="group" aria-label="Temperature unit">
+                                    <button type="button" data-temp-value="C">&deg;C</button>
+                                    <button type="button" data-temp-value="F">&deg;F</button>
+                                </div>
+                            </div>
+
+                            <div class="settings-option-row">
+                                <div>
+                                    <strong>Data refresh</strong>
+                                    <p>Automatic dashboard refresh.</p>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="profileAutoRefreshToggle" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+
+                            <div class="settings-option-row">
+                                <div>
+                                    <strong>Notifications</strong>
+                                    <p>Interface status notifications.</p>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="profileNotifToggle" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+
+                        </article>
+
+                        <article class="content-card">
+
+                            <div class="content-card-header">
+                                <div>
+                                    <h3>About Aqua AI</h3>
+                                    <p>Smart water-quality monitoring and analysis.</p>
+                                </div>
+                            </div>
+
+                            <div class="system-information-list">
+
+                                <div>
+                                    <span>Version</span>
+                                    <strong>1.0</strong>
+                                </div>
+
+                                <div>
+                                    <span>Monitoring</span>
+                                    <strong>Sensor monitoring</strong>
+                                </div>
+
+                                <div>
+                                    <span>Vision</span>
+                                    <strong>AI visual analysis</strong>
+                                </div>
+
+                                <div>
+                                    <span>Analytics</span>
+                                    <strong>Water-quality analytics</strong>
+                                </div>
+
+                                <div>
+                                    <span>History</span>
+                                    <strong>Historical trends</strong>
+                                </div>
+
+                            </div>
+
+                        </article>
+
+                    </div>
 
                 </section>
 

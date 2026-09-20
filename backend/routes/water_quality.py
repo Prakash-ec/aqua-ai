@@ -6,11 +6,6 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models import Device, WaterReading
-from backend.routes.auth import (
-    get_current_session,
-    require_device_access,
-    scoped_reading_query,
-)
 from backend.services.water_quality import calculate_water_quality
 
 
@@ -27,20 +22,19 @@ router = APIRouter(
 @router.get("/latest")
 def get_latest_water_quality(
     device_id: Optional[int] = None,
-    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
     """
     Calculate the application-specific water-quality indicator
-    from the latest reading owned by the authenticated user.
+    from the latest reading.
+
+    No authentication required — public API for demo/local use.
     """
 
     try:
-        query = scoped_reading_query(session, db)
+        query = db.query(WaterReading)
 
         if device_id is not None:
-            require_device_access(db, session, device_id)
-
             device = (
                 db.query(Device)
                 .filter(Device.id == device_id)

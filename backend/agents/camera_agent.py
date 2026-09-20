@@ -153,45 +153,44 @@ class CameraAgent:
         recommendations: list[str] = []
 
         if result["foam_detected"]:
-            findings.append("Foam or froth was detected in the image.")
+            findings.append("Foam or froth appears visible in the image.")
             warnings.append(
                 "Visible foam may be associated with organic matter, "
-                "detergents, agitation, or other contamination sources."
+                "detergents, agitation, or other sources — cannot be confirmed from image alone."
             )
 
         if result["algae_detected"]:
-            findings.append("Possible algae-like growth was detected.")
+            findings.append("Visible green material is present, which may be consistent with algae.")
             warnings.append(
-                "The visible green or algae-like material should be "
-                "investigated further."
+                "Possible algae-like material is visually observed; laboratory confirmation is required."
             )
 
         if result["particles_detected"]:
-            findings.append("Suspended or floating particles were detected.")
+            findings.append("Visible suspended particles appear to be present.")
             warnings.append(
-                "Visible particles may indicate suspended solids or debris."
+                "Visible particles may indicate suspended solids or debris; no chemical quantification is possible from the image."
             )
 
         if result["possible_microplastics"]:
             findings.append(
-                "The image contains particles that may resemble microplastics."
+                "Visible particles may be present, but microplastics cannot be confirmed using an ordinary camera image alone."
             )
             warnings.append(
                 "Microplastics cannot be confirmed reliably from an ordinary "
-                "camera image alone."
+                "camera image alone; microscopy or laboratory analysis is required."
             )
 
         if result["oil_layer_detected"]:
-            findings.append("A possible oil-like layer was detected.")
+            findings.append("A thin reflective surface layer is visible and may be consistent with an oily film.")
             warnings.append(
-                "An oil-like appearance should be checked using additional "
-                "sampling or suitable laboratory testing."
+                "An oil-like appearance is visually observed and should be checked using additional "
+                "sampling or suitable laboratory testing; oil presence cannot be confirmed from image alone."
             )
 
         if not findings:
             findings.append(
                 "No obvious foam, algae-like material, oil-like layer, "
-                "or major visible particles were detected."
+                "or major visible particles appear to be present. Clear appearance does not guarantee safe water."
             )
 
         risk_level = str(

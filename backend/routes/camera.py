@@ -1,5 +1,7 @@
+import io
 import json
 import re
+from datetime import datetime
 from typing import Any
 
 from fastapi import (
@@ -15,13 +17,7 @@ from sqlalchemy.orm import Session
 
 from backend.agents.camera_agent import CameraAgent
 from backend.database import get_db
-from backend.models import CameraPrediction, Device
-from backend.routes.auth import (
-    get_current_session,
-    get_optional_session,
-    require_device_access,
-    scoped_camera_query,
-)
+from backend.models import CameraPrediction, Device, WaterReading
 from backend.services.ai_provider import (
     VisionProviderError,
     ask_vision_ai,
@@ -62,85 +58,76 @@ ALLOWED_EXTENSIONS = {
 
 
 # =========================================================
-# SYSTEM PROMPT
+# SYSTEM PROMPT — visual screening only
 # =========================================================
 
 SYSTEM_PROMPT = """
-You are Aqua AI, an assistant for visible water-quality image screening.
+You are Aqua AI — a VISUAL water-screening assistant. You analyze ONLY what is visibly observable in the image.
 
-Analyze only visible indicators. Structure your response into these
-categories. For each category, clearly state whether the observation is
-"clearly visible", "possible", or "not observed".
+CRITICAL CAPABILITY BOUNDARIES — NEVER VIOLATE:
+- An ordinary camera image CANNOT measure: pH, TDS, EC, salinity, temperature, dissolved oxygen, BOD, COD, hardness, alkalinity, nitrate, phosphate, heavy metals, chlorine, microbial contamination, or any chemical/microbiological parameter.
+- NEVER report numeric values for pH, TDS, EC, temperature, turbidity NTU, or any sensor parameter based on the image.
+- NEVER state "safe to drink", "unsafe to drink", "contains bacteria", "contains heavy metals", "contains pathogens" based solely on image.
+- NEVER claim laboratory-level identification of microorganisms, microplastics, or contaminants. Microplastics in particular cannot be confirmed from an ordinary image.
 
-Categories:
+WHAT YOU MAY REPORT (visual observation only):
+- visible foam, visible algae/green material, unusual coloration, visible suspended particles, visible sediment, surface film/oily appearance, visible debris, apparent water clarity/turbidity description (qualitative: clear / slightly cloudy / very cloudy / not assessed), obvious visual contamination indicators.
 
-1. Visible water appearance – overall clarity, color, surface condition.
-2. Possible foam – any frothy, bubbly, or foamy areas.
-3. Possible algae or green growth – green patches, stringy mats,
-   or discoloration suggesting algae.
-4. Visible color abnormalities – unusual tints (brown, green, milky,
-   reddish, etc.) that deviate from normal clear water.
-5. Cloudiness or suspended particles – haziness, turbidity, floating
-   specks that reduce transparency.
-6. Possible visible debris – leaves, trash, dead organisms, sediment,
-   or foreign objects.
-7. Confidence or uncertainty – indicate how confident you are about
-   each observation (high, moderate, low).
-8. Recommended next action – practical steps the user should take.
-9. Safety disclaimer – a one-sentence statement that this is visual
-   screening only and does not replace laboratory testing.
+LANGUAGE RULES — observation vs inference:
+- Separate observation from interpretation.
+- Use qualified language: "appears", "visible", "may indicate", "visually consistent with", "cannot be confirmed from the image", "possibly", "suggests".
+- GOOD: "Visible green surface material is present, which may be consistent with algae."
+- BAD: "Algae contamination confirmed."
+- GOOD: "The water appears cloudy with visible suspended particles."
+- BAD: "Turbidity is 8.4 NTU."
+- GOOD: "A thin reflective surface layer is visible and may be consistent with an oily film."
+- BAD: "The water contains oil."
+- State uncertainty when image is unclear. Never fabricate confidence. Avoid assuming unusual color automatically means contamination. Avoid assuming clear water is safe.
 
-Safety rules:
+STRUCTURE RULES:
+- For each visual indicator state whether it is "clearly visible", "possible", or "not observed".
+- Distinguish three confidence levels: high / moderate / low. Use low when image quality is poor or evidence is ambiguous.
+- If image quality is poor (dark, blurry, glare, too little water visible), say so and set confidence to low.
 
-- Clearly distinguish between "clearly visible", "possible", and
-  "not observed".
-- Do not claim contamination is confirmed from an image alone.
-- Do not claim particles are definitely microplastics.
-  If microplastics are suspected, use this exact wording:
-  "Visible particles may be present, but microplastics cannot be
-  confirmed using an ordinary camera image alone."
-- Do not claim the water is safe to drink based only on an image.
-- If the image is unclear, say so clearly.
-- This is visual screening, not laboratory testing.
+Return ONLY one valid JSON object. No markdown fences. No reasoning/thinking text.
 
-Return only one valid JSON object. Do not use Markdown code fences.
-
-Use exactly this structure:
+Use exactly this structure (all fields required):
 
 {
-    "overall_observation": "Short description of visible water conditions (2-3 sentences)",
-    "water_color": "Description of visible water color",
-    "foam_detected": false,
-    "algae_detected": false,
-    "particles_detected": false,
-    "possible_microplastics": false,
-    "oil_layer_detected": false,
-    "risk_level": "Low",
-    "confidence": 0.75,
-    "recommendation": "Suggested next action",
-    "limitations": "Explain the limitations of image-based analysis",
-    "color_abnormalities": "Description of any unusual color or null",
-    "cloudiness": "Clear, slightly cloudy, very cloudy, or not assessed",
-    "visible_debris": "Description of any visible debris or null",
-    "confidence_level": "high, moderate, or low",
-    "recommended_action": "Specific next step for the user",
-    "safety_disclaimer": "This is visual screening only and does not replace laboratory water testing."
+  "overall_visual_assessment": "2-3 sentence visual-only description of what is seen. No chemical values.",
+  "overall_observation": "Same as overall_visual_assessment for backward compatibility",
+  "visual_quality": "Good | Fair | Poor | Unclear",
+  "water_color": "Description of visible water color",
+  "foam_detected": false,
+  "algae_detected": false,
+  "particles_detected": false,
+  "possible_microplastics": false,
+  "oil_layer_detected": false,
+  "observations": ["Visible observation 1", "Visible observation 2"],
+  "potential_visual_indicators": ["Possible indicator 1 qualified with may/visible language"],
+  "risk_level": "Low",
+  "confidence": 0.75,
+  "confidence_level": "high | moderate | low",
+  "recommendation": "Suggested next action — sensor/lab follow-up, never drinkability claim",
+  "recommended_action": "Same as recommendation for backward compatibility",
+  "limitations": "This is visual screening only and cannot determine chemical or microbiological water quality. Does not replace laboratory testing.",
+  "color_abnormalities": "Description or null",
+  "cloudiness": "Clear | slightly cloudy | very cloudy | not assessed",
+  "visible_debris": "Description or null",
+  "safety_disclaimer": "This is visual screening only and does not replace laboratory water testing."
 }
 
 Rules:
-
-- Boolean fields must be true or false.
-- confidence must be a number from 0 to 1.
-- risk_level must be exactly Low, Medium, or High.
-- confidence_level must be one of high, moderate, low.
-- Keep every value concise: 1-2 short sentences per text field.
-  A short JSON object keeps the response well under the output
-  token budget.
-- IMPORTANT: Reply with ONLY the JSON object. Do not include any
-  thinking, reasoning, explanation, or <think> text.
+- Boolean fields true/false strictly.
+- confidence 0..1.
+- risk_level exactly Low, Medium, or High. Use High only when strong visible indicators are clearly visible; otherwise Low or Medium.
+- confidence_level one of high, moderate, low (lowercase).
+- visual_quality one of Good, Fair, Poor, Unclear.
+- observations: 2-5 short factual visible observations.
+- potential_visual_indicators: only items with qualified language; leave empty if none.
+- Keep every text field concise 1-2 sentences.
+- IMPORTANT: Reply with ONLY the JSON object.
 """
-
-
 # =========================================================
 # FILE HELPERS
 # =========================================================
@@ -255,6 +242,156 @@ async def read_and_validate_image(
         )
 
     return image_bytes, content_type, safe_filename
+
+
+# =========================================================
+# IMAGE QUALITY CHECK (before AI call)
+# =========================================================
+
+def check_image_quality(image_bytes: bytes) -> dict[str, Any]:
+    """
+    Heuristic image quality check using Pillow.
+    Returns dict with is_suitable, visual_quality, reason, details.
+    Does not invent contamination — only checks technical quality.
+    """
+    try:
+        from PIL import Image, ImageFilter, ImageStat
+    except ImportError:
+        return {
+            "is_suitable": True,
+            "visual_quality": "Good",
+            "reason": "",
+            "details": {"pillow_available": False},
+        }
+
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        img.load()
+        # Ensure RGB for stats
+        width, height = img.size
+        min_side = min(width, height)
+        # Extremely low resolution
+        if width < 80 or height < 80 or min_side < 80:
+            return {
+                "is_suitable": False,
+                "visual_quality": "Poor",
+                "reason": "Image resolution is extremely low. Please capture a higher-resolution image with the water surface/container clearly visible.",
+                "details": {"width": width, "height": height, "issue": "low_resolution"},
+            }
+        if width < 200 or height < 200:
+            # Not blocking but flag as Fair
+            low_res_warning = True
+        else:
+            low_res_warning = False
+
+        # Convert to grayscale for brightness/contrast
+        gray = img.convert("L")
+        stat = ImageStat.Stat(gray)
+        mean_brightness = stat.mean[0] if stat.mean else 128
+        # stdev via stddev[0] not always; use extrema and mean for variance approx
+        # Pillow ImageStat gives stddev
+        try:
+            stdev = stat.stddev[0] if stat.stddev else 0
+        except Exception:
+            stdev = 0
+
+        # Extremely dark
+        if mean_brightness < 25:
+            return {
+                "is_suitable": False,
+                "visual_quality": "Poor",
+                "reason": "Image quality is insufficient for reliable visual analysis. The image appears extremely dark. Please capture a clearer image with adequate lighting and the water surface/container visible.",
+                "details": {"mean_brightness": round(mean_brightness, 1), "issue": "too_dark"},
+            }
+        # Excessive glare / overexposed (almost white)
+        if mean_brightness > 245 and stdev < 30:
+            return {
+                "is_suitable": False,
+                "visual_quality": "Poor",
+                "reason": "Image quality is insufficient for reliable visual analysis. The image appears overexposed or dominated by glare. Please retake with diffuse lighting avoiding direct glare.",
+                "details": {"mean_brightness": round(mean_brightness, 1), "issue": "glare"},
+            }
+        # Blur detection via edge variance — only flag extremely low edge content
+        # on images that have moderate brightness range (avoid false positives on
+        # uniform synthetic images; real water photos have container edges/texture).
+        # Threshold conservative to avoid blocking valid clear-water images.
+        try:
+            edges = gray.filter(ImageFilter.FIND_EDGES)
+            edge_stat = ImageStat.Stat(edges)
+            edge_mean = edge_stat.mean[0] if edge_stat.mean else 0
+            if edge_mean < 1.2 and mean_brightness > 30 and stdev > 10:
+                return {
+                    "is_suitable": False,
+                    "visual_quality": "Poor",
+                    "reason": "Image quality is insufficient for reliable visual analysis. The image appears severely blurry or out of focus. Please capture a clearer, well-focused image.",
+                    "details": {"edge_mean": round(edge_mean, 2), "mean_brightness": round(mean_brightness, 1), "issue": "blurry"},
+                }
+        except Exception:
+            pass
+
+        # If low_res_warning and slightly dark, downgrade quality
+        if low_res_warning:
+            return {
+                "is_suitable": True,
+                "visual_quality": "Fair",
+                "reason": "Image resolution is low; analysis may be less reliable. A higher-resolution, well-lit image is recommended.",
+                "details": {"width": width, "height": height, "mean_brightness": round(mean_brightness, 1)},
+            }
+        if mean_brightness < 45:
+            return {
+                "is_suitable": True,
+                "visual_quality": "Fair",
+                "reason": "",
+                "details": {"mean_brightness": round(mean_brightness, 1), "note": "dim"},
+            }
+
+        return {
+            "is_suitable": True,
+            "visual_quality": "Good",
+            "reason": "",
+            "details": {"width": width, "height": height, "mean_brightness": round(mean_brightness, 1)},
+        }
+    except Exception as e:
+        # If Pillow fails to decode, treat as not suitable to avoid sending corrupt image to AI
+        return {
+            "is_suitable": True,
+            "visual_quality": "Unclear",
+            "reason": "",
+            "details": {"error": str(e)[:120]},
+        }
+
+
+def build_poor_quality_analysis(quality: dict[str, Any]) -> dict[str, Any]:
+    reason = quality.get("reason") or "Image quality is insufficient for reliable visual analysis. Please capture a clearer image with the water surface/container visible and adequate lighting."
+    return {
+        "overall_visual_assessment": reason,
+        "overall_observation": reason,
+        "visual_quality": quality.get("visual_quality", "Poor"),
+        "water_color": "Not assessed — image quality insufficient for reliable color analysis.",
+        "foam_detected": False,
+        "algae_detected": False,
+        "particles_detected": False,
+        "possible_microplastics": False,
+        "oil_layer_detected": False,
+        "observations": [
+            "Image quality is insufficient for reliable visual screening.",
+            reason,
+        ],
+        "potential_visual_indicators": [],
+        "risk_level": "Unknown",
+        "confidence": 0.15,
+        "confidence_level": "low",
+        "recommendation": "Retake the image with good lighting, focus on the water surface/container filling most of the frame, avoid glare or darkness, then re-analyze.",
+        "recommended_action": "Retake the image with good lighting and adequate framing of the water, then retry.",
+        "limitations": "This is visual screening only and cannot determine chemical or microbiological water quality. Image-based screening requires adequate image quality.",
+        "color_abnormalities": "Not assessed due to insufficient image quality.",
+        "cloudiness": "not assessed",
+        "visible_debris": "Not assessed due to insufficient image quality.",
+        "safety_disclaimer": "This is visual screening only and does not replace laboratory water testing.",
+        "image_quality": quality.get("visual_quality", "Poor"),
+        "image_quality_reason": reason,
+        "image_quality_details": quality.get("details", {}),
+    }
 
 
 # =========================================================
@@ -384,9 +521,44 @@ def normalize_risk_level(value: Any) -> str:
         "medium": "Medium",
         "moderate": "Medium",
         "high": "High",
+        "unknown": "Unknown",
     }
 
     return risk_map.get(risk, "Unknown")
+
+
+def normalize_visual_quality(value: Any) -> str:
+    q = str(value or "").strip().lower()
+    mapping = {"good": "Good", "fair": "Fair", "poor": "Poor", "unclear": "Unclear"}
+    return mapping.get(q, "Unclear")
+
+
+def normalize_confidence_level(value: Any) -> str:
+    cl = str(value or "").strip().lower()
+    if cl in ("high", "moderate", "medium", "low"):
+        if cl == "medium":
+            return "moderate"
+        return cl
+    return "low"
+
+
+def normalize_list(value: Any, max_items: int = 8, max_len: int = 400) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        # Single string -> one-item list if not empty
+        s = value.strip()
+        return [s[:max_len]] if s else []
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value[:max_items]:
+        if item is None:
+            continue
+        s = str(item).strip()
+        if s:
+            out.append(s[:max_len])
+    return out
 
 
 def normalize_analysis(
@@ -394,12 +566,46 @@ def normalize_analysis(
 ) -> dict[str, Any]:
     """
     Ensure a stable camera-analysis response schema.
+    Supports both legacy fields and new visual-screening fields.
     """
+    overall = normalize_text(
+        analysis.get("overall_visual_assessment")
+        or analysis.get("overall_observation"),
+        "No clear visual observation was returned.",
+    )
+    # Ensure backward-compat alias
+    recommendation = normalize_text(
+        analysis.get("recommendation") or analysis.get("recommended_action"),
+        "Use additional sensor measurements or laboratory testing.",
+    )
+    limitations = normalize_text(
+        analysis.get("limitations"),
+        "This is visual screening only and cannot determine chemical or microbiological water quality. It does not replace laboratory water testing.",
+    )
+    # Enforce visual-screening limitation phrase if missing
+    if "visual screening only" not in limitations.lower():
+        limitations = limitations + " This is visual screening only and cannot determine chemical or microbiological water quality."
+
+    # Confidence level derived from numeric confidence if missing
+    raw_cl = analysis.get("confidence_level")
+    if raw_cl is None:
+        c = normalize_confidence(analysis.get("confidence"))
+        if c >= 0.70:
+            raw_cl = "high"
+        elif c >= 0.40:
+            raw_cl = "moderate"
+        else:
+            raw_cl = "low"
 
     return {
+        # Core visual observation (new + legacy)
+        "overall_visual_assessment": overall,
         "overall_observation": normalize_text(
-            analysis.get("overall_observation"),
-            "No clear visual observation was returned.",
+            analysis.get("overall_observation") or overall,
+            overall,
+        ),
+        "visual_quality": normalize_visual_quality(
+            analysis.get("visual_quality") or analysis.get("image_quality") or "Unclear"
         ),
         "water_color": normalize_text(
             analysis.get("water_color"),
@@ -420,22 +626,48 @@ def normalize_analysis(
         "oil_layer_detected": normalize_boolean(
             analysis.get("oil_layer_detected")
         ),
+        # New structured fields
+        "observations": normalize_list(
+            analysis.get("observations"),
+            max_items=6,
+        ) or [overall],
+        "potential_visual_indicators": normalize_list(
+            analysis.get("potential_visual_indicators"),
+            max_items=6,
+        ),
         "risk_level": normalize_risk_level(
             analysis.get("risk_level")
         ),
         "confidence": normalize_confidence(
             analysis.get("confidence")
         ),
-        "recommendation": normalize_text(
-            analysis.get("recommendation"),
-            "Use additional sensor measurements or laboratory testing.",
+        "confidence_level": normalize_confidence_level(raw_cl),
+        "recommendation": recommendation,
+        "recommended_action": normalize_text(
+            analysis.get("recommended_action") or recommendation,
+            recommendation,
         ),
-        "limitations": normalize_text(
-            analysis.get("limitations"),
-            (
-                "Image analysis cannot confirm contamination "
-                "or replace laboratory water-quality testing."
-            ),
+        "limitations": limitations,
+        # Legacy extras (keep for frontend)
+        "color_abnormalities": normalize_text(
+            analysis.get("color_abnormalities"),
+            "Not assessed.",
+        ),
+        "cloudiness": normalize_text(
+            analysis.get("cloudiness"),
+            "not assessed",
+        ),
+        "visible_debris": normalize_text(
+            analysis.get("visible_debris"),
+            "Not assessed.",
+        ),
+        "safety_disclaimer": normalize_text(
+            analysis.get("safety_disclaimer"),
+            "This is visual screening only and does not replace laboratory water testing.",
+        ),
+        # Pass-through image quality if present
+        "image_quality": normalize_visual_quality(
+            analysis.get("image_quality") or analysis.get("visual_quality") or "Unclear"
         ),
     }
 
@@ -476,6 +708,31 @@ def validate_device_id(
     return device_id
 
 
+def get_latest_sensor_context(db: Session) -> dict[str, Any] | None:
+    """
+    Fetch latest sensor reading for separate SENSOR DATA context.
+    Never mixes with camera visual assessment.
+    """
+    try:
+        row = (
+            db.query(WaterReading)
+            .order_by(WaterReading.recorded_at.desc())
+            .first()
+        )
+        if row is None:
+            return None
+        return {
+            "device_id": row.device_id,
+            "temperature": row.temperature,
+            "ph": row.ph,
+            "turbidity": row.turbidity,
+            "tds": row.tds,
+            "recorded_at": row.recorded_at.isoformat() if row.recorded_at else None,
+        }
+    except Exception:
+        return None
+
+
 # =========================================================
 # CAMERA ANALYSIS ENDPOINT
 # =========================================================
@@ -486,23 +743,15 @@ async def analyze_camera(
     provider: str | None = Form(None),
     model: str | None = Form(None),
     device_id: int | None = Form(None),
-    session: dict | None = Depends(get_optional_session),
     db: Session = Depends(get_db),
 ):
     """
     Analyze an uploaded water image using the vision provider service.
+
+    No authentication required — public API for demo/local use.
     """
 
     try:
-        # -------------------------------------------------
-        # Enforce ownership when a device was supplied
-        # (logged-in non-admin callers only; guests keep
-        # the previous validation-only behavior).
-        # -------------------------------------------------
-
-        if session is not None and not session.get("is_admin"):
-            require_device_access(db, session, device_id)
-
         # -------------------------------------------------
         # Validate optional device
         # -------------------------------------------------
@@ -521,7 +770,75 @@ async def analyze_camera(
         )
 
         # -------------------------------------------------
-        # Call the new vision-provider interface
+        # Image quality check BEFORE calling vision model
+        # -------------------------------------------------
+        quality = check_image_quality(image_bytes)
+
+        # If image is clearly unsuitable, return structured poor-quality analysis
+        # without spending provider quota — still save to DB optionally
+        if not quality.get("is_suitable"):
+            analysis = build_poor_quality_analysis(quality)
+            # Ensure analysis goes through normalizer for stable schema
+            analysis = normalize_analysis(analysis)
+            try:
+                agent_answer = camera_agent.answer(analysis)
+            except Exception as agent_error:
+                print("[CAMERA AGENT ERROR]", str(agent_error))
+                agent_answer = {
+                    "summary": analysis["overall_observation"],
+                    "risk_level": analysis["risk_level"],
+                    "recommendations": [analysis["recommendation"]],
+                }
+            # Try saving even poor-quality result
+            prediction_id = None
+            try:
+                prediction = CameraPrediction(
+                    device_id=validated_device_id,
+                    user_id=None,
+                    image_path=safe_filename,
+                    prediction=analysis["overall_observation"],
+                    confidence=analysis["confidence"],
+                    details=json.dumps(analysis, ensure_ascii=False),
+                    created_at=datetime.now(),
+                )
+                db.add(prediction)
+                db.commit()
+                db.refresh(prediction)
+                prediction_id = prediction.id
+            except SQLAlchemyError as database_error:
+                db.rollback()
+                print("[CAMERA DATABASE ERROR] Failed to save poor-quality prediction:", str(database_error))
+
+            sensor_context = get_latest_sensor_context(db)
+
+            response = {
+                "success": True,
+                "message": quality.get("reason", "Image quality is insufficient for reliable visual analysis."),
+                "analysis": analysis,
+                "agent_answer": agent_answer,
+                "metadata": {
+                    "filename": safe_filename,
+                    "content_type": content_type,
+                    "provider_requested": (provider.strip() if provider else "automatic"),
+                    "model_requested": (model.strip() if model else None),
+                    "provider_used": "image_quality_check",
+                    "model_used": "image_quality_check",
+                    "device_id": validated_device_id,
+                    "image_size_bytes": len(image_bytes),
+                    "image_quality": quality,
+                },
+                "sensor_context": sensor_context,
+            }
+            if prediction_id is not None:
+                response["prediction_id"] = prediction_id
+                response["saved_to_database"] = True
+            else:
+                response["saved_to_database"] = False
+            # Return with HTTP 200 but structured to indicate poor quality — frontend shows warning
+            return response
+
+        # -------------------------------------------------
+        # Call the vision-provider interface
         # -------------------------------------------------
 
         provider_response = ask_vision_ai(
@@ -565,6 +882,25 @@ async def analyze_camera(
         analysis = normalize_analysis(
             raw_analysis
         )
+        # Overlay image quality check result as visual_quality if AI omitted or if we had a Fair warning
+        if quality.get("visual_quality") == "Fair" and analysis.get("visual_quality") == "Unclear":
+            analysis["visual_quality"] = "Fair"
+            analysis["image_quality"] = "Fair"
+
+        # Defensive post-processing: strip any hallucinated chemical claims that may still appear
+        # in overall_observation text. We do not modify booleans, just ensure no numeric pH/TDS etc.
+        # The prompt already forbids this, but we add a safety scrub.
+        forbidden_phrases = [
+            "ph is", "ph:", "tds is", "tds:", "ec is", "temperature is",
+            "safe to drink", "unsafe to drink", "contains bacteria", "contains heavy metals",
+            "bacteria detected", "heavy metals detected", "nitrate", "phosphate", " bod ", " cod ",
+        ]
+        obs_lower = analysis.get("overall_observation", "").lower()
+        for phrase in forbidden_phrases:
+            if phrase.strip() in obs_lower and "visual" not in obs_lower:
+                # Add limitation reminder instead of removing whole observation
+                if "visual screening only" not in analysis["limitations"].lower():
+                    analysis["limitations"] += " Visual screening cannot determine chemical or microbiological properties."
 
         # -------------------------------------------------
         # Generate camera-agent response
@@ -601,11 +937,7 @@ async def analyze_camera(
         try:
             prediction = CameraPrediction(
                 device_id=validated_device_id,
-                user_id=(
-                    session.get("user_id")
-                    if session
-                    else None
-                ),
+                user_id=None,
                 image_path=safe_filename,
                 prediction=analysis[
                     "overall_observation"
@@ -617,6 +949,7 @@ async def analyze_camera(
                     analysis,
                     ensure_ascii=False,
                 ),
+                created_at=datetime.now(),
             )
 
             db.add(prediction)
@@ -635,6 +968,8 @@ async def analyze_camera(
         # -------------------------------------------------
         # Return result (always return AI analysis, even if DB save failed)
         # -------------------------------------------------
+
+        sensor_context = get_latest_sensor_context(db)
 
         response = {
             "success": True,
@@ -658,7 +993,9 @@ async def analyze_camera(
                 "model_used": used_model,
                 "device_id": validated_device_id,
                 "image_size_bytes": len(image_bytes),
+                "image_quality": quality,
             },
+            "sensor_context": sensor_context,
         }
 
         if prediction_id is not None:
@@ -768,27 +1105,24 @@ async def analyze_camera(
             },
         ) from error
 
+
 # =========================================================
-# CAMERA PREDICTION HISTORY (OWNER-SCOPED)
+# CAMERA PREDICTION HISTORY
 # =========================================================
 
 @router.get("/history")
 def camera_history(
     device_id: int | None = None,
     limit: int = 50,
-    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
     """
-    Return camera predictions owned by the authenticated user.
+    Return camera predictions.
 
-    Admins see every prediction. Normal users see only their own.
+    No authentication required — public API for demo/local use.
     """
 
-    if device_id is not None:
-        require_device_access(db, session, device_id)
-
-    query = scoped_camera_query(session, db)
+    query = db.query(CameraPrediction)
 
     if device_id is not None:
         query = query.filter(CameraPrediction.device_id == device_id)

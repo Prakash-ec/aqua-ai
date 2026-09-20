@@ -9,12 +9,6 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models import Device
-from backend.routes.auth import (
-    get_current_session,
-    get_optional_session,
-    require_device_access,
-    scoped_device_query,
-)
 
 
 router = APIRouter(
@@ -26,6 +20,7 @@ router = APIRouter(
 # =========================================================
 # REQUEST SCHEMAS
 # =========================================================
+
 
 class DeviceCreate(BaseModel):
     name: str = Field(
@@ -71,11 +66,12 @@ class DeviceUpdate(BaseModel):
 )
 def create_device(
     device_data: DeviceCreate,
-    session: dict | None = Depends(get_optional_session),
     db: Session = Depends(get_db),
 ):
     """
     Register a new ESP32 or other water-monitoring device.
+
+    No authentication required — public API for demo/local use.
     """
 
     try:
@@ -99,11 +95,7 @@ def create_device(
                 if device_data.location
                 else None
             ),
-            user_id=(
-                session.get("user_id")
-                if session
-                else None
-            ),
+            user_id=None,
             created_at=datetime.now(),
         )
 
@@ -143,18 +135,17 @@ def create_device(
 
 @router.get("/")
 def get_devices(
-    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
     """
-    Return devices owned by the authenticated user.
+    Return all devices.
 
-    Admins see every device. Normal users see only their own.
+    No authentication required — public API for demo/local use.
     """
 
     try:
         devices = (
-            scoped_device_query(session, db)
+            db.query(Device)
             .order_by(Device.id.asc())
             .all()
         )
@@ -179,17 +170,16 @@ def get_devices(
 @router.get("/{device_id}")
 def get_device(
     device_id: int,
-    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
     """
-    Return one device by ID for its owner (or any device for admins).
+    Return one device by ID.
+
+    No authentication required — public API for demo/local use.
     """
 
-    require_device_access(db, session, device_id)
-
     device = (
-        scoped_device_query(session, db)
+        db.query(Device)
         .filter(Device.id == device_id)
         .first()
     )
@@ -214,17 +204,16 @@ def get_device(
 def update_device(
     device_id: int,
     device_data: DeviceUpdate,
-    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
     """
-    Update the details of an existing device owned by the caller.
+    Update the details of an existing device.
+
+    No authentication required — public API for demo/local use.
     """
 
-    require_device_access(db, session, device_id)
-
     device = (
-        scoped_device_query(session, db)
+        db.query(Device)
         .filter(Device.id == device_id)
         .first()
     )
@@ -299,20 +288,18 @@ def update_device(
 @router.delete("/{device_id}")
 def delete_device(
     device_id: int,
-    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
     """
-    Delete a device owned by the caller.
+    Delete a device.
 
+    No authentication required — public API for demo/local use.
     This may fail if related readings or camera records are not
     configured with database cascade behavior.
     """
 
-    require_device_access(db, session, device_id)
-
     device = (
-        scoped_device_query(session, db)
+        db.query(Device)
         .filter(Device.id == device_id)
         .first()
     )

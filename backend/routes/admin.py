@@ -1,10 +1,10 @@
 """
-Aqua AI — Administrator-only routes.
+Aqua AI — Administrator routes (public for demo/local use).
 
-Endpoint           Auth        Description
------------------  ----------  -------------------------------------------
-GET  /admin/users  admin       List registered users (no password data)
-PATCH /admin/users/{id}/status  admin   Enable / disable a user account
+Endpoint           Description
+-----------------  -------------------------------------------
+GET  /admin/users  List registered users (no password data)
+GET  /admin/stats  High-level platform statistics
 """
 
 from datetime import datetime, timedelta
@@ -16,7 +16,6 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models import User
-from backend.routes.auth import get_current_admin
 from backend.services.ai_provider import get_provider_debug_info
 
 
@@ -59,10 +58,12 @@ def _serialize_user(user: User) -> dict:
 
 @router.get("/users")
 def list_users(
-    session: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    """Return all registered users. Password hashes are never included."""
+    """Return all registered users. Password hashes are never included.
+
+    No authentication required — public API for demo/local use.
+    """
     users = db.execute(
         select(User).order_by(User.id.asc())
     ).scalars().all()
@@ -78,10 +79,12 @@ def list_users(
 def update_user_status(
     user_id: int,
     payload: UserStatusUpdate,
-    session: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    """Enable or disable a user account (admin only)."""
+    """Enable or disable a user account.
+
+    No authentication required — public API for demo/local use.
+    """
     user = db.execute(
         select(User).where(User.id == user_id)
     ).scalar_one_or_none()
@@ -90,13 +93,6 @@ def update_user_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found.",
-        )
-
-    # Prevent locking out the last active admin by disabling yourself.
-    if user.id == session.get("user_id") and not payload.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You cannot disable your own account.",
         )
 
     user.is_active = payload.is_active
@@ -115,10 +111,12 @@ def update_user_status(
 
 @router.get("/stats")
 def admin_stats(
-    session: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    """High-level platform statistics for the admin dashboard."""
+    """High-level platform statistics for the admin dashboard.
+
+    No authentication required — public API for demo/local use.
+    """
     from backend.models import CameraPrediction, Device, UserSession, WaterReading
 
     users = db.execute(select(User)).scalars().all()

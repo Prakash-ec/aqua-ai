@@ -23,7 +23,6 @@ from backend.routes.chat import router as chat_router
 from backend.routes.ai import router as ai_router
 from backend.routes.water_quality import router as water_quality_router
 from backend.routes.agents import router as agents_router
-from backend.routes.auth import router as auth_router
 from backend.routes.admin import router as admin_router
 
 
@@ -106,23 +105,6 @@ async def lifespan(app: FastAPI):
         print("Aqua AI database connection successful.")
         print("Aqua AI database tables verified.")
 
-        # Ensure the single admin user (prakash) exists.
-        from backend.database import SessionLocal
-        from backend.routes.auth import ensure_prakash_user
-
-        with SessionLocal() as lifespan_db:
-            prakash = ensure_prakash_user(lifespan_db)
-            print(
-                "Aqua AI single-user ready:",
-                f"username={prakash.username}",
-            )
-
-        # Point pre-existing ownership-less rows at the first admin so a
-        # legacy single-admin deployment keeps working after migration.
-        from backend.migrations import backfill_owner_to_first_admin
-
-        backfill_owner_to_first_admin(engine)
-
         # Report AI provider configuration status.
         # Only booleans are printed - API key values are never logged.
         from backend.services.ai_provider import (
@@ -188,7 +170,8 @@ app = FastAPI(
     description=(
         "Smart water-quality monitoring API with sensor data, "
         "water-quality analysis, AI chatbot, camera analysis, "
-        "AI providers, and intelligent agents."
+        "AI providers, and intelligent agents. "
+        "No authentication required — public API for demo/local use."
     ),
     version="1.0.0",
     lifespan=lifespan,
@@ -202,7 +185,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -219,7 +202,6 @@ app.include_router(chat_router)
 app.include_router(ai_router)
 app.include_router(water_quality_router)
 app.include_router(agents_router)
-app.include_router(auth_router)
 app.include_router(admin_router)
 
 
@@ -260,6 +242,9 @@ def health_check():
         database_status = "connected"
 
     except Exception as error:
+        import traceback
+        print(f"[HEALTH CHECK ERROR] {type(error).__name__}: {error}")
+        traceback.print_exc()
         database_status = f"error: {type(error).__name__}"
 
     if database_status != "connected":

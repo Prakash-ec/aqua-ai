@@ -9,11 +9,6 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models import Device, WaterReading
-from backend.routes.auth import (
-    get_current_session,
-    require_device_access,
-    scoped_reading_query,
-)
 from backend.schemas import WaterReadingCreate, WaterReadingResponse
 
 
@@ -97,8 +92,8 @@ def ingest_reading(
     """
     Ingest a sensor reading directly from an ESP32 device.
 
-    No authentication header is required — the device is identified
-    solely by its device_id.  The device must exist and be active.
+    No authentication required — the device is identified
+    solely by its device_id. The device must exist and be active.
     """
 
     validate_reading_values(
@@ -156,7 +151,7 @@ def ingest_reading(
 
 
 # =========================================================
-# CREATE READING (session authenticated)
+# CREATE READING
 # =========================================================
 
 @router.post(
@@ -166,14 +161,11 @@ def ingest_reading(
 )
 def create_reading(
     reading: WaterReadingCreate,
-    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
-    """Save a new water-quality reading for a device the caller owns."""
+    """Save a new water-quality reading for a device."""
 
     validate_reading_values(reading)
-
-    require_device_access(db, session, reading.device_id)
 
     device = (
         db.query(Device)
@@ -189,14 +181,11 @@ def create_reading(
 
     new_reading = WaterReading(
         device_id=reading.device_id,
-        # Derive ownership from the device so a reading is always
-        # associated with the user who owns the device.
         user_id=device.user_id,
         temperature=reading.temperature,
         ph=reading.ph,
         turbidity=reading.turbidity,
         tds=reading.tds,
-        # Set explicitly so saving never depends on a DB-level default.
         recorded_at=datetime.now(),
     )
 
@@ -227,16 +216,16 @@ def create_reading(
 def get_readings(
     device_id: Optional[int] = Query(default=None, ge=1),
     limit: int = Query(default=100, ge=1, le=1000),
-    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
-    """Return recent readings owned by the caller, newest first."""
+    """Return recent readings, newest first.
 
-    query = scoped_reading_query(session, db)
+    No authentication required — public API for demo/local use.
+    """
+
+    query = db.query(WaterReading)
 
     if device_id is not None:
-        require_device_access(db, session, device_id)
-
         device = (
             db.query(Device)
             .filter(Device.id == device_id)
@@ -271,16 +260,16 @@ def get_readings(
 )
 def get_latest_reading(
     device_id: Optional[int] = Query(default=None, ge=1),
-    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
-    """Return the caller's latest reading, optionally for one owned device."""
+    """Return the latest reading, optionally for one device.
 
-    query = scoped_reading_query(session, db)
+    No authentication required — public API for demo/local use.
+    """
+
+    query = db.query(WaterReading)
 
     if device_id is not None:
-        require_device_access(db, session, device_id)
-
         device = (
             db.query(Device)
             .filter(Device.id == device_id)
@@ -323,12 +312,12 @@ def get_latest_reading(
 def get_device_readings(
     device_id: int,
     limit: int = Query(default=100, ge=1, le=1000),
-    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
-    """Return readings of a device owned by the caller."""
+    """Return readings of a device.
 
-    require_device_access(db, session, device_id)
+    No authentication required — public API for demo/local use.
+    """
 
     device = (
         db.query(Device)
@@ -343,7 +332,7 @@ def get_device_readings(
         )
 
     return (
-        scoped_reading_query(session, db)
+        db.query(WaterReading)
         .filter(WaterReading.device_id == device_id)
         .order_by(WaterReading.recorded_at.desc())
         .limit(limit)
@@ -361,12 +350,12 @@ def get_device_readings(
 )
 def get_latest_device_reading(
     device_id: int,
-    session: dict = Depends(get_current_session),
     db: Session = Depends(get_db),
 ):
-    """Return the latest reading of a device owned by the caller."""
+    """Return the latest reading of a device.
 
-    require_device_access(db, session, device_id)
+    No authentication required — public API for demo/local use.
+    """
 
     device = (
         db.query(Device)
@@ -381,7 +370,7 @@ def get_latest_device_reading(
         )
 
     latest = (
-        scoped_reading_query(session, db)
+        db.query(WaterReading)
         .filter(WaterReading.device_id == device_id)
         .order_by(WaterReading.recorded_at.desc())
         .first()

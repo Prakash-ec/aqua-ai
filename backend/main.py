@@ -51,8 +51,12 @@ allowed_origins = [
     "http://127.0.0.1:8001",
     "https://vacprojectv1.netlify.app",
     "https://spectacular-blini-861768.netlify.app",
+    "https://vacproject.netlify.app",
     "https://aqua-ai.netlify.app",
     "https://aqua-ai-frontend.netlify.app",
+    "https://aqua-sense-vac.netlify.app",
+    "http://127.0.0.1:5501",
+    "http://localhost:5501",
 ]
 
 extra_origins = os.getenv("CORS_ORIGINS", "").strip()
@@ -159,6 +163,36 @@ async def lifespan(app: FastAPI):
             type(error).__name__,
             str(error),
         )
+
+    # ---------------------------------------------------------
+    # AUTOMATIC ALERT STARTUP CHECK (backend-driven)
+    # ---------------------------------------------------------
+    # The automatic alert system must never depend on the browser. As soon as
+    # the backend is live the LATEST stored reading of every device is
+    # evaluated: a critical latest reading with no active cooldown sends the
+    # real email immediately instead of waiting for another reading to be
+    # ingested. An active cooldown is reconstructed from the database
+    # timestamps and is never reset by a restart.
+    # Runs in a daemon thread so the email call does not delay API startup.
+    try:
+        from backend.services.alert_service import (
+            start_startup_auto_alert_check,
+            start_startup_auto_alert_watcher,
+        )
+
+        start_startup_auto_alert_check()
+
+        # Optional continuous monitoring loop (disabled unless
+        # AUTO_ALERT_WATCHER_INTERVAL_SECONDS > 0).
+        start_startup_auto_alert_watcher()
+
+    except Exception as error:
+        print(
+            "Aqua AI automatic alert startup check skipped:",
+            type(error).__name__,
+            str(error)[:200],
+        )
+
 
     yield
 

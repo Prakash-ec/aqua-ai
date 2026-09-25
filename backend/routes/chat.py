@@ -7,9 +7,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from backend.database import get_db
-from backend.models import Device, WaterReading
+from backend.database import get_db, utc_iso
+from backend.models import CameraPrediction, Device, WaterReading
 from backend.services.ai_provider import ask_ai
+from backend.services.alert_config import (
+    PH_CRITICAL_HIGH,
+    PH_CRITICAL_LOW,
+    TDS_CRITICAL_HIGH,
+    TEMPERATURE_CRITICAL_HIGH,
+    TURBIDITY_CRITICAL_HIGH,
+)
 from backend.services.water_quality import calculate_water_quality
 
 
@@ -27,11 +34,21 @@ router = APIRouter(
 # REQUEST / RESPONSE MODELS
 # =========================================================
 
+class ChatMessage(BaseModel):
+    role: str = Field(..., min_length=1, max_length=20)
+    content: str = Field(..., min_length=1, max_length=4000)
+
+
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     provider: Optional[str] = None
     model: Optional[str] = None
     device_id: Optional[int] = Field(default=None, ge=1)
+    history: Optional[list[ChatMessage]] = Field(default=None, max_length=20)
+    # Browser timezone offset in minutes, as returned by
+    # Date.getTimezoneOffset() (e.g. -330 for UTC+5:30). Lets the
+    # assistant render stored UTC timestamps in the user's local time.
+    tz_offset_minutes: Optional[int] = Field(default=None, ge=-840, le=840)
 
 
 class ChatResult(BaseModel):
@@ -45,22 +62,48 @@ class ChatResult(BaseModel):
 # =========================================================
 
 SYSTEM_PROMPT = """
-You are Aqua AI Assistant — a professional water-quality assistant.
+You are Aqua AI — a water-quality monitoring and agricultural water-use intelligence assistant.
 
-You receive measured sensor data (PostgreSQL) and derived Aqua AI scores.
+You receive authoritative Aqua AI database context: the latest stored water reading,
+recent historical readings, configured critical thresholds, Aqua AI calculated scores,
+alert-service state, crop-suitability results, and stored camera-analysis results when available.
 
 CRITICAL RULES — follow exactly:
 
+- Prioritize the provided Aqua AI data. Answer numerical questions ONLY from the database context.
+- Never fabricate measurements: pH, TDS (mg/L), turbidity (NTU), temperature (°C), EC, crop scores,
+  water scores, alert status, or camera results. Missing values: say "Unavailable". No measured value → no number.
+- Use measured sensor values EXACTLY as provided. Never invent numbers. Never hard-code readings.
+- Use configured critical thresholds exactly as provided (pH < 5.5 critical, pH > 9.0 critical,
+  turbidity > 10 NTU critical, TDS > 1500 mg/L critical, temperature > 40 °C critical, unless the
+  context gives device-specific configured values — those win).
+- Distinguish three layers: (1) Database facts ("The latest stored pH is 4.5."),
+  (2) Threshold comparison ("This is below the configured critical lower limit of 5.5."),
+  (3) Interpretation ("This indicates strongly acidic water relative to the configured threshold.").
+- Possible causes: say "Possible causes include..." ONLY when evidence is insufficient.
+  Never state an unsupported cause as fact (e.g. never blame industrial pollution from a reading alone).
+- Explain calculations when asked (scores, trends, suitability) using the provided components.
+- State uncertainty when data is insufficient ("The reading alone cannot determine the cause.").
+- Always use units: °C, mg/L, NTU, dS/m, mol/L where applicable. Never "45 C" — write "45 °C".
+- Give numerical evidence: not "pH is bad" but "The latest pH is 4.5, below the configured critical threshold of 5.5."
+- Concise answers for simple questions (direct value + one threshold line). Deeper structured answers
+  (Current condition / Evidence / Why it matters / Recommended next step) for analytical questions.
+- Supported measured parameters ONLY: pH, TDS (mg/L), Turbidity (NTU), Temperature (°C).
+  Estimated EC / salinity class / clarity index are derived — label them calculated/estimated.
+- Unsupported parameters (nitrate, phosphate, dissolved oxygen, BOD, COD, hardness, alkalinity,
+  heavy metals, chlorine, microbial/bacteria/coliform, etc.): say the current sensors do not measure
+  that parameter. Never invent a value. Optionally offer to explain what it means.
+- Drinking questions: screening only. Never state "safe to drink" or "unsafe to drink".
+  Include: Aqua AI provides screening only; sensors do not measure microbiological and several
+  chemical parameters; laboratory testing required.
+- Never claim laboratory certification or regulatory compliance. Recommend laboratory testing
+  where appropriate (drinking, irrigation decisions, unexplained anomalies).
+- The CURRENT database values are authoritative. Conversation history is secondary context only:
+  old measurements mentioned earlier must never override newer database measurements.
+  If asked for the current/latest value, always use the database context.
 - Answer in concise bullet points. Avoid long paragraphs.
 - Use short bold headings (e.g. **Current Water Quality**) followed by 3-6 bullets.
 - Answer the question first. Keep each bullet short (one line if possible).
-- Use measured sensor values EXACTLY as provided. Never invent numbers.
-- Missing values: say "Unavailable". No measured value → no number.
-- Distinguish measured values from Aqua AI calculated scores. Calculated scores come from the existing deterministic Aqua AI analysis logic — do NOT recalculate your own.
-- Supported measured parameters ONLY: pH, TDS (mg/L), Turbidity (NTU), Temperature (°C). Estimated EC / salinity class / clarity index etc. are derived — label them as calculated/estimated.
-- Unsupported parameters (nitrate, phosphate, dissolved oxygen, BOD, COD, hardness, alkalinity, heavy metals, chlorine, microbial/bacteria/coliform, etc.): say the current sensors do not measure that parameter. Never invent a value. Optionally offer to explain what it means.
-- Drinking questions: provide screening only. List pH / TDS / Turbidity status vs configured ranges. Include Important: Aqua AI provides screening only; sensors do not measure microbiological and several chemical parameters. Never state "safe to drink" or "unsafe to drink".
-- Never claim laboratory certification.
 - Do not repeat the user's question. No unnecessary intro like "As an AI...".
 - No raw JSON, no tables unless genuinely useful, no emojis.
 - Default structure: 1 short heading + 3-6 bullets, optional second heading + 2-4 bullets.
@@ -76,7 +119,7 @@ Example for "What is my current water quality?":
 • pH: 7.20
 • TDS: 320 mg/L
 • Turbidity: 1.80 NTU
-• Temperature: 26.0°C
+• Temperature: 26.0 °C
 **Aqua AI Analysis**
 • Score: 96/100
 • pH: Good
@@ -106,16 +149,27 @@ def format_value(
         return "Unavailable"
 
 
-def format_ts(ts: Any) -> str:
+def format_ts(ts: Any, tz_offset_minutes: Optional[int] = None) -> str:
+    """Format a stored (naive-UTC) timestamp for chat answers.
+
+    With the browser's tz offset the time is shown in the user's local
+    time; without it the UTC time is shown with an explicit UTC label so
+    it is never silently misread as local time.
+    """
     if ts is None:
         return "Unavailable"
     try:
-        from datetime import datetime
+        from datetime import datetime, timedelta, timezone
         if isinstance(ts, str):
             dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         else:
             dt = ts
-        return dt.strftime("%d %b %Y, %I:%M %p")
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if tz_offset_minutes is not None:
+            local = dt.astimezone(timezone(timedelta(minutes=-tz_offset_minutes)))
+            return local.strftime("%d %b %Y, %I:%M %p")
+        return dt.astimezone(timezone.utc).strftime("%d %b %Y, %I:%M %p UTC")
     except Exception:
         return str(ts)
 
@@ -136,11 +190,7 @@ def reading_to_dict(
         "ph": reading.ph,
         "turbidity": reading.turbidity,
         "tds": reading.tds,
-        "recorded_at": (
-            reading.recorded_at.isoformat()
-            if reading.recorded_at
-            else None
-        ),
+        "recorded_at": utc_iso(reading.recorded_at),
     }
 
 
@@ -352,6 +402,7 @@ def direct_sensor_answer(
     question: str,
     latest: Optional[WaterReading],
     quality: Optional[dict] = None,
+    tz_offset_minutes: Optional[int] = None,
 ) -> Optional[str]:
     sensor_type = detect_direct_sensor_question(question)
     if sensor_type is None:
@@ -362,7 +413,7 @@ def direct_sensor_answer(
             "• No water-quality readings available yet.\n"
             "• Please ensure your Aqua AI device has submitted a reading."
         )
-    ts = format_ts(latest.recorded_at)
+    ts = format_ts(latest.recorded_at, tz_offset_minutes)
     if sensor_type == "ph":
         status = _status_label(quality, "ph")
         return (
@@ -626,7 +677,8 @@ def detect_history(question: str) -> Optional[str]:
     return None
 
 
-def history_answer(param: str, recent: list[WaterReading], latest: WaterReading) -> str:
+def history_answer(param: str, recent: list[WaterReading], latest: WaterReading,
+                   tz_offset_minutes: Optional[int] = None) -> str:
     if not recent or len(recent) < 1:
         return "**Trend**\n• Not enough readings to compare."
     # recent is ordered desc (latest first). Earliest is last.
@@ -637,8 +689,8 @@ def history_answer(param: str, recent: list[WaterReading], latest: WaterReading)
         # Show all
         lines = []
         lines.append("**Trend**")
-        lines.append(f"• Earlier: {format_ts(earliest.recorded_at)}")
-        lines.append(f"• Latest: {format_ts(latest.recorded_at)}")
+        lines.append(f"• Earlier: {format_ts(earliest.recorded_at, tz_offset_minutes)}")
+        lines.append(f"• Latest: {format_ts(latest.recorded_at, tz_offset_minutes)}")
         lines.append("• Specify a parameter (pH, TDS, turbidity, temperature) for detailed change.")
         return "\n".join(lines)
     if latest_val is None or earliest_val is None:
@@ -688,6 +740,512 @@ def build_quality_context(reading: Optional[WaterReading]) -> Optional[dict[str,
 
 
 # =========================================================
+# CRITICAL THRESHOLDS — single source of truth (alert_config)
+# =========================================================
+
+def get_threshold_context(db=None) -> dict[str, Any]:
+    """Return configured critical thresholds, preferring DB AlertConfiguration."""
+    thresholds = {
+        "ph_low": PH_CRITICAL_LOW,
+        "ph_high": PH_CRITICAL_HIGH,
+        "turbidity_high": TURBIDITY_CRITICAL_HIGH,
+        "turbidity_unit": "NTU",
+        "tds_high": TDS_CRITICAL_HIGH,
+        "tds_unit": "mg/L",
+        "temperature_high": TEMPERATURE_CRITICAL_HIGH,
+        "temperature_unit": "°C",
+    }
+    if db is not None:
+        try:
+            from backend.services.alert_service import get_effective_config
+            cfg = get_effective_config(db)
+            thresholds = {
+                "ph_low": float(getattr(cfg, "ph_min", PH_CRITICAL_LOW)),
+                "ph_high": float(getattr(cfg, "ph_max", PH_CRITICAL_HIGH)),
+                "turbidity_high": float(getattr(cfg, "turbidity_max", TURBIDITY_CRITICAL_HIGH)),
+                "turbidity_unit": "NTU",
+                "tds_high": float(getattr(cfg, "tds_max", TDS_CRITICAL_HIGH)),
+                "tds_unit": "mg/L",
+                "temperature_high": float(getattr(cfg, "temperature_max", TEMPERATURE_CRITICAL_HIGH)),
+                "temperature_unit": "°C",
+            }
+        except Exception:
+            pass
+    return thresholds
+
+
+def evaluate_critical_params(latest: WaterReading, thresholds: dict[str, Any]) -> list[dict[str, Any]]:
+    """Compare latest reading against configured critical thresholds."""
+    violations: list[dict[str, Any]] = []
+    if latest is None:
+        return violations
+    try:
+        if latest.ph is not None:
+            if float(latest.ph) < float(thresholds["ph_low"]):
+                violations.append({"parameter": "ph", "value": latest.ph,
+                                   "comparison": "below", "threshold": thresholds["ph_low"], "unit": ""})
+            elif float(latest.ph) > float(thresholds["ph_high"]):
+                violations.append({"parameter": "ph", "value": latest.ph,
+                                   "comparison": "above", "threshold": thresholds["ph_high"], "unit": ""})
+        if latest.turbidity is not None and float(latest.turbidity) > float(thresholds["turbidity_high"]):
+            violations.append({"parameter": "turbidity", "value": latest.turbidity,
+                               "comparison": "above", "threshold": thresholds["turbidity_high"], "unit": " NTU"})
+        if latest.tds is not None and float(latest.tds) > float(thresholds["tds_high"]):
+            violations.append({"parameter": "tds", "value": latest.tds,
+                               "comparison": "above", "threshold": thresholds["tds_high"], "unit": " mg/L"})
+        if latest.temperature is not None and float(latest.temperature) > float(thresholds["temperature_high"]):
+            violations.append({"parameter": "temperature", "value": latest.temperature,
+                               "comparison": "above", "threshold": thresholds["temperature_high"], "unit": " °C"})
+    except (TypeError, ValueError):
+        pass
+    return violations
+
+
+# ---- Critical-status / threshold questions ----
+
+def detect_critical_question(question: str) -> bool:
+    q = normalize_question(question)
+    return bool(re.search(
+        r"is\s+(my\s+)?water\s+(safe|critical|ok|okay|good|bad)|"
+        r"what(\'s| is) wrong|which parameter.*(caus|problem|worst|biggest)|"
+        r"why.*(critical|alert|bad|unsafe)|is.*critical|critical.*(status|reading)|"
+        r"what.*causing.*problem|biggest problem",
+        q,
+    ))
+
+
+def detect_threshold_question(question: str) -> bool:
+    q = normalize_question(question)
+    return bool(re.search(
+        r"threshold|limit|acceptable range|normal range|critical (value|level|limit)|"
+        r"what.*(should|normal).*(ph|tds|turbidity|temperature)",
+        q,
+    ))
+
+
+def critical_status_answer(latest: Optional[WaterReading], thresholds: dict[str, Any],
+                           device_name: Optional[str] = None,
+                           tz_offset_minutes: Optional[int] = None) -> str:
+    if latest is None:
+        return ("**Water Status**\n"
+                "• I couldn't retrieve the latest stored water reading, "
+                "so I can't reliably determine the current condition.")
+    violations = evaluate_critical_params(latest, thresholds)
+    ts = format_ts(latest.recorded_at, tz_offset_minutes)
+    unit_map = {"ph": "", "turbidity": " NTU", "tds": " mg/L", "temperature": " °C"}
+    dec_map = {"ph": 2, "turbidity": 2, "tds": 0, "temperature": 1}
+    header = "**Current Condition**" if violations else "**Current Condition**"
+    lines = [header]
+    dev = f" ({device_name})" if device_name else ""
+    if violations:
+        lines.append(f"• Latest stored reading{dev} is CRITICAL — "
+                     f"{len(violations)} parameter(s) exceed configured thresholds.")
+        lines.append("")
+        lines.append("**Evidence**")
+        for v in violations:
+            p = v["parameter"]
+            val = format_value(v["value"], dec_map.get(p, 2)) + unit_map.get(p, "")
+            thr = v["threshold"]
+            if p == "ph":
+                limit = f"{'lower' if v['comparison'] == 'below' else 'upper'} limit of {thr}"
+                lines.append(f"• pH is {val}, {v['comparison']} the configured critical {limit}.")
+            elif p == "turbidity":
+                lines.append(f"• Turbidity is {val}, above the configured critical threshold of {thr} NTU.")
+            elif p == "tds":
+                lines.append(f"• TDS is {val}, above the configured critical threshold of {thr} mg/L.")
+            else:
+                lines.append(f"• Temperature is {val}, above the configured critical threshold of {thr} °C.")
+        # Biggest problem = first violation ordered ph, turbidity, tds, temperature by severity distance
+        lines.append("")
+        lines.append("**Why it matters**")
+        worst = violations[0]["parameter"]
+        pretty = {"ph": "pH", "turbidity": "Turbidity", "tds": "TDS/salinity", "temperature": "Temperature"}.get(worst, worst)
+        lines.append(f"• {pretty} is the biggest limiting factor relative to its configured threshold.")
+        lines.append("• The reading alone cannot determine the cause; possible causes depend "
+                     "on the water source and surrounding conditions.")
+        lines.append("")
+        lines.append("**Recommended next step**")
+        lines.append("• Re-check with a fresh reading and consider laboratory testing before irrigation or drinking use.")
+        lines.append(f"• Recorded: {ts}")
+    else:
+        lines.append(f"• Latest stored reading{dev} is within configured critical thresholds.")
+        lines.append("")
+        lines.append("**Evidence**")
+        lines.append(f"• pH: {format_value(latest.ph)} (critical limits {thresholds['ph_low']}–{thresholds['ph_high']})")
+        lines.append(f"• Turbidity: {format_value(latest.turbidity)} NTU (critical above {thresholds['turbidity_high']} NTU)")
+        lines.append(f"• TDS: {format_value(latest.tds, 0)} mg/L (critical above {thresholds['tds_high']} mg/L)")
+        lines.append(f"• Temperature: {format_value(latest.temperature, 1)} °C (critical above {thresholds['temperature_high']} °C)")
+        lines.append(f"• Recorded: {ts}")
+    return "\n".join(lines)
+
+
+def threshold_explanation_answer(thresholds: dict[str, Any]) -> str:
+    return (
+        "**Configured Critical Thresholds**\n"
+        f"• pH below {thresholds['ph_low']} → critical (strongly acidic relative to threshold)\n"
+        f"• pH above {thresholds['ph_high']} → critical (strongly alkaline relative to threshold)\n"
+        f"• Turbidity above {thresholds['turbidity_high']} NTU → critical\n"
+        f"• TDS above {thresholds['tds_high']} mg/L → critical\n"
+        f"• Temperature above {thresholds['temperature_high']} °C → critical\n"
+        "\n"
+        "**How to read them**\n"
+        "• A measured value is a database fact; exceeding a threshold is a threshold comparison.\n"
+        "• Interpretation (e.g. acidic, cloudy, saline) follows from the comparison, not the value alone."
+    )
+
+
+# ---- Alert questions ----
+
+def detect_alert_question(question: str) -> bool:
+    q = normalize_question(question)
+    return bool(re.search(
+        r"alert|notification|email.*sent|cooldown|next.*alert|automatic.*alert|"
+        r"why did i receive|which parameter triggered|when can.*next|"
+        r"is.*alert.*(enabled|disabled|on|off|active)",
+        q,
+    ))
+
+
+def alert_status_answer(db, latest: Optional[WaterReading]) -> str:
+    try:
+        from backend.services.alert_service import get_auto_status
+        st = get_auto_status(db)
+    except Exception:
+        return ("**Alerts**\n"
+                "• I couldn't retrieve the alert-service state, "
+                "so I can't reliably answer the alert question.")
+    if latest is None:
+        return ("**Alerts**\n"
+                "• I couldn't retrieve the latest stored water reading, "
+                "so I can't reliably determine the current condition.")
+    lines = ["**Alert Status**"]
+    enabled = bool(st.get("alerts_enabled", True))
+    lines.append(f"• Automatic alerting is {'enabled' if enabled else 'disabled'}.")
+    overall = st.get("overall") or {}
+    cd_active = bool(overall.get("cooldown_active"))
+    remaining = int(overall.get("next_eligible_in_seconds") or 0)
+    next_at = overall.get("next_eligible_at")
+    last_at = overall.get("last_notified_at")
+    crits = st.get("critical_parameters") or []
+    if crits:
+        params = ", ".join(c.get("parameter", "?") for c in crits)
+        lines.append(f"• Latest reading triggered critical parameter(s): {params}.")
+    else:
+        lines.append("• Latest reading has no critical parameter triggering an alert.")
+    if enabled and cd_active and remaining > 0:
+        mm = remaining // 60
+        ss = remaining % 60
+        lines.append(f"• Cooldown is active — next automatic alert eligible in {mm:02d}:{ss:02d}.")
+        if next_at:
+            lines.append(f"• Next eligible at: {next_at}.")
+    elif enabled:
+        lines.append("• No active cooldown — ready for the next critical reading.")
+    else:
+        lines.append("• Cooldown countdown is not shown while automatic alerts are disabled.")
+    if last_at:
+        lines.append(f"• Last automatic notification: {last_at}.")
+    if not st.get("provider_configured", True):
+        lines.append("• Email provider is not configured.")
+    lines.append("• Manual alerts remain available and bypass the automatic cooldown.")
+    return "\n".join(lines)
+
+
+# ---- Crop questions (named crops, grounded in existing Aqua AI analysis) ----
+
+CROP_PROFILES: dict[str, dict[str, str]] = {
+    # Qualitative guidance only — no invented sensor thresholds.
+    # Suitability is derived from the existing Aqua AI score + limiting factor.
+    "sugarcane": {"note": "Sugarcane prefers near-neutral pH and low-to-moderate salinity; "
+                           "high TDS/turbidity and extreme pH are the usual limiting factors."},
+    "rice": {"note": "Rice tolerates standing water but is sensitive to high salinity and extreme pH."},
+    "wheat": {"note": "Wheat prefers neutral pH and low salinity; high TDS is the usual limiting factor."},
+    "cotton": {"note": "Cotton tolerates moderate salinity better than most cereals; extreme pH still limits use."},
+    "vegetables": {"note": "Most vegetables prefer near-neutral pH and low salinity; test before irrigation."},
+    "general": {"note": "General irrigation guidance: near-neutral pH, low turbidity, and low TDS are preferred."},
+}
+
+
+def detect_crop_question(question: str) -> Optional[str]:
+    q = normalize_question(question)
+    if not re.search(r"crop|sugarcane|rice|wheat|cotton|vegetable|irrigat|agricultur|suitab.*(farm|irrigat|agricultur)", q):
+        return None
+    for crop in ("sugarcane", "rice", "wheat", "cotton"):
+        if crop in q:
+            return crop
+    if "vegetable" in q:
+        return "vegetables"
+    return "general"
+
+
+def crop_suitability_answer(latest: Optional[WaterReading], quality: Optional[dict],
+                            crop: str, thresholds: dict[str, Any]) -> str:
+    if latest is None or not quality:
+        return ("**Crop Suitability**\n"
+                "• No sensor readings available for suitability check.")
+    params = quality.get("parameters", {})
+    score = quality.get("quality_score")
+    if score is None:
+        overall = "Unavailable"
+    elif score >= 80:
+        overall = "Highly suitable"
+    elif score >= 60:
+        overall = "Suitable"
+    elif score >= 40:
+        overall = "Moderately suitable"
+    else:
+        overall = "Low suitability"
+    worst = None
+    for k in ("turbidity", "tds", "ph", "temperature"):
+        if params.get(k, {}).get("status") in ("Critical", "Warning"):
+            worst = k
+            break
+    label_map = {"ph": "pH", "tds": "Salinity/TDS", "turbidity": "Turbidity", "temperature": "Temperature"}
+    limiting = label_map.get(worst, "None — all parameters good") if worst else "None — all parameters good"
+    crop_label = crop.capitalize() if crop != "general" else "General irrigation"
+    profile_note = CROP_PROFILES.get(crop, CROP_PROFILES["general"])["note"]
+    lines = [f"**Crop Suitability — {crop_label}**"]
+    lines.append(f"• Overall suitability: {overall} ({score if score is not None else '--'}/100, Aqua AI calculated score)")
+    lines.append(f"• Main limiting factor: {limiting}")
+    lines.append("")
+    lines.append("**Evidence (measured values vs configured critical thresholds)**")
+    lines.append(f"• pH: {format_value(latest.ph)} (critical limits {thresholds['ph_low']}–{thresholds['ph_high']}) — {params.get('ph', {}).get('status', 'Unavailable')}")
+    lines.append(f"• TDS: {format_value(latest.tds, 0)} mg/L (critical above {thresholds['tds_high']} mg/L) — {params.get('tds', {}).get('status', 'Unavailable')}")
+    lines.append(f"• Turbidity: {format_value(latest.turbidity)} NTU (critical above {thresholds['turbidity_high']} NTU) — {params.get('turbidity', {}).get('status', 'Unavailable')}")
+    lines.append(f"• Temperature: {format_value(latest.temperature, 1)} °C (critical above {thresholds['temperature_high']} °C) — {params.get('temperature', {}).get('status', 'Unavailable')}")
+    lines.append("")
+    lines.append("**Why it matters**")
+    lines.append(f"• {profile_note}")
+    if worst:
+        lines.append(f"• {limiting} is the parameter limiting {crop_label.lower()} use in this reading.")
+    lines.append("• Aqua AI has no crop-specific laboratory thresholds configured; this is screening from sensor data only.")
+    lines.append("")
+    lines.append("**Recommended next step**")
+    lines.append("• Test soil and water in a laboratory before large-scale irrigation.")
+    return "\n".join(lines)
+
+
+# ---- Camera-analysis questions ----
+
+def detect_camera_question(question: str) -> bool:
+    q = normalize_question(question)
+    return bool(re.search(
+        r"camera|image|photo|picture|algae|foam|particles|microplastic|visual|"
+        r"what did.*(detect|show|analysis)|was.*detected|last.*camera",
+        q,
+    ))
+
+
+def camera_result_answer(db, device_id: Optional[int] = None) -> str:
+    try:
+        query = db.query(CameraPrediction)
+        if device_id is not None:
+            query = query.filter(CameraPrediction.device_id == device_id)
+        row = query.order_by(CameraPrediction.created_at.desc(), CameraPrediction.id.desc()).first()
+    except Exception:
+        row = None
+    if row is None:
+        return ("**Camera Analysis**\n"
+                "• No camera-analysis result is currently available.\n"
+                "• Upload a water image for visual screening first.")
+    import json as _json
+    detail_text = ""
+    try:
+        details = _json.loads(row.details) if row.details else {}
+        detail_text = str(details.get("overall_visual_assessment")
+                          or details.get("overall_observation") or "").strip()
+    except Exception:
+        details = {}
+    conf = row.confidence
+    lines = ["**Latest Camera Analysis**"]
+    lines.append(f"• Observation: {row.prediction or detail_text or 'Unavailable'}")
+    if detail_text and detail_text != (row.prediction or ""):
+        lines.append(f"• Visual detail: {detail_text[:300]}")
+    lines.append(f"• Confidence: {conf if conf is not None else 'Unavailable'}")
+    try:
+        created = utc_iso(row.created_at) if row.created_at else None
+    except Exception:
+        created = None
+    lines.append(f"• Analyzed at: {created or 'Unavailable'}")
+    lines.append("• Note: visual screening only — cannot determine chemical or microbiological quality.")
+    return "\n".join(lines)
+
+
+# ---- Extended historical analysis ----
+
+def detect_history_extended(question: str) -> Optional[str]:
+    base = detect_history(question)
+    if base:
+        return base
+    q = normalize_question(question)
+    if re.search(r"histor|last few readings|over the last|getting worse|getting better|improv|compar|highest|lowest|average|recently|lately|trend|worse|better", q):
+        if "temperature" in q or "temp" in q:
+            return "temperature"
+        if "turbidity" in q or "cloud" in q:
+            return "turbidity"
+        if "tds" in q or "dissolved" in q:
+            return "tds"
+        if re.search(r"\bp\s*h\b", q):
+            return "ph"
+        return "generic"
+    return None
+
+
+def history_extended_answer(param: str, recent: list, latest: WaterReading,
+                            tz_offset_minutes: Optional[int] = None) -> str:
+    if not recent or len(recent) < 1:
+        return "**Trend**\n• Not enough readings to compare."
+    if param == "generic":
+        # Compare all params latest vs earliest + quality direction
+        earliest = recent[-1]
+        lines = ["**Recent Water-Quality Change**"]
+        lines.append(f"• Compared {format_ts(earliest.recorded_at, tz_offset_minutes)} → {format_ts(latest.recorded_at, tz_offset_minutes)} ({len(recent)} readings).")
+        for p, unit, dec, label in [("ph", "", 2, "pH"), ("tds", " mg/L", 0, "TDS"),
+                                    ("turbidity", " NTU", 2, "Turbidity"), ("temperature", " °C", 1, "Temperature")]:
+            try:
+                lv = getattr(latest, p, None)
+                ev = getattr(earliest, p, None)
+                if lv is None or ev is None:
+                    lines.append(f"• {label}: Unavailable")
+                    continue
+                diff = float(lv) - float(ev)
+                direction = "increased" if diff > 0.005 else "decreased" if diff < -0.005 else "stable"
+                lines.append(f"• {label}: {format_value(ev, dec)}{unit} → {format_value(lv, dec)}{unit} ({direction})")
+            except (TypeError, ValueError):
+                lines.append(f"• {label}: Unavailable")
+        lines.append("")
+        lines.append("**What it means**")
+        lines.append("• Rising TDS/turbidity or drifting pH across consecutive readings suggests water quality is getting worse; "
+                     "stable or recovering values suggest improvement.")
+        return "\n".join(lines)
+    # Per-parameter stats over window
+    vals: list[float] = []
+    for r in recent:
+        v = getattr(r, param, None)
+        if v is not None:
+            try:
+                vals.append(float(v))
+            except (TypeError, ValueError):
+                pass
+    if not vals:
+        return f"**{param.upper()} Trend**\n• Not enough data for {param}."
+    unit = {"ph": "", "tds": " mg/L", "turbidity": " NTU", "temperature": " °C"}.get(param, "")
+    dec = 2 if param != "temperature" else 1
+    if param != "tds":
+        dec = 2 if param in ("ph", "turbidity") else 1
+    else:
+        dec = 0
+    label = param.upper() if param != "temperature" else "Temperature"
+    earliest_v = vals[-1]
+    latest_v = vals[0]
+    diff = latest_v - earliest_v
+    direction = "Increased" if diff > 0 else "Decreased" if diff < 0 else "No change"
+    lines = [f"**{label} Trend ({len(vals)} readings)**"]
+    lines.append(f"• Earliest {label}: {format_value(earliest_v, dec)}{unit}")
+    lines.append(f"• Latest {label}: {format_value(latest_v, dec)}{unit}")
+    lines.append(f"• Change: {format_value(diff, dec)}{unit}")
+    lines.append(f"• Direction: {direction}")
+    lines.append(f"• Highest: {format_value(max(vals), dec)}{unit} · Lowest: {format_value(min(vals), dec)}{unit}")
+    lines.append(f"• Average: {format_value(sum(vals) / len(vals), dec)}{unit}")
+    lines.append("")
+    lines.append("**What it means**")
+    if abs(diff) < 0.01:
+        lines.append(f"• {label} has remained stable.")
+    elif direction == "Increased":
+        if param == "tds":
+            lines.append("• Higher TDS indicates more dissolved solids.")
+        elif param == "turbidity":
+            lines.append("• Higher turbidity means cloudier water.")
+        elif param == "ph":
+            lines.append("• Higher pH means more alkaline.")
+        else:
+            lines.append(f"• {label} has risen — monitor the trend.")
+    else:
+        lines.append(f"• {label} has decreased — monitor the trend.")
+    return "\n".join(lines)
+
+
+def sanitize_history(history) -> list[dict[str, str]]:
+    """Keep last 10 valid role/content pairs for LLM context."""
+    if not history:
+        return []
+    out: list[dict[str, str]] = []
+    for m in history[-10:]:
+        try:
+            role = str(getattr(m, "role", "") or "").strip().lower()
+            content = str(getattr(m, "content", "") or "").strip()
+        except Exception:
+            continue
+        if role not in ("user", "assistant"):
+            continue
+        if not content:
+            continue
+        out.append({"role": role, "content": content[:2000]})
+    return out
+
+
+def build_selected_context(question: str, latest, recent, device, quality_result,
+                           thresholds: dict[str, Any], db, device_id=None) -> dict[str, Any]:
+    """Build a relevant (not whole-DB) context based on question type."""
+    q = normalize_question(question)
+    context: dict[str, Any] = {
+        "latest_reading": reading_to_dict(latest),
+        "device": ({"id": device.id, "name": device.name, "location": device.location,
+                    "device_type": device.device_type} if device is not None else None),
+        "critical_thresholds": thresholds,
+        "calculated_quality": quality_result,
+    }
+    needs_history = bool(detect_history_extended(question)) or any(
+        w in q for w in ("trend", "history", "worse", "better", "improv", "compar", "recently", "lately", "highest", "average"))
+    if needs_history:
+        context["recent_readings"] = [reading_to_dict(r) for r in (recent or [])]
+    elif re.search(r"camera|image|photo|algae|foam|particles", q):
+        pass  # camera handled separately; keep context small
+    else:
+        # Default: latest + quality + thresholds is enough; add last 3 for light trend cues
+        context["recent_readings"] = [reading_to_dict(r) for r in (recent or [])[:3]]
+    if detect_alert_question(question):
+        try:
+            from backend.services.alert_service import get_auto_status
+            st = get_auto_status(db)
+            context["alert_state"] = {
+                "alerts_enabled": st.get("alerts_enabled"),
+                "provider_configured": st.get("provider_configured"),
+                "latest_status": st.get("latest_status"),
+                "critical_parameters": st.get("critical_parameters"),
+                "overall": st.get("overall"),
+            }
+        except Exception:
+            context["alert_state"] = "unavailable"
+    crop = detect_crop_question(question)
+    if crop and crop != "general" or (crop == "general" and re.search(r"crop|irrigat|agricultur", q)):
+        context["crop_profile"] = {"crop": crop, "note": CROP_PROFILES.get(crop, CROP_PROFILES["general"])["note"]}
+    if detect_camera_question(question):
+        try:
+            cq = db.query(CameraPrediction)
+            if device_id is not None:
+                cq = cq.filter(CameraPrediction.device_id == device_id)
+            row = cq.order_by(CameraPrediction.created_at.desc(), CameraPrediction.id.desc()).first()
+            if row is None:
+                context["camera_analysis"] = None
+            else:
+                context["camera_analysis"] = {
+                    "prediction": row.prediction, "confidence": row.confidence,
+                    "details": (row.details[:2000] if row.details else None),
+                    "created_at": utc_iso(row.created_at),
+                }
+        except Exception:
+            context["camera_analysis"] = "unavailable"
+    # Critical violations always help threshold/critical questions
+    if detect_critical_question(question) or detect_threshold_question(question) or detect_crop_question(question):
+        context["critical_violations"] = [
+            {"parameter": v["parameter"], "value": v["value"], "comparison": v["comparison"],
+             "threshold": v["threshold"], "unit": v["unit"]}
+            for v in evaluate_critical_params(latest, thresholds)
+        ] if latest is not None else []
+    return context
+
+
+# =========================================================
 # CHAT ENDPOINT
 # =========================================================
 
@@ -734,20 +1292,50 @@ def chat_water(
                 return {"success": True, "answer": "**Drinking-Water Screening**\n• No sensor readings available.", "model": "postgresql"}
             return {"success": True, "answer": drinking_answer(latest, quality_result), "model": "postgresql-grounded"}
 
-        # 4. Agriculture suitability
-        if detect_agriculture(question):
+        # Thresholds are authoritative from backend config (DB preferred)
+        thresholds = get_threshold_context(db)
+        device_name = device.name if device is not None else None
+
+        # 4. Critical-status questions (uses DB reading + configured thresholds)
+        if detect_critical_question(question):
+            return {"success": True,
+                    "answer": critical_status_answer(latest, thresholds, device_name, request.tz_offset_minutes),
+                    "model": "postgresql-grounded"}
+
+        # 5. Threshold explanation
+        if detect_threshold_question(question):
+            return {"success": True, "answer": threshold_explanation_answer(thresholds),
+                    "model": "postgresql-grounded"}
+
+        # 6. Alert-service questions (uses live alert state, never guessed)
+        if detect_alert_question(question):
+            return {"success": True, "answer": alert_status_answer(db, latest),
+                    "model": "postgresql-grounded"}
+
+        # 7. Camera-analysis questions (uses stored result or states none available)
+        if detect_camera_question(question):
+            return {"success": True,
+                    "answer": camera_result_answer(db, request.device_id),
+                    "model": "postgresql-grounded"}
+
+        # 8. Crop / agriculture questions (named crops grounded in Aqua AI analysis)
+        crop = detect_crop_question(question)
+        if crop is not None or detect_agriculture(question):
             if latest is None:
                 return {"success": True, "answer": "**Agriculture**\n• No sensor readings available.", "model": "postgresql"}
-            return {"success": True, "answer": agriculture_answer(latest, quality_result), "model": "postgresql-grounded"}
+            resolved_crop = crop or "general"
+            return {"success": True,
+                    "answer": crop_suitability_answer(latest, quality_result, resolved_crop, thresholds),
+                    "model": "postgresql-grounded"}
 
-        # 5. Why score low
+        # 9. Why score low
         if detect_why_score(question):
             if latest is None:
                 return {"success": True, "answer": "**Aqua AI Score**\n• No readings available.", "model": "postgresql"}
             return {"success": True, "answer": why_score_answer(latest, quality_result), "model": "postgresql-grounded"}
 
-        # 6. History / trend
-        hist_param = detect_history(question)
+        # 10. History / trend (extended: stats, comparison, improvement)
+        hist_param = detect_history_extended(question)
         if hist_param:
             if latest is None:
                 return {"success": True, "answer": "**Trend**\n• No readings available.", "model": "postgresql"}
@@ -755,62 +1343,66 @@ def chat_water(
             if request.device_id is not None:
                 recent_query = recent_query.filter(WaterReading.device_id == request.device_id)
             recent = recent_query.order_by(WaterReading.recorded_at.desc()).limit(12).all()
-            return {"success": True, "answer": history_answer(hist_param, recent, latest), "model": "postgresql-grounded"}
+            if hist_param in ("ph", "tds", "turbidity", "temperature", "generic"):
+                return {"success": True, "answer": history_extended_answer(hist_param, recent, latest, request.tz_offset_minutes), "model": "postgresql-grounded"}
+                return {"success": True, "answer": history_answer(hist_param, recent, latest, request.tz_offset_minutes), "model": "postgresql-grounded"}
 
-        # 7. Overall water quality
+        # 11. Overall water quality
         if detect_water_quality_overall(question):
             if latest is None:
                 return {"success": True, "answer": "**Sensor data**\n• No readings available yet.", "model": "postgresql"}
             return {"success": True, "answer": build_water_quality_answer(latest, quality_result), "model": "postgresql-grounded"}
 
-        # 8. Direct sensor questions (simple)
-        direct_answer = direct_sensor_answer(question=question, latest=latest, quality=quality_result)
+        # 12. Direct sensor questions (simple)
+        direct_answer = direct_sensor_answer(question=question, latest=latest, quality=quality_result, tz_offset_minutes=request.tz_offset_minutes)
         if direct_answer is not None:
             return {"success": True, "answer": direct_answer, "model": "postgresql-direct"}
 
-        # 9. No data guard
+        # 13. No data guard (never fabricate)
         if latest is None:
-            return {"success": True, "answer": "**Sensor data**\n• No water-quality readings available yet.\n• Please ensure your Aqua AI device has submitted a reading.", "model": "postgresql"}
+            return {"success": True, "answer": "**Sensor data**\n• I couldn't retrieve the latest stored water reading, so I can't reliably determine the current condition.", "model": "postgresql"}
 
-        # 10. Fallback to LLM for remaining questions
+        # 14. Fallback to LLM with selected relevant context + conversation memory
         recent_query = db.query(WaterReading)
         if request.device_id is not None:
             recent_query = recent_query.filter(WaterReading.device_id == request.device_id)
         recent = recent_query.order_by(WaterReading.recorded_at.desc()).limit(12).all()
 
-        latest_dict = reading_to_dict(latest)
-        recent_dict = [reading_to_dict(r) for r in recent]
-        quality_result = build_quality_context(latest)
-        device_dict = None
-        if device is not None:
-            device_dict = {"id": device.id, "name": device.name, "location": device.location, "device_type": device.device_type}
-        context = {
-            "latest_reading": latest_dict,
-            "recent_readings": recent_dict,
-            "device": device_dict,
-            "calculated_quality": quality_result,
-        }
+        context = build_selected_context(question, latest, recent, device, quality_result,
+                                         thresholds, db, request.device_id)
+        past = sanitize_history(request.history)
+        history_block = ""
+        if past:
+            history_block = ("\nCONVERSATION HISTORY (secondary context only — current database values above "
+                             "are authoritative and must override older mentioned values):\n"
+                             + json.dumps(past, indent=2, default=str) + "\n")
         user_content = f"""
 USER QUESTION:
 {question}
-
-AQUA AI SENSOR DATA:
+{history_block}
+AQUA AI DATABASE CONTEXT (authoritative — answer numerical questions from this only):
 {json.dumps(context, indent=2, default=str)}
 
 INSTRUCTIONS:
 - Answer in concise bullet points with bold headings.
-- Use measured values exactly as provided.
+- Use measured values exactly as provided, with units (°C, mg/L, NTU).
+- Give numerical evidence for every claim (value + threshold).
+- Distinguish database facts vs threshold comparison vs interpretation.
+- Possible causes only as "Possible causes include..." when evidence is insufficient.
 - For unsupported parameters, say not measured.
-- For drinking, give screening only, never safe/unsafe.
-- Distinguish measured vs calculated.
+- For drinking, give screening only, never safe/unsafe; recommend lab testing.
+- Never claim laboratory certification. State uncertainty when data is insufficient.
+- Distinguish measured vs calculated. Explain calculations when asked.
 """
 
         try:
+            llm_messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+            # Conversation memory: past turns as secondary context (DB stays authoritative)
+            for m in past:
+                llm_messages.append({"role": m["role"], "content": m["content"]})
+            llm_messages.append({"role": "user", "content": user_content})
             ai_result = ask_ai(
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_content},
-                ],
+                messages=llm_messages,
                 provider=request.provider,
                 model=request.model,
             )
@@ -820,9 +1412,22 @@ INSTRUCTIONS:
             return {"success": True, "answer": answer_text, "model": ai_result.get("model") or "unknown"}
         except Exception as llm_error:
             # Provider failure fallback — still return grounded data if possible
+            # (existing provider fallback in ask_ai already tried all providers)
             print(f"Aqua AI chat LLM fallback: {type(llm_error).__name__}: {llm_error}")
-            # Try to give grounded summary instead of error
-            if detect_direct_sensor_question(question) or detect_water_quality_overall(question):
+            if detect_alert_question(question):
+                fallback = (alert_status_answer(db, latest)
+                            + "\n\n**Note**\n• The AI explanation service is temporarily unavailable.")
+            elif detect_camera_question(question):
+                fallback = (camera_result_answer(db, request.device_id)
+                            + "\n\n**Note**\n• The AI explanation service is temporarily unavailable.")
+            elif detect_crop_question(question) is not None or detect_agriculture(question):
+                fallback = (crop_suitability_answer(latest, quality_result,
+                                                     detect_crop_question(question) or "general",
+                                                     thresholds)
+                            + "\n\n**Note**\n• The AI explanation service is temporarily unavailable.")
+            elif detect_critical_question(question):
+                fallback = critical_status_answer(latest, thresholds, device_name, request.tz_offset_minutes)
+            elif detect_direct_sensor_question(question) or detect_water_quality_overall(question):
                 # Already handled above; this shouldn't happen
                 fallback = build_water_quality_answer(latest, quality_result)
             else:

@@ -2,7 +2,7 @@
 "use strict";
 
 /*
-    Aqua AI Frontend Application
+    Aqua Sense Frontend Application
     --------------------------------
     Backend:
     http://127.0.0.1:8001 during local development
@@ -11,7 +11,7 @@
     production backend https://aqua-ai-wz4s.onrender.com.
 */
 
-const DEFAULT_LOCAL_API_URL = "http://127.0.0.1:8001";
+const DEFAULT_LOCAL_API_URL = "http://127.0.0.1:8002";
 
 /*
  * Production backend matched to known frontend origins so the app works
@@ -23,6 +23,7 @@ const PRODUCTION_API_URL_BY_ORIGIN = {
     "https://vacproject.netlify.app": "https://aqua-ai-wz4s.onrender.com",
     "https://aqua-ai.netlify.app": "https://aqua-ai-wz4s.onrender.com",
     "https://aqua-ai-frontend.netlify.app": "https://aqua-ai-wz4s.onrender.com",
+    "https://aqua-sense-vac.netlify.app": "https://aqua-ai-wz4s.onrender.com",
 };
 
 const PRODUCTION_API_URL = "https://aqua-ai-wz4s.onrender.com";
@@ -36,8 +37,12 @@ const LOCAL_ORIGINS = new Set([
     "http://127.0.0.1:8000",
     "http://localhost:5500",
     "http://127.0.0.1:5500",
+    "http://localhost:5501",
+    "http://127.0.0.1:5501",
     "http://localhost:8001",
     "http://127.0.0.1:8001",
+    "http://localhost:8002",
+    "http://127.0.0.1:8002",
 ]);
 
 /*
@@ -45,10 +50,35 @@ const LOCAL_ORIGINS = new Set([
  * host (localhost, loopback IP, or a localhost port range).
  */
 function isLocalOrigin(origin) {
-    return LOCAL_ORIGINS.has(origin);
+    if (!origin) return false;
+    try {
+        const u = new URL(origin);
+        return (
+            u.hostname === "localhost" ||
+            u.hostname === "127.0.0.1" ||
+            u.hostname === "[::1]" ||
+            u.hostname === "0.0.0.0"
+        );
+    } catch (_) {
+        return (
+            LOCAL_ORIGINS.has(origin) ||
+            origin.includes("localhost") ||
+            origin.includes("127.0.0.1")
+        );
+    }
 }
 
 const REFRESH_INTERVAL = 15000;
+
+// All refresh cadences offered in Settings. Fast 2–5s options are for live
+// sensor watching; the dashboard paints them silently (no shimmer) so values
+// swap instantly instead of flickering every cycle.
+const REFRESH_INTERVALS_MS = [2000, 3000, 5000, 15000, 30000, 60000];
+
+// Default network timeout for API calls. The silent auto-refresh passes a
+// shorter budget so a slow cycle fails fast and the next tick retries.
+const API_DEFAULT_TIMEOUT_MS = 30000;
+const API_REFRESH_TIMEOUT_MS = 10000;
 
 /*
  * Determine the API base URL, in priority order:
@@ -69,6 +99,10 @@ function getApiBaseUrl() {
         const isStoredLocal =
             trimmed.includes("127.0.0.1") ||
             trimmed.includes("localhost");
+
+        if (isLocal && isStoredLocal && (trimmed.endsWith(":8001") || trimmed.endsWith(":8000"))) {
+            return DEFAULT_LOCAL_API_URL;
+        }
 
         // Stale local values in localStorage must not override production HTTPS.
         if (isLocal || !isStoredLocal) {
@@ -238,7 +272,7 @@ function formatDate(value) {
         return "--";
     }
 
-    const date = new Date(value);
+    const date = parseApiDate(value);
 
     if (Number.isNaN(date.getTime())) {
         return safeText(value);
@@ -320,21 +354,55 @@ function setConnectionStatus(online, message = "") {
 }
 
 async function apiRequest(path, options = {}) {
+    // Every request carries a timeout: without one a hung backend leaves
+    // fetch pending forever, and the 2s auto-refresh guard
+    // (dashboardRefreshing) would then block all future updates until the
+    // user reloads the page. Callers can override per request (the silent
+    // dashboard refresh uses a short timeout so a slow cycle fails fast and
+    // the next 2s tick retries instead of piling up).
+    const { timeoutMs = API_DEFAULT_TIMEOUT_MS, ...fetchOptions } = options;
     const url = `${getApiBaseUrl()}${path}`;
 
     const headers = {
         Accept: "application/json",
-        ...(options.headers || {})
+        ...(fetchOptions.headers || {})
     };
 
-    if (options.body && !(options.body instanceof FormData) && !headers["Content-Type"]) {
+    if (fetchOptions.body && !(fetchOptions.body instanceof FormData) && !headers["Content-Type"]) {
         headers["Content-Type"] = "application/json";
     }
 
-    const response = await fetch(url, {
-        ...options,
-        headers
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    if (fetchOptions.signal) {
+        // A caller-provided signal also aborts this request.
+        fetchOptions.signal.addEventListener(
+            "abort",
+            () => controller.abort(),
+            { once: true }
+        );
+    }
+
+    let response;
+
+    try {
+        response = await fetch(url, {
+            ...fetchOptions,
+            headers,
+            signal: controller.signal
+        });
+    } catch (error) {
+        clearTimeout(timer);
+        if (error && error.name === "AbortError" && !fetchOptions.signal?.aborted) {
+            const timeoutError = new Error("Request timed out.");
+            timeoutError.status = 0;
+            timeoutError.code = "TIMEOUT";
+            throw timeoutError;
+        }
+        throw error;
+    }
+
+    clearTimeout(timer);
 
     let data = null;
 
@@ -491,16 +559,33 @@ function normalizeReadings(data) {
         .map(normalizeReading)
         .filter(Boolean)
         .sort((a, b) => {
-            const dateA = new Date(a.recorded_at || 0).getTime();
-            const dateB = new Date(b.recorded_at || 0).getTime();
+            // Newest first by real UTC timestamps (naive backend strings are
+            // UTC by project convention — plain new Date() would misread
+            // them as local time and misorder mixed formats).
+            const timeA = parseApiTimestamp(a.recorded_at);
+            const timeB = parseApiTimestamp(b.recorded_at);
 
-            return dateB - dateA;
+            if (Number.isNaN(timeA) && Number.isNaN(timeB)) {
+                return 0;
+            }
+            if (Number.isNaN(timeA)) {
+                return 1;
+            }
+            if (Number.isNaN(timeB)) {
+                return -1;
+            }
+
+            return timeB - timeA;
         });
 }
 
-async function loadDevices() {
+let lastDevicesSignature = "";
+
+async function loadDevices(options) {
+    const silent = !!(options && options.silent);
+    const timeoutMs = options && options.timeoutMs;
     try {
-        const data = await apiRequest("/devices/");
+        const data = await apiRequest("/devices/", { timeoutMs });
 
         let devices = [];
 
@@ -515,6 +600,23 @@ async function loadDevices() {
         if (devices.length > 0) {
             latestDevice = devices[0];
         }
+
+        // Silent auto-refresh must not rebuild the device list every 2–5s:
+        // identical data re-renders innerHTML, drops scroll/focus and reads
+        // as flicker. Repaint only when something actually changed.
+        const signature = JSON.stringify(
+            devices.map((device) => [
+                device.id,
+                device.name,
+                device.device_type,
+                device.location,
+                device.is_active,
+            ])
+        );
+        if (silent && signature === lastDevicesSignature) {
+            return devices;
+        }
+        lastDevicesSignature = signature;
 
         populateDeviceInformation(devices);
         renderDeviceList(devices);
@@ -686,7 +788,7 @@ function formatReadingTime(value) {
     if (!value) {
         return "--";
     }
-    const date = new Date(value);
+    const date = parseApiDate(value);
     if (Number.isNaN(date.getTime())) {
         return "--";
     }
@@ -704,13 +806,14 @@ function formatRecentTime(value) {
     if (!value) {
         return "--";
     }
-    const date = new Date(value);
+    const date = parseApiDate(value);
     if (Number.isNaN(date.getTime())) {
         return "--";
     }
     return date.toLocaleTimeString("en-GB", {
         hour: "numeric",
         minute: "2-digit",
+        second: "2-digit",
         hour12: true
     });
 }
@@ -719,7 +822,7 @@ function isDashboardReadingStale(reading) {
     if (!reading || !reading.recorded_at) {
         return { stale: false, ageHours: null };
     }
-    const time = new Date(reading.recorded_at).getTime();
+    const time = parseApiDate(reading.recorded_at).getTime();
     if (Number.isNaN(time)) {
         return { stale: false, ageHours: null };
     }
@@ -1025,16 +1128,17 @@ function renderDashboardOffline() {
     showDashboardNotice(
         "error",
         `<strong>Unable to retrieve sensor data</strong>` +
-            `<ul><li>The Aqua AI backend is currently unavailable.</li>` +
+            `<ul><li>The Aqua Sense backend is currently unavailable.</li>` +
             `<li>Check the backend connection and try again.</li></ul>` +
             `<button class="secondary-button dashboard-retry-button" data-dashboard-retry type="button">` +
             `<i class="ri-refresh-line"></i>Retry</button>`
     );
 }
 
-async function loadLatestReading() {
+async function loadLatestReading(options) {
+    const timeoutMs = options && options.timeoutMs;
     try {
-        const data = await apiRequest("/readings/latest");
+        const data = await apiRequest("/readings/latest", { timeoutMs });
 
         const normalized = normalizeReadings(data);
 
@@ -1120,9 +1224,12 @@ async function loadAnalysisLatestReading() {
     }
 }
 
-async function loadAllReadings() {
+async function loadAllReadings(options) {
+    const timeoutMs = options && options.timeoutMs;
     try {
-        const data = await apiRequest("/readings/");
+        // Full 1000-reading window (backend max), same as the Trends page,
+        // so the dashboard history chart covers 7D/30D ranges fully.
+        const data = await apiRequest("/readings/?limit=1000", { timeoutMs });
 
         readingsCache = normalizeReadings(data);
 
@@ -1142,9 +1249,9 @@ async function loadAllReadings() {
     }
 }
 
-async function checkBackend() {
+async function checkBackend(timeoutMs) {
     try {
-        const data = await apiRequest("/health");
+        const data = await apiRequest("/health", { timeoutMs });
 
         setConnectionStatus(
             true,
@@ -1160,27 +1267,41 @@ async function checkBackend() {
     }
 }
 
-async function refreshDashboard() {
+async function refreshDashboard(options) {
+    // Silent auto-refresh (the 2–5s timer) swaps values instantly: no button
+    // disabling and no dashboard shimmer, so numbers change in place instead
+    // of blanking/flickering every cycle. Manual refresh stays loud so the
+    // user gets clear loading feedback.
+    const silent = !!(options && options.silent);
     if (dashboardRefreshing) {
         return;
     }
     dashboardRefreshing = true;
-    const refreshButtons = queryAll(
-        "#refreshButton, #manualRefresh, #globalRefreshButton, #dashboardRefreshButton, [data-action='refresh']"
-    );
+    // Silent cycles fail fast (short timeout) so the next 2s tick retries
+    // instead of piling slow requests on top of each other.
+    const timeoutMs = silent ? API_REFRESH_TIMEOUT_MS : API_DEFAULT_TIMEOUT_MS;
+    const refreshButtons = silent
+        ? []
+        : queryAll(
+              "#refreshButton, #manualRefresh, #globalRefreshButton, #dashboardRefreshButton, [data-action='refresh']"
+          );
 
     refreshButtons.forEach((button) => {
         button.disabled = true;
         button.classList.add("loading");
     });
-    setDashboardLoading(true);
+    if (!silent) {
+        setDashboardLoading(true);
+    }
 
     try {
-        const backendOnline = await checkBackend();
+        const backendOnline = await checkBackend(timeoutMs);
 
         if (!backendOnline) {
             dashboardBackendReachable = false;
-            setDashboardLoading(false);
+            if (!silent) {
+                setDashboardLoading(false);
+            }
             if (!latestReading) {
                 renderDashboardEmpty();
                 updateDashboardSensorPill("offline");
@@ -1189,13 +1310,19 @@ async function refreshDashboard() {
             return;
         }
 
-        await loadDevices();
-        await loadLatestReading();
+        // Fetch devices + latest reading concurrently so all values paint in
+        // one pass instead of staggering in over serial round trips.
+        await Promise.all([
+            loadDevices({ silent, timeoutMs }),
+            loadLatestReading({ timeoutMs })
+        ]);
         if (!dashboardBackendReachable) {
-            setDashboardLoading(false);
+            if (!silent) {
+                setDashboardLoading(false);
+            }
             return;
         }
-        await loadAllReadings();
+        await loadAllReadings({ timeoutMs });
         updateLastRefreshTime();
 
         // Keep an open Analysis page in sync with the freshly loaded reading
@@ -1209,11 +1336,13 @@ async function refreshDashboard() {
         setupProfile();
     } finally {
         dashboardRefreshing = false;
-        setDashboardLoading(false);
-        refreshButtons.forEach((button) => {
-            button.disabled = false;
-            button.classList.remove("loading");
-        });
+        if (!silent) {
+            setDashboardLoading(false);
+            refreshButtons.forEach((button) => {
+                button.disabled = false;
+                button.classList.remove("loading");
+            });
+        }
     }
 }
 
@@ -1314,7 +1443,7 @@ function updateDashboard(reading) {
         if (circle) {
             const numeric = rounded === null ? 0 : Number(rounded);
             circle.style.setProperty("--quality-progress", `${Math.max(0, Math.min(100, numeric))}%`);
-            circle.setAttribute("aria-label", `Aqua AI analytical score ${rounded === null ? "unavailable" : rounded + " of 100"}`);
+            circle.setAttribute("aria-label", `Aqua Sense analytical score ${rounded === null ? "unavailable" : rounded + " of 100"}`);
         }
         const bodyStatus =
             status.badge === "safe"
@@ -1441,7 +1570,7 @@ function computeReadingQuality(reading) {
     if (finalScore < 50) {
         status = "alert";
         title = "Poor water quality";
-        description = "One or more sensor readings are critically outside configured safe limits. Aqua AI analytical safeguard applied.";
+        description = "One or more sensor readings are critically outside configured safe limits. Aqua Sense analytical safeguard applied.";
     } else if (finalScore < 80) {
         status = "watch";
         title = "Needs attention";
@@ -1639,13 +1768,9 @@ function formatChartTime(date) {
         return "--";
     }
 
-    const sameDay =
-        date.toDateString() === new Date().toDateString();
-
     return date.toLocaleString(undefined, {
         month: "short",
         day: "numeric",
-        ...(sameDay ? {} : {}),
         hour: "2-digit",
         minute: "2-digit"
     });
@@ -1855,6 +1980,13 @@ function renderCanvasChart(canvas, readings) {
     minimum -= margin;
     maximum += margin;
 
+    // Presentation only: all plotted series are nonnegative measurements,
+    // so the axis must never imply negative values.
+    minimum = Math.max(0, minimum);
+    if (maximum <= 0) {
+        maximum = 1;
+    }
+
     for (let index = 0; index <= 4; index += 1) {
         const y = padding.top + (chartHeight / 4) * index;
 
@@ -1896,7 +2028,7 @@ function renderCanvasChart(canvas, readings) {
                     return null;
                 }
 
-                const x = xForReading(reading);
+                const x = xForIndex(index);
 
                 const y =
                     padding.top +
@@ -1976,6 +2108,12 @@ function renderSvgChart(svg, readings) {
     });
 
     if (values.length === 0) {
+        const dataNoteEmpty = $("chartDataNote");
+
+        if (dataNoteEmpty) {
+            dataNoteEmpty.classList.remove("live");
+        }
+
         return;
     }
 
@@ -1992,10 +2130,41 @@ function renderSvgChart(svg, readings) {
     minimum -= margin;
     maximum += margin;
 
+    // Presentation only: quality scores and sensor measurements are
+    // nonnegative, so the axis must never imply negative values.
+    minimum = Math.max(0, minimum);
+    if (maximum <= 0) {
+        maximum = 1;
+    }
+
     const chartTop = 45;
     const chartBottom = 215;
     const chartWidth = 700;
     const chartHeight = chartBottom - chartTop;
+
+    // Time-proportional X positions from real reading timestamps so the
+    // line shape matches the timeline (irregular gaps stay gaps instead of
+    // being squeezed into even spacing). Readings without a valid timestamp
+    // keep their sequence position — no time is invented.
+    const times = filtered.map((reading) =>
+        parseApiTimestamp(reading.recorded_at)
+    );
+    const validTimes = times.filter((time) => !Number.isNaN(time));
+    const useTimeScale = validTimes.length >= 2;
+    const timeMin = useTimeScale ? Math.min(...validTimes) : 0;
+    const timeMax = useTimeScale
+        ? Math.max(...validTimes, timeMin + 1)
+        : 1;
+
+    function xForReadingIndex(index) {
+        if (filtered.length === 1) {
+            return chartWidth / 2;
+        }
+        if (useTimeScale && !Number.isNaN(times[index])) {
+            return ((times[index] - timeMin) / (timeMax - timeMin)) * chartWidth;
+        }
+        return (index / (filtered.length - 1)) * chartWidth;
+    }
 
     const points = filtered
         .map((reading, index) => {
@@ -2005,10 +2174,7 @@ function renderSvgChart(svg, readings) {
                 return null;
             }
 
-            const x =
-                filtered.length === 1
-                    ? chartWidth / 2
-                    : (index / (filtered.length - 1)) * chartWidth;
+            const x = xForReadingIndex(index);
 
             const y =
                 chartBottom -
@@ -2052,6 +2218,74 @@ function renderSvgChart(svg, readings) {
 
         point.setAttribute("cx", last.x.toFixed(1));
         point.setAttribute("cy", last.y.toFixed(1));
+    }
+
+    // Live timeline axis: replace the static placeholder labels with the
+    // real time window (oldest → newest) and the real value scale, so the
+    // axes always agree with the plotted line and the selected range.
+    try {
+        const container = svg.closest(".history-chart-container");
+
+        if (container) {
+            const xLabels = container.querySelector(".chart-x-labels");
+
+            if (xLabels) {
+                const tickCount = 4;
+                let labels = [];
+
+                if (filtered.length === 1 || !useTimeScale) {
+                    const only = useTimeScale
+                        ? formatChartTime(new Date(timeMax))
+                        : formatChartTime(
+                              parseApiDate(filtered[filtered.length - 1].recorded_at)
+                          );
+                    labels = [only];
+                } else {
+                    for (let tick = 0; tick <= tickCount; tick += 1) {
+                        const time =
+                            timeMin + ((timeMax - timeMin) / tickCount) * tick;
+                        labels.push(formatChartTime(new Date(time)));
+                    }
+                }
+
+                xLabels.innerHTML = labels
+                    .map((label) => `<span>${escapeHtml(label)}</span>`)
+                    .join("");
+            }
+
+            const yLabels = container.querySelector(".chart-y-labels");
+
+            if (yLabels) {
+                const rows = 5;
+                let html = "";
+
+                for (let row = 0; row < rows; row += 1) {
+                    const scaleValue =
+                        maximum - ((maximum - minimum) / (rows - 1)) * row;
+                    const text = Number.isInteger(scaleValue)
+                        ? String(scaleValue)
+                        : scaleValue.toFixed(1);
+                    html += `<span>${escapeHtml(text)}</span>`;
+                }
+
+                yLabels.innerHTML = html;
+            }
+        }
+    } catch {
+        // Axis labels are decoration — never break the chart itself.
+    }
+
+    const dataNote = $("chartDataNote");
+
+    if (dataNote) {
+        const latestTime = useTimeScale
+            ? formatChartTime(new Date(timeMax))
+            : "--";
+        dataNote.textContent =
+            `Live · ${points.length} reading${points.length === 1 ? "" : "s"}` +
+            ` · ${currentRange}` +
+            (latestTime !== "--" ? ` · latest ${latestTime}` : "");
+        dataNote.classList.add("live");
     }
 
     updateTrendSummary(filtered);
@@ -2136,9 +2370,28 @@ function renderDivChart(container, readings) {
     minimum -= margin;
     maximum += margin;
 
+    // Presentation only: quality scores and sensor measurements are
+    // nonnegative, so the axis must never imply negative values.
+    minimum = Math.max(0, minimum);
+    if (maximum <= 0) {
+        maximum = 1;
+    }
+
     const chartTop = 40;
     const chartBottom = 220;
     const chartHeight = chartBottom - chartTop;
+
+    // Time-proportional X, same as the main history chart: real gaps stay
+    // gaps instead of being squeezed into even spacing.
+    const divTimes = filtered.map((reading) =>
+        parseApiTimestamp(reading.recorded_at)
+    );
+    const divValidTimes = divTimes.filter((time) => !Number.isNaN(time));
+    const divUseTimeScale = divValidTimes.length >= 2;
+    const divTimeMin = divUseTimeScale ? Math.min(...divValidTimes) : 0;
+    const divTimeMax = divUseTimeScale
+        ? Math.max(...divValidTimes, divTimeMin + 1)
+        : 1;
 
     const points = filtered
         .map((reading, index) => {
@@ -2148,10 +2401,18 @@ function renderDivChart(container, readings) {
                 return null;
             }
 
-            const x =
-                filtered.length === 1
-                    ? 350
-                    : (index / (filtered.length - 1)) * 700;
+            let x;
+
+            if (filtered.length === 1) {
+                x = 350;
+            } else if (divUseTimeScale && !Number.isNaN(divTimes[index])) {
+                x =
+                    ((divTimes[index] - divTimeMin) /
+                        (divTimeMax - divTimeMin)) *
+                    700;
+            } else {
+                x = (index / (filtered.length - 1)) * 700;
+            }
 
             const y =
                 chartBottom -
@@ -2270,6 +2531,7 @@ const TRENDS_PARAMS = [
         label: "pH",
         unit: "",
         digits: 2,
+        nonnegative: true,
         color: "#3b82f6",
         chartId: "trendsChartPh",
         statIds: {
@@ -2285,6 +2547,7 @@ const TRENDS_PARAMS = [
         label: "TDS",
         unit: " mg/L",
         digits: 0,
+        nonnegative: true,
         color: "#0ea5a4",
         chartId: "trendsChartTds",
         statIds: {
@@ -2300,6 +2563,7 @@ const TRENDS_PARAMS = [
         label: "Turbidity",
         unit: " NTU",
         digits: 2,
+        nonnegative: true,
         color: "#8b5cf6",
         chartId: "trendsChartTurbidity",
         statIds: {
@@ -2316,6 +2580,7 @@ const TRENDS_PARAMS = [
         unit: "",
         useTempDisplay: true,
         digits: 1,
+        nonnegative: true,
         color: "#f59e0b",
         chartId: "trendsChartTemperature",
         statIds: {
@@ -2362,7 +2627,12 @@ function formatTrendNumber(value, digits) {
     if (number === null) {
         return "--";
     }
-    return number.toFixed(digits === undefined ? 2 : digits);
+    const resolvedDigits = digits === undefined ? 2 : digits;
+    // Presentation only: group thousands for whole-number displays (e.g. TDS "2,500").
+    if (resolvedDigits === 0) {
+        return Math.round(number).toLocaleString("en-US");
+    }
+    return number.toFixed(resolvedDigits);
 }
 
 function computeTrendStats(readings, key) {
@@ -2404,6 +2674,23 @@ function parseApiTimestamp(timestampStr) {
         str = str.replace(" ", "T") + "Z";
     }
     return new Date(str).getTime();
+}
+
+/* Parse any backend timestamp into a Date.
+ * Backend datetimes are UTC (explicit +00:00/Z, or legacy naive ISO
+ * which is UTC by project convention). Constructing Date objects any
+ * other way misreads them as local time and shifts displayed times by
+ * the browser's UTC offset. Date instances and epoch numbers pass
+ * through unchanged. */
+function parseApiDate(value) {
+    if (value instanceof Date) {
+        return value;
+    }
+    if (typeof value === "number") {
+        return new Date(value);
+    }
+    const time = parseApiTimestamp(value);
+    return new Date(time);
 }
 
 function formatTrendTime(value) {
@@ -2513,6 +2800,14 @@ function renderTrendChart(param, readings) {
     const margin = (maximum - minimum) * 0.15 || 1;
     minimum -= margin;
     maximum += margin;
+    // Presentation only: nonnegative measurements (TDS, turbidity,
+    // temperature, pH) must never render a negative y-axis baseline.
+    if (param.nonnegative) {
+        minimum = Math.max(0, minimum);
+        if (maximum <= 0) {
+            maximum = 1;
+        }
+    }
 
     const validTimes = points
         .map((point) => point.time)
@@ -2795,7 +3090,7 @@ function formatDeviceTime(value) {
     if (!value) {
         return "--";
     }
-    const date = new Date(value);
+    const date = parseApiDate(value);
     if (Number.isNaN(date.getTime())) {
         return "--";
     }
@@ -2813,7 +3108,7 @@ function formatDeviceShortTime(value) {
     if (!value) {
         return "--";
     }
-    const date = new Date(value);
+    const date = parseApiDate(value);
     if (Number.isNaN(date.getTime())) {
         return "--";
     }
@@ -2822,6 +3117,7 @@ function formatDeviceShortTime(value) {
         month: "short",
         hour: "numeric",
         minute: "2-digit",
+        second: "2-digit",
         hour12: true
     });
 }
@@ -2867,7 +3163,7 @@ function deviceDataStatus(latest) {
     if (!latest || !latest.recorded_at) {
         return "none";
     }
-    const time = new Date(latest.recorded_at).getTime();
+    const time = parseApiDate(latest.recorded_at).getTime();
     if (Number.isNaN(time)) {
         return "none";
     }
@@ -3103,7 +3399,7 @@ function renderDeviceOffline() {
     showDeviceNotice(
         "error",
         `<strong>Unable to load device data</strong>` +
-            `<ul><li>The Aqua AI backend could not be reached.</li>` +
+            `<ul><li>The Aqua Sense backend could not be reached.</li>` +
             `<li>Please try again.</li></ul>` +
             `<button class="secondary-button device-retry-button" data-device-retry type="button">` +
             `<i class="ri-refresh-line"></i>Retry</button>`
@@ -3364,6 +3660,10 @@ async function navigateTo(pageName) {
         profile: [
             "Profile",
             "View local monitoring preferences and application information."
+        ],
+        alerts: [
+            "Alert Notifications",
+            "Automatic water-quality threshold alerts and real-time cooldown."
         ]
     };
 
@@ -3381,7 +3681,8 @@ async function navigateTo(pageName) {
         analysis: "Analysis",
         settings: "Settings",
         reports: "Reports",
-        profile: "Profile"
+        profile: "Profile",
+        alerts: "Alerts"
     };
 
     setText("breadcrumbCurrent", pageLabels[page] || "Dashboard");
@@ -3464,6 +3765,15 @@ async function navigateTo(pageName) {
             renderProfilePage();
         }
     }
+
+    if (page === "alerts") {
+        if (typeof loadCurrentStatus === "function") loadCurrentStatus();
+        if (typeof loadAlerts === "function") loadAlerts();
+        if (typeof loadContacts === "function") loadContacts();
+        if (typeof loadProviderStatus === "function") loadProviderStatus();
+        if (typeof loadAlertConfig === "function") loadAlertConfig();
+        if (typeof loadAutoStatus === "function") loadAutoStatus();
+    }
 }
 function setupMobileMenu() {
     const menuButton =
@@ -3545,6 +3855,22 @@ function setupRangeFilters() {
             drawTrendChart(readingsCache);
             setupReports();
         });
+    });
+
+    // The markup highlights 1H by default while the chart state starts at
+    // 24H — sync the buttons to the real state so the timeline label never
+    // disagrees with the plotted window.
+    buttons.forEach((item) => {
+        const itemRange =
+            item.dataset.range ||
+            item.textContent.trim().toUpperCase();
+
+        if (["1H", "6H", "24H", "7D", "30D", "ALL"].includes(itemRange)) {
+            item.classList.toggle(
+                "active",
+                itemRange === currentRange
+            );
+        }
     });
 
     const parameterSelect =
@@ -3829,6 +4155,211 @@ function setupAddDevice() {
             await refreshDashboard();
         } catch (error) {
             alert(`Unable to add device: ${error.message}`);
+        }
+    });
+}
+function setupDeviceDelete() {
+    const modal = $("deleteDeviceModal");
+    const message = $("deleteDeviceMessage");
+    const openButton = $("deleteDeviceButton");
+    const closeButton = $("closeDeleteDeviceModal");
+    const cancelButton = $("cancelDeleteDeviceButton");
+    const confirmButton = $("confirmDeleteDeviceButton");
+
+    if (!openButton || !modal || !confirmButton) {
+        return;
+    }
+
+    function selectedDeviceForDelete() {
+        const devices = devicePageDevices;
+        if (!devices || devices.length === 0) {
+            return null;
+        }
+        return (
+            devices.find(
+                (item) => item && String(item.id) === String(devicePageSelectedId)
+            ) || devices[0]
+        );
+    }
+
+    function closeModal() {
+        modal.classList.add("hidden");
+    }
+
+    openButton.addEventListener("click", () => {
+        const device = selectedDeviceForDelete();
+        if (!device) {
+            alert("No device selected.");
+            return;
+        }
+        const label = device.name || `Device ${device.id}`;
+        if (message) {
+            message.textContent =
+                `Delete "${label}" (ID ${device.id})? ` +
+                "This will permanently remove the device, its readings, and its camera predictions. " +
+                "Alert history is kept, with the device reference cleared.";
+        }
+        modal.classList.remove("hidden");
+    });
+
+    if (closeButton) {
+        closeButton.addEventListener("click", closeModal);
+    }
+
+    if (cancelButton) {
+        cancelButton.addEventListener("click", closeModal);
+    }
+
+    modal.addEventListener("click", (event) => {
+        if (event.target === modal) {
+            closeModal();
+        }
+    });
+
+    confirmButton.addEventListener("click", async () => {
+        const device = selectedDeviceForDelete();
+        if (!device) {
+            closeModal();
+            return;
+        }
+        const deletedId = device.id;
+        confirmButton.disabled = true;
+        try {
+            await apiRequest(`/devices/${encodeURIComponent(String(deletedId))}`, {
+                method: "DELETE",
+            });
+            closeModal();
+            devicePageDevices = devicePageDevices.filter(
+                (item) => item && String(item.id) !== String(deletedId)
+            );
+            if (String(devicePageSelectedId) === String(deletedId)) {
+                devicePageSelectedId =
+                    devicePageDevices.length > 0 ? devicePageDevices[0].id : null;
+            }
+            if (latestDevice && String(latestDevice.id) === String(deletedId)) {
+                latestDevice =
+                    devicePageDevices.length > 0 ? devicePageDevices[0] : null;
+            }
+            if (latestReading && String(latestReading.device_id) === String(deletedId)) {
+                latestReading = null;
+            }
+            devicePageReadings = [];
+            deviceLoadedOnce = false;
+            await loadDevicePage({ showLoading: true });
+            await refreshDashboard();
+        } catch (error) {
+            alert(`Unable to delete device: ${error.message}`);
+        } finally {
+            confirmButton.disabled = false;
+        }
+    });
+}
+function setupDeviceRename() {
+    const modal = $("renameDeviceModal");
+    const form = $("renameDeviceForm");
+    const nameInput = $("renameDeviceName");
+    const errEl = $("renameDeviceFormError");
+    const openButton = $("renameDeviceButton");
+    const closeButton = $("closeRenameDeviceModal");
+    const cancelButton = $("cancelRenameDeviceButton");
+    const saveButton = $("saveRenameDeviceButton");
+
+    if (!openButton || !modal || !form) {
+        return;
+    }
+
+    function selectedDeviceForRename() {
+        const devices = devicePageDevices;
+        if (!devices || devices.length === 0) {
+            return null;
+        }
+        return (
+            devices.find(
+                (item) => item && String(item.id) === String(devicePageSelectedId)
+            ) || devices[0]
+        );
+    }
+
+    function closeModal() {
+        modal.classList.add("hidden");
+        modal.style.display = "none";
+    }
+
+    openButton.addEventListener("click", () => {
+        const device = selectedDeviceForRename();
+        if (!device) {
+            showToast("No device selected.", "error");
+            return;
+        }
+        if (nameInput) {
+            nameInput.value = device.name || "";
+        }
+        if (errEl) {
+            errEl.textContent = "";
+        }
+        modal.classList.remove("hidden");
+        modal.style.display = "flex";
+        if (nameInput) {
+            nameInput.focus();
+            nameInput.select();
+        }
+    });
+
+    if (closeButton) {
+        closeButton.addEventListener("click", closeModal);
+    }
+
+    if (cancelButton) {
+        cancelButton.addEventListener("click", closeModal);
+    }
+
+    modal.addEventListener("click", (event) => {
+        if (event.target === modal) {
+            closeModal();
+        }
+    });
+
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const device = selectedDeviceForRename();
+        if (!device) {
+            closeModal();
+            return;
+        }
+        const name = nameInput ? nameInput.value.trim() : "";
+        if (!name) {
+            if (errEl) {
+                errEl.textContent = "Device name must not be empty.";
+            } else {
+                showToast("Device name must not be empty.", "error");
+            }
+            return;
+        }
+        if (saveButton) {
+            saveButton.disabled = true;
+        }
+        if (errEl) {
+            errEl.textContent = "";
+        }
+        try {
+            await apiRequest(`/devices/${encodeURIComponent(String(device.id))}`, {
+                method: "PUT",
+                body: JSON.stringify({ name })
+            });
+            closeModal();
+            showToast(`Device renamed to "${name}".`, "success");
+            await loadDevicePage({ showLoading: true });
+            await refreshDashboard();
+        } catch (error) {
+            if (errEl) {
+                errEl.textContent = error.message || "Unable to rename device.";
+            } else {
+                showToast(error.message || "Unable to rename device.", "error");
+            }
+        } finally {
+            if (saveButton) {
+                saveButton.disabled = false;
+            }
         }
     });
 }
@@ -4214,7 +4745,7 @@ async function analyzeCameraImage() {
     if (emptyState) emptyState.classList.add("hidden");
     if (tagsElement) tagsElement.innerHTML = "";
     if (resultText) {
-        resultText.innerHTML = '<div class="cam-loading" style="text-align:center;padding:20px"><div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Analyzing the captured image...</div><div style="font-size:11px;color:var(--text-muted)">Scanning visual indicators · Checking coloration and particles</div><div style="margin-top:12px"><span class="spinner" style="display:inline-block;width:20px;height:20px;border:2px solid #dcefeb;border-top-color:var(--primary);border-radius:50%;animation:spinnerRotate 0.8s linear infinite"></span></div></div>';
+        resultText.innerHTML = '<div class="cam-loading" style="text-align:center;padding:20px"><div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Analyzing the captured image...</div><div style="font-size:11px;color:var(--text-muted)">Scanning visual indicators · Checking coloration and particles</div><div style="margin-top:12px"><span class="spinner" style="display:inline-block;width:20px;height:20px;border:2px solid var(--border-color);border-top-color:var(--primary);border-radius:50%;animation:spinnerRotate 0.8s linear infinite"></span></div></div>';
     }
     if (statusBadge) {
         statusBadge.textContent = "Analyzing...";
@@ -4331,13 +4862,13 @@ function renderCameraResult(data) {
     if (textElement) {
         // Observed indicator chips — only true detections, careful wording
         var chips = [];
-        if(analysis?.algae_detected === true) chips.push('<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:#e0f2f1;border:1px solid #b2dfdb;color:#00695c;font-size:11px;font-weight:600;letter-spacing:0.3px"><i class="ri-leaf-line"></i> Algae-like coloration</span>');
-        if(analysis?.foam_detected === true) chips.push('<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:#e3f2fd;border:1px solid #bbdefb;color:#0d47a1;font-size:11px;font-weight:600;letter-spacing:0.3px"><i class="ri-water-flash-line"></i> Surface foam</span>');
-        if(analysis?.particles_detected === true) chips.push('<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:#fff3e0;border:1px solid #ffe0b2;color:#e65100;font-size:11px;font-weight:600;letter-spacing:0.3px"><i class="ri-contrast-drop-2-line"></i> Suspended particles</span>');
-        if(analysis?.oil_layer_detected === true) chips.push('<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:#fce4ec;border:1px solid #f8bbd0;color:#880e4f;font-size:11px;font-weight:600;letter-spacing:0.3px"><i class="ri-drop-line"></i> Oil-like film</span>');
+        if(analysis?.algae_detected === true) chips.push('<span class="cam-chip cam-chip-algae"><i class="ri-leaf-line"></i> Algae-like coloration</span>');
+        if(analysis?.foam_detected === true) chips.push('<span class="cam-chip cam-chip-foam"><i class="ri-water-flash-line"></i> Surface foam</span>');
+        if(analysis?.particles_detected === true) chips.push('<span class="cam-chip cam-chip-particles"><i class="ri-contrast-drop-2-line"></i> Suspended particles</span>');
+        if(analysis?.oil_layer_detected === true) chips.push('<span class="cam-chip cam-chip-oil"><i class="ri-drop-line"></i> Oil-like film</span>');
         if(analysis?.possible_microplastics === true){
             // careful: do not claim microplastics, show particle-like
-            chips.push('<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:#f3e5f5;border:1px solid #e1bee7;color:#4a148c;font-size:11px;font-weight:600;letter-spacing:0.3px"><i class="ri-bubble-line"></i> Particle-like structures</span>');
+            chips.push('<span class="cam-chip cam-chip-micro"><i class="ri-bubble-line"></i> Particle-like structures</span>');
         } else if(analysis?.particles_detected === true && analysis?.possible_microplastics !== false){
             // generic visible particles already covered
         }
@@ -4393,7 +4924,7 @@ function renderCameraResult(data) {
             '<div style="margin-bottom:14px;padding:14px;border-radius:10px;background:linear-gradient(135deg,var(--primary-light),var(--bg-soft));border:1px solid var(--border-color)"><div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:var(--primary);margin-bottom:6px">AI Visual Inspection · Water Appearance Analysis</div><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Source: '+escapeHtml(sourceLabel)+'</div><p style="color:var(--text-primary);font-size:13px;line-height:1.6;margin:0">'+escapeHtml(String(overall))+'</p></div>' +
             '<div style="margin-top:16px"><div style="font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Key Visual Finding</div><div style="padding:12px;border-left:3px solid var(--primary);background:var(--bg-soft);border-radius:0 8px 8px 0"><p style="margin:0;color:var(--text-primary);font-size:13px;line-height:1.6;font-weight:500">'+escapeHtml(keyFinding)+'</p></div></div>' +
             '<div style="margin-top:16px"><div style="font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Observed Indicators</div>'+chipsHtml + microNote + algaeNote + foamNote + '</div>' +
-            '<div style="margin-top:16px"><div style="font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Water Appearance</div><div style="padding:12px;border:1px solid var(--border-color);border-radius:8px;background:#fff">'+appearanceHtml+'</div></div>' +
+            '<div style="margin-top:16px"><div style="font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Water Appearance</div><div style="padding:12px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-card)">'+appearanceHtml+'</div></div>' +
             (observations.length ? '<div style="margin-top:16px"><div style="font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Key Observations</div><ul style="margin:0;padding-left:18px;font-size:12px;line-height:1.7;color:var(--text-secondary)">'+observations.map(function(o){return "<li>"+escapeHtml(String(o))+"</li>";}).join("")+'</ul></div>' : '') +
             '<div style="margin-top:16px;padding:12px;border:1px solid var(--border-subtle);background:var(--bg-soft);border-radius:8px"><div style="font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Possible Interpretation</div><p style="margin:0;font-size:12px;line-height:1.6;color:var(--text-secondary)">Visible coloration can be associated with biological growth, suspended material, or other environmental factors. Sensor and laboratory measurements are needed to determine the cause.</p></div>' +
             sensorHtml +
@@ -4479,12 +5010,12 @@ const UTILITY_PROFILES = GENERAL_PROFILES;
 
 function getQualityClass(score){
     var n = score===null||score===undefined?null:Number(score);
-    if(n===null||!Number.isFinite(n)) return {label:'Unavailable', color:'var(--text-muted)', level:'unknown'};
-    if(n>=90) return {label:'Highly Suitable', color:'var(--status-normal)', level:'good'};
-    if(n>=75) return {label:'Suitable', color:'var(--status-normal)', level:'good'};
-    if(n>=50) return {label:'Moderately Suitable', color:'var(--status-monitor)', level:'caution'};
-    if(n>=30) return {label:'Low Suitability', color:'var(--status-monitor)', level:'caution'};
-    return {label:'Poor Match', color:'var(--status-critical)', level:'alert'};
+    if(n===null||!Number.isFinite(n)) return {label:'Unavailable', color:'var(--text-muted)', bg:'var(--status-unknown-bg)', level:'unknown'};
+    if(n>=90) return {label:'Highly Suitable', color:'var(--status-normal)', bg:'var(--status-normal-bg)', level:'good'};
+    if(n>=75) return {label:'Suitable', color:'var(--amber)', bg:'var(--amber-light)', level:'good'};
+    if(n>=50) return {label:'Moderately Suitable', color:'var(--status-monitor)', bg:'var(--status-monitor-bg)', level:'caution'};
+    if(n>=30) return {label:'Low Suitability', color:'var(--status-monitor)', bg:'var(--status-monitor-bg)', level:'caution'};
+    return {label:'Poor Match', color:'var(--status-critical)', bg:'var(--status-critical-bg)', level:'alert'};
 }
 function deriveParameters(reading){ return calculateDerivedParameters(reading); }
 function formatAnalysisTime(value){
@@ -4698,7 +5229,7 @@ function calculateDrinkingScreening(reading) {
     if (score < 50) {
         status = "alert";
         title = "Below screening criteria";
-        description = "One or more parameters are critically outside screening limits. Aqua AI analytical safeguard applied.";
+        description = "One or more parameters are critically outside screening limits. Aqua Sense analytical safeguard applied.";
     } else if (score < 80) {
         status = "watch";
         title = "Mixed screening result";
@@ -4854,7 +5385,7 @@ function setText(id, value, fallback) {
 
 function formatTimestamp(isoString) {
     if (!isoString) return '--';
-    var date = new Date(isoString);
+    var date = parseApiDate(isoString);
     if (Number.isNaN(date.getTime())) return String(isoString);
     return date.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
 }
@@ -5023,7 +5554,7 @@ function renderSummary(derived) {
     html += '</svg>';
     html += '<div class="an-ring-text"><strong>' + (v !== null ? v : '--') + '</strong><span>/ 100</span></div>';
     html += '</div>';
-    html += '<div class="an-summary-label"><strong>' + label + '</strong><span>Aqua AI Analytical Score</span></div>';
+    html += '<div class="an-summary-label"><strong>' + label + '</strong><span>Aqua Sense Analytical Score</span></div>';
     html += '</div>';
     html += '<div class="an-summary-params">';
     items.forEach(function(item) {
@@ -5177,6 +5708,59 @@ function getParameterInterpretation(opts){
     if(score>=30) return {text:'Well outside preferred range \u2014 strongly limiting', tone:'alert'};
     return {text:'Outside suitability range \u2014 severely limiting', tone:'alert'};
 }
+/* Numeric deviation of a reading from its reference, e.g. "+20 mg/L over".
+ * Slightly-over values reduce suitability gradually (the scoring engine
+ * ramps down) — this makes the exact excess visible next to the score. */
+function formatDeviation(current, low, high, unit, digits){
+    if(current===null || current===undefined || !Number.isFinite(Number(current))) return {text:'--', tone:'neutral'};
+    var d = (digits===undefined) ? 2 : digits;
+    var val = Number(current);
+    function num(x){ return Number(x).toFixed(d); }
+    if(val < low) return {text: num(low-val)+unit+' under', tone:'alert'};
+    if(val > high){
+        var over = val-high;
+        var pct = high > 0 ? (over/high)*100 : 100;
+        return {text: '+'+num(over)+unit+' over', tone: pct <= 10 ? 'caution' : 'alert'};
+    }
+    return {text:'Within reference', tone:'good'};
+}
+function deviationToneColor(tone){
+    if(tone==='good') return 'var(--status-normal)';
+    if(tone==='caution') return 'var(--amber)';
+    if(tone==='alert') return 'var(--status-critical)';
+    return 'var(--text-muted)';
+}
+/* Sentence-style delta against a profile bound for application cards, e.g.
+ * "+20 mg/L over the 500 mg/L maximum". Empty string when within bounds. */
+function deviationNote(key, current, profile, type){
+    if(current===null || current===undefined || !Number.isFinite(Number(current)) || !profile) return '';
+    var val = Number(current);
+    if(key==='ph'){
+        if(val < profile.phMin) return (profile.phMin-val).toFixed(2)+' under the '+profile.phMin.toFixed(1)+' minimum';
+        if(val > profile.phMax) return '+'+(val-profile.phMax).toFixed(2)+' over the '+profile.phMax.toFixed(1)+' maximum';
+        return '';
+    }
+    if(key==='ec' && type==='agriculture'){
+        if(val > profile.ecwFullYield) return '+'+(val-profile.ecwFullYield).toFixed(2)+' dS/m over the '+profile.ecwFullYield.toFixed(2)+' dS/m full-yield threshold';
+        return '';
+    }
+    if(key==='tds'){
+        if(val > profile.tdsMaximum) return '+'+Math.round(val-profile.tdsMaximum)+' mg/L over the '+profile.tdsMaximum+' mg/L maximum';
+        return '';
+    }
+    if(key==='turbidity'){
+        var max = (type==='agriculture') ? null : profile.turbidityMaximum;
+        if(max !== null && val > max) return '+'+(val-max).toFixed(2)+' NTU over the '+max+' NTU maximum';
+        if(val > profile.turbidityPreferred) return '+'+(val-profile.turbidityPreferred).toFixed(2)+' NTU above the '+profile.turbidityPreferred+' NTU preferred limit';
+        return '';
+    }
+    if(key==='temperature'){
+        if(val < profile.temperatureMin) return (profile.temperatureMin-val).toFixed(1)+'\u00B0C under the '+profile.temperatureMin+'\u00B0C minimum';
+        if(val > profile.temperatureMax) return '+'+(val-profile.temperatureMax).toFixed(1)+'\u00B0C over the '+profile.temperatureMax+'\u00B0C maximum';
+        return '';
+    }
+    return '';
+}
 function describeCurrentVsRef(current, profile, type, param){
     if(current===null) return 'Not available';
     if(type==='agriculture' && param==='ec'){
@@ -5259,11 +5843,15 @@ function renderDetailedApplicationCard(item, idPrefix, icon) {
     var helpLines = helping.map(function(c){
         var cur = c.current===null ? 'Not available' : (c.key==='ec' ? formatNumber(c.current,2)+' dS/m' : c.key==='tds' ? formatNumber(c.current,0)+' mg/L' : c.key==='ph' ? formatNumber(c.current,2) : c.key==='turbidity' ? formatNumber(c.current,2)+' NTU' : formatNumber(c.current,1)+'\u00B0C');
         var refShort = c.ref.split('(')[0].trim();
-        return '\u2022 '+escapeHtml(c.name)+' '+escapeHtml(cur)+' \u2014 within '+escapeHtml(refShort)+' ('+Math.round(c.score)+'%)';
+        var dev = deviationNote(c.key, c.current, profile, type);
+        var state = dev ? 'just outside '+escapeHtml(refShort)+' \u00B7 '+escapeHtml(dev) : 'within '+escapeHtml(refShort);
+        return '\u2022 '+escapeHtml(c.name)+' '+escapeHtml(cur)+' \u2014 '+state+' ('+Math.round(c.score)+'%)';
     }).join('<br>');
     var reduceLines = reducing.map(function(c){
         var cur = c.current===null ? 'Not available' : (c.key==='ec' ? formatNumber(c.current,2)+' dS/m' : c.key==='tds' ? formatNumber(c.current,0)+' mg/L' : c.key==='ph' ? formatNumber(c.current,2) : c.key==='turbidity' ? formatNumber(c.current,2)+' NTU' : formatNumber(c.current,1)+'\u00B0C');
-        return '\u2022 '+escapeHtml(c.name)+' '+escapeHtml(cur)+' \u2014 '+escapeHtml(getParameterInterpretation({param:c.key, current:c.current, score:c.score}).text.toLowerCase())+' ('+Math.round(c.score)+'%)';
+        var interp = escapeHtml(getParameterInterpretation({param:c.key, current:c.current, score:c.score}).text.toLowerCase());
+        var dev = deviationNote(c.key, c.current, profile, type);
+        return '\u2022 '+escapeHtml(c.name)+' '+escapeHtml(cur)+' \u2014 '+interp+' ('+Math.round(c.score)+'%)'+(dev ? ' \u00B7 <strong>'+escapeHtml(dev)+'</strong>' : '');
     }).join('<br>');
     var expHtml = '<div id="' + idPrefix + '-exp" class="analysis-detail-dropdown hidden" style="margin-top:0;padding:14px 16px;background:var(--bg-soft);border-top:1px solid var(--border-subtle)">'
         +'<div style="font-size:11px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;color:var(--text-primary);margin-bottom:10px">'+headingText+'</div>'
@@ -5279,7 +5867,7 @@ function renderDetailedApplicationCard(item, idPrefix, icon) {
         +'<button id="' + idPrefix + '-btn" class="analysis-application-row" type="button" aria-expanded="false" aria-controls="' + idPrefix + '-exp" data-why-label="'+escapeHtml(whyLabel)+'" onclick="toggleAnalysisDetails(\'' + idPrefix + '-exp\')" style="width:100%;text-align:left;background:transparent;border:none;padding:14px 16px;cursor:pointer;display:flex;flex-direction:column;gap:8px">'
         +'<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%">'
         +'<span style="font-size:14px;font-weight:600;color:var(--text-primary)">'+escapeHtml(name)+'</span>'
-        +'<span style="display:flex;align-items:center;gap:10px;flex-shrink:0"><span style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;background:'+(color==='var(--status-normal)'?'var(--status-normal-bg)':color==='var(--status-monitor)'?'var(--status-monitor-bg)':'var(--status-critical-bg)')+';color:'+color+';border:1px solid currentColor">'+escapeHtml(label)+'</span><span style="font-size:14px;font-weight:700;color:'+color+'">'+score+'%</span><span class="an-row-chevron" style="font-size:12px;color:var(--text-muted)">\u25BE</span></span>'
+        +'<span style="display:flex;align-items:center;gap:10px;flex-shrink:0"><span style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;background:'+(clsInfo.bg||'var(--status-critical-bg)')+';color:'+color+';border:1px solid currentColor">'+escapeHtml(label)+'</span><span style="font-size:14px;font-weight:700;color:'+color+'">'+score+'%</span><span class="an-row-chevron" style="font-size:12px;color:var(--text-muted)">\u25BE</span></span>'
         +'</div>'
         +'<div style="height:4px;background:var(--bg-soft);border-radius:2px;overflow:hidden;width:100%"><div style="height:100%;width:'+score+'%;background:'+color+'"></div></div>'
         +'<div style="display:flex;justify-content:space-between;align-items:center;width:100%;font-size:11px;color:var(--text-secondary)"><span>'+limitLine+'</span><span class="an-row-why" style="color:var(--text-muted);font-size:11px">'+escapeHtml(whyLabel.replace(' \u25BE',''))+' \u25BE</span></div>'
@@ -5302,7 +5890,7 @@ function buildSvgRing(score, size){
         +'<svg viewBox="0 0 120 120" aria-hidden="true"><circle class="an-ring-track" cx="60" cy="60" r="52"></circle>'
         +'<circle class="an-ring-value" cx="60" cy="60" r="52" stroke-dasharray="'+circ.toFixed(1)+'" stroke-dashoffset="'+dash.toFixed(1)+'"></circle></svg>'
         +'<div class="an-ring-text"><strong>'+display+'</strong><span>/ 100</span></div></div>'
-        +'<div class="an-hero-text"><strong class="an-hero-label">'+label+'</strong><span class="an-hero-sub">Aqua AI Analytical Score</span></div>';
+        +'<div class="an-hero-text"><strong class="an-hero-label">'+label+'</strong><span class="an-hero-sub">Aqua Sense Analytical Score</span></div>';
 }
 function renderAnParamCard(label, value, unit, cond){
     var lvl = cond&&cond.level?cond.level:'unknown';
@@ -5434,13 +6022,14 @@ function updateAnalysisPage() {
     var phScoreTxt = dRes.phScore!==null?Math.round(dRes.phScore)+'%':'Not available';
     var tdsScoreTxt = dRes.tdsScore!==null?Math.round(dRes.tdsScore)+'%':'Not available';
     var turbScoreTxt = dRes.turbidityScore!==null?Math.round(dRes.turbidityScore)+'%':'Not available';
+    var devCell = function(dev){ return '<span style="font-weight:600;color:'+deviationToneColor(dev.tone)+'">'+escapeHtml(dev.text)+'</span>'; };
     var drinkingHtml = '<div class="an-drinking-head"><div><strong class="an-drinking-score">'+(dV!==null?dV+'%':'Not available')+'</strong><span class="an-drinking-label '+dLevel+'">'+dLbl+'</span></div><span class="an-bar" aria-hidden="true" style="max-width:220px"><span class="an-bar-fill '+dLevel+'" style="width:'+(dV!==null?dV:0)+'%"></span></span></div>'
-        +'<div class="an-drinking-table" role="table" aria-label="Drinking screening parameters">'
-        +'<div class="an-drinking-row head" role="row"><span role="columnheader">Parameter</span><span role="columnheader">Current</span><span role="columnheader">Reference</span><span role="columnheader">Score</span></div>'
-        +'<div class="an-drinking-row" role="row"><span>pH</span><span>'+(derived.ph!==null?fmt(derived.ph,2):'Not available')+'</span><span>6.5 – 8.5</span><span>'+phScoreTxt+'</span></div>'
-        +'<div class="an-drinking-row" role="row"><span>TDS</span><span>'+(derived.tds!==null?fmt(derived.tds,0)+' mg/L':'Not available')+'</span><span>&lt; '+dr.tdsMaximum+' mg/L</span><span>'+tdsScoreTxt+'</span></div>'
-        +'<div class="an-drinking-row" role="row"><span>Turbidity</span><span>'+(derived.turbidity!==null?fmt(derived.turbidity,2)+' NTU':'Not available')+'</span><span>&lt; '+dr.turbidityMaximum+' NTU</span><span>'+turbScoreTxt+'</span></div>'
-        +'</div>'
+        +'<div class="an-table-scroll"><div class="an-drinking-table" role="table" aria-label="Drinking screening parameters">'
+        +'<div class="an-drinking-row head" role="row"><span role="columnheader">Parameter</span><span role="columnheader">Current</span><span role="columnheader">Reference</span><span role="columnheader">Difference</span><span role="columnheader">Score</span></div>'
+        +'<div class="an-drinking-row" role="row"><span>pH</span><span>'+(derived.ph!==null?fmt(derived.ph,2):'Not available')+'</span><span>6.5 – 8.5</span><span>'+devCell(formatDeviation(derived.ph, 6.5, 8.5, '', 2))+'</span><span>'+phScoreTxt+'</span></div>'
+        +'<div class="an-drinking-row" role="row"><span>TDS</span><span>'+(derived.tds!==null?fmt(derived.tds,0)+' mg/L':'Not available')+'</span><span>&lt; '+dr.tdsMaximum+' mg/L</span><span>'+devCell(formatDeviation(derived.tds, 0, dr.tdsMaximum, ' mg/L', 0))+'</span><span>'+tdsScoreTxt+'</span></div>'
+        +'<div class="an-drinking-row" role="row"><span>Turbidity</span><span>'+(derived.turbidity!==null?fmt(derived.turbidity,2)+' NTU':'Not available')+'</span><span>&lt; '+dr.turbidityMaximum+' NTU</span><span>'+devCell(formatDeviation(derived.turbidity, 0, dr.turbidityMaximum, ' NTU', 2))+'</span><span>'+turbScoreTxt+'</span></div>'
+        +'</div></div>'
         +'<p class="an-drinking-note">Screening assessment based on available sensor parameters; laboratory verification is separate.</p>';
     setAnalysisHtml('analysisDrinkingSection', drinkingHtml);
 }
@@ -5504,12 +6093,12 @@ function setupSensorChat() {
     const sendButton = $("sendChatButton") || $("chatSendButton");
     if (!form || !input || !messages) return;
 
-    // Update header to spec: Aqua AI Assistant + subtitle
+    // Update header to spec: Aqua Sense Assistant + subtitle
     const card = form.closest(".chatbot-card");
     if (card) {
         const heading = card.querySelector(".chatbot-heading h3");
         const sub = card.querySelector(".chatbot-heading p");
-        if (heading) heading.textContent = "Aqua AI Assistant";
+        if (heading) heading.textContent = "Aqua Sense Assistant";
         if (sub) sub.textContent = "Water quality insights from your sensor data";
         // Add status line if not present
         let statusLine = card.querySelector(".chat-header-status");
@@ -5540,11 +6129,22 @@ function setupSensorChat() {
         form, input, messages, sendButton,
         endpoint: "/chat/water",
         buildPayload(question) {
+            // Conversation memory: last 10 turns as secondary context.
+            // Backend treats current DB values as authoritative over history.
+            var hist = [];
+            try{
+                hist = (chatHistory || []).slice(-10).map(function(m){
+                    return {role: m.role, content: String(m.content || "").slice(0, 2000)};
+                }).filter(function(m){ return (m.role==="user"||m.role==="assistant") && m.content; });
+            }catch(e){ hist = []; }
             return {
                 question,
                 device_id: latestReading?.device_id || latestDevice?.id || null,
                 provider: localStorage.getItem("aqua_ai_provider") || null,
-                model: localStorage.getItem("aqua_ai_model") || null
+                model: localStorage.getItem("aqua_ai_model") || null,
+                history: hist,
+                // Browser timezone so stored UTC timestamps render in local time.
+                tz_offset_minutes: new Date().getTimezoneOffset()
             };
         },
         extractAnswer(response) {
@@ -5552,7 +6152,7 @@ function setupSensorChat() {
         },
         history: chatHistory,
         storageKey: "aqua_ai_chat_history",
-        welcomeMessage: "**Aqua AI Assistant**\n• Hello! Ask me about pH, TDS, turbidity, temperature or water quality.\n• Try: Current water quality, Latest pH, Agriculture suitability.",
+        welcomeMessage: "**Aqua Sense Assistant**\n• Hello! Ask me about pH, TDS, turbidity, temperature or water quality.\n• Try: Current water quality, Latest pH, Agriculture suitability.",
         emptyGuard: null,
         errorPrefix: "Unable to contact the water-quality assistant"
     });
@@ -6033,7 +6633,7 @@ function getRefreshIntervalMs() {
     try {
         const prefs = getPrefs();
         const ms = Number(prefs.refreshIntervalMs);
-        if ([15000, 30000, 60000].includes(ms)) {
+        if (REFRESH_INTERVALS_MS.includes(ms)) {
             return ms;
         }
     } catch {
@@ -6049,9 +6649,21 @@ function startAutoRefresh() {
 
     refreshTimer = setInterval(() => {
         if (isAuthenticated) {
-            refreshDashboard();
+            // Silent: values swap instantly with no shimmer/buttons flicker.
+            refreshDashboard({ silent: true });
+            // Keep the open Trends page live at the same cadence instead of
+            // letting it go stale while the dashboard refreshes underneath.
+            if (currentPage === "trends" && typeof loadTrends === "function") {
+                loadTrends({ showLoading: false });
+            }
         }
     }, getRefreshIntervalMs());
+
+    // Apply instantly — don't make the user wait a full interval after
+    // changing the setting or toggling auto-refresh back on.
+    if (isAuthenticated && !dashboardRefreshing) {
+        refreshDashboard({ silent: true });
+    }
 }
 
 function stopAutoRefresh() {
@@ -6287,7 +6899,7 @@ async function renderReportPage() {
         setText("rptGeneratedAt", new Date().toLocaleString());
         setText("rptReadingCount", String((recent || []).length));
 
-        const ageMs = Date.now() - new Date(latest.recorded_at).getTime();
+        const ageMs = Date.now() - parseApiDate(latest.recorded_at).getTime();
         const ageHours = Number.isFinite(ageMs) ? ageMs / (1000 * 60 * 60) : null;
         const isStale = ageHours === null || ageHours > 24;
 
@@ -6332,7 +6944,7 @@ async function renderReportPage() {
         if (ring) {
             ring.setAttribute(
                 "aria-label",
-                overall === null ? "Aqua AI score unavailable" : `Aqua AI score ${overall} of 100`
+                overall === null ? "Aqua Sense score unavailable" : `Aqua Sense score ${overall} of 100`
             );
         }
 
@@ -6732,7 +7344,7 @@ async function exportLiveReadingsCsv(button) {
         }
         const csv = readingsToCsv(rows);
         const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-        triggerBrowserDownload(blob, "Aqua_AI_Readings_" + exportDateStamp(new Date()) + ".csv");
+        triggerBrowserDownload(blob, "Aqua_Sense_Readings_" + exportDateStamp(new Date()) + ".csv");
         showToast("Exported " + rows.length + " live reading(s) to CSV.", "success");
     } catch (error) {
         showToast("CSV export failed. Check the backend connection and try again.", "error");
@@ -6788,7 +7400,7 @@ function buildProfessionalPdf(){
     var jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
     if(!jsPDF){
         var lines = [
-            "Aqua AI - Water Quality Analysis Report",
+            "Aqua Sense - Water Quality Analysis Report",
             "Generated: "+formatPdfNow(),
             "Latest reading: "+(reading?formatPdfDate(reading.recorded_at):"Not available"),
             "Overall: "+(overall===null?"Not available":overall+"/100 "+waterScoreLabel(overall))
@@ -6808,337 +7420,942 @@ function buildProfessionalPdf(){
     var doc = new jsPDF({unit:"pt", format:"a4", orientation:"portrait"});
     var W = doc.internal.pageSize.getWidth();
     var H = doc.internal.pageSize.getHeight();
-    var M = 40;
+    var M = 48;
+    var CW = W - 2*M;
+    var FOOT = 56;
+    var NAVY=[15,36,48], TEAL=[14,124,149], TEALD=[10,95,115], GREEN=[22,148,74],
+        AMBER=[178,112,8], RED=[185,30,30], GRAY=[100,116,139], BODY=[45,55,65],
+        FAINT=[245,248,250], LINEC=[214,228,236];
     var y = 0;
-    var pageNum = 1;
-    function addFooter(){
-        doc.setFontSize(7);
-        doc.setTextColor(130,130,130);
-        doc.setFont("helvetica","normal");
-        doc.text("Aqua AI \u2014 Water Quality Analysis Report", M, H-18);
-        doc.text("Page "+pageNum+" of "+doc.internal.getNumberOfPages(), W-M, H-18, {align:"right"});
-        doc.text("Generated by Aqua AI", W/2, H-10, {align:"center"});
+
+    function statusRGB(level){
+        if(level==="good") return GREEN;
+        if(level==="caution") return AMBER;
+        if(level==="alert") return RED;
+        return [130,130,130];
     }
-    function addHeader(isFirst){
-        if(isFirst) return;
-        doc.setFontSize(7);
-        doc.setTextColor(100,100,100);
-        doc.setFont("helvetica","bold");
-        doc.text("AQUA AI", M, 28);
-        doc.setFont("helvetica","normal");
-        doc.text("Water Quality Analysis Report", M+55, 28);
-        doc.setDrawColor(220,220,220);
-        doc.line(M,32,W-M,32);
+    function newPage(){ doc.addPage(); y = 52; }
+    function need(h){ if(y + h > H - FOOT){ newPage(); } }
+    function rule(color, width){
+        doc.setDrawColor(color[0],color[1],color[2]);
+        doc.setLineWidth(width||0.7);
+        doc.line(M, y, W-M, y);
+        y += 10;
     }
-    function checkSpace(need){
-        if(y+need > H-40){
-            addFooter();
-            doc.addPage();
-            pageNum++;
-            y=45;
-            addHeader(false);
+    function h2(num, title, sub){
+        need(66);
+        doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+        doc.setTextColor(TEAL[0],TEAL[1],TEAL[2]);
+        doc.text("SECTION "+num, M, y); y += 14;
+        doc.setFontSize(14); doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
+        doc.text(title, M, y); y += 9;
+        if(sub){
+            doc.setFont("helvetica","normal"); doc.setFontSize(8);
+            doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
+            var sl = doc.splitTextToSize(sub, CW);
+            need(sl.length*12);
+            doc.text(sl, M, y); y += sl.length*12;
         }
+        doc.setDrawColor(TEAL[0],TEAL[1],TEAL[2]); doc.setLineWidth(1.4);
+        doc.line(M, y, M+30, y); doc.setLineWidth(0.5);
+        y += 14;
     }
-    function sectionTitle(kicker, title, subtitle){
-        checkSpace(50);
-        doc.setFontSize(7);
-        doc.setTextColor(100,116,139);
-        doc.setFont("helvetica","bold");
-        doc.text(kicker.toUpperCase(), M, y);
-        y+=12;
-        doc.setFontSize(13);
-        doc.setTextColor(15,36,48);
-        doc.setFont("helvetica","bold");
-        doc.text(title, M, y);
-        y+=10;
-        if(subtitle){
-            doc.setFontSize(7.5);
-            doc.setTextColor(110,110,110);
-            doc.setFont("helvetica","normal");
-            doc.text(subtitle, M, y);
-            y+=8;
-        }
-        doc.setDrawColor(14,124,149);
-        doc.setLineWidth(1.2);
-        doc.line(M, y, M+28, y);
-        doc.setLineWidth(0.5);
-        y+=14;
+    function h2cont(num, title){
+        need(40);
+        doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+        doc.setTextColor(TEAL[0],TEAL[1],TEAL[2]);
+        doc.text("SECTION "+num+" - CONTINUED", M, y); y += 14;
+        doc.setFontSize(14); doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
+        doc.text(title, M, y); y += 9;
+        doc.setDrawColor(TEAL[0],TEAL[1],TEAL[2]); doc.setLineWidth(1.4);
+        doc.line(M, y, M+30, y); doc.setLineWidth(0.5);
+        y += 14;
     }
-    function drawTable(headers, rows, colWidths){
-        var headerH = 20;
-        var rowH = 18;
-        checkSpace(headerH+rowH);
-        doc.setFillColor(244,248,250);
-        doc.rect(M, y, W-2*M, headerH, "F");
-        doc.setDrawColor(223,234,241);
-        doc.rect(M, y, W-2*M, headerH, "S");
-        doc.setFontSize(7);
-        doc.setTextColor(60,60,60);
-        doc.setFont("helvetica","bold");
-        var x = M+6;
-        headers.forEach(function(h,i){
-            doc.text(h, x, y+12, {maxWidth: colWidths[i]-8});
-            x+=colWidths[i];
+    function h3(title){
+        need(32);
+        doc.setFont("helvetica","bold"); doc.setFontSize(10.5);
+        doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
+        doc.text(title, M, y); y += 15;
+    }
+    function para(txt, opt){
+        opt = opt||{};
+        var size = opt.size||8.5, lh = size*1.52;
+        doc.setFont("helvetica", opt.bold?"bold":"normal"); doc.setFontSize(size);
+        var c = opt.color||BODY; doc.setTextColor(c[0],c[1],c[2]);
+        var lines = doc.splitTextToSize(String(txt), CW - (opt.indent||0));
+        need(lines.length*lh + 4);
+        doc.text(lines, M + (opt.indent||0), y);
+        y += lines.length*lh + (opt.after===undefined?5:opt.after);
+    }
+    function bullets(items){
+        doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+        items.forEach(function(it){
+            var lines = doc.splitTextToSize(String(it), CW-16);
+            var lh = 8.5*1.5;
+            need(lines.length*lh + 3);
+            doc.setTextColor(TEAL[0],TEAL[1],TEAL[2]);
+            doc.text("\u2022", M+2, y);
+            doc.setTextColor(BODY[0],BODY[1],BODY[2]);
+            doc.text(lines, M+14, y);
+            y += lines.length*lh + 2;
         });
-        y+=headerH;
-        doc.setFont("helvetica","normal");
-        doc.setFontSize(7.5);
-        rows.forEach(function(row, idx){
-            var need = rowH;
-            var firstColText = String(row[0]||"");
-            var lines = doc.splitTextToSize(firstColText, colWidths[0]-8);
-            if(lines.length>1) need = 14+lines.length*8;
-            checkSpace(need);
-            if(idx%2===1){ doc.setFillColor(249,251,252); doc.rect(M, y, W-2*M, need, "F"); }
-            doc.setDrawColor(235,242,247);
-            doc.rect(M, y, W-2*M, need, "S");
-            var vx = M;
-            for(var c=0;c<colWidths.length-1;c++){ vx+=colWidths[c]; doc.line(vx, y, vx, y+need); }
-            var rx = M+6;
+        y += 5;
+    }
+    function callout(title, lines){
+        doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+        var wrapped = [];
+        lines.forEach(function(l){ wrapped = wrapped.concat(doc.splitTextToSize(String(l), CW-40)); });
+        var boxH = 30 + wrapped.length*13;
+        need(boxH + 6);
+        doc.setFillColor(232,244,248);
+        doc.setDrawColor(TEAL[0],TEAL[1],TEAL[2]); doc.setLineWidth(0.8);
+        doc.roundedRect(M, y, CW, boxH, 5, 5, "FD");
+        doc.setFillColor(TEAL[0],TEAL[1],TEAL[2]);
+        doc.roundedRect(M, y, 4, boxH, 2, 2, "F");
+        var by = y + 17;
+        doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
+        doc.setTextColor(TEALD[0],TEALD[1],TEALD[2]);
+        doc.text(title.toUpperCase(), M+14, by); by += 13;
+        doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+        doc.setTextColor(BODY[0],BODY[1],BODY[2]);
+        wrapped.forEach(function(l){ doc.text(l, M+14, by); by += 13; });
+        y += boxH + 10;
+    }
+    function fmtVal(v, digits){
+        if(v===null||v===undefined) return "Not available";
+        var n = Number(v);
+        if(!Number.isFinite(n)) return "Not available";
+        return n.toFixed(digits===undefined?2:digits);
+    }
+    /* Professional table: header repeats on page break, rows never split,
+       row height derived from the tallest wrapped cell. */
+    function proTable(headers, rows, widths, opt){
+        opt = opt||{};
+        var fs = opt.fontSize||8, lh = fs*1.45, pad = 5, headH = 21;
+        var x0 = [];
+        (function(){ var x=M; for(var i=0;i<widths.length;i++){ x0.push(x); x+=widths[i]; } })();
+        function drawHead(){
+            need(headH+4);
+            doc.setFillColor(NAVY[0],NAVY[1],NAVY[2]);
+            doc.rect(M, y, CW, headH, "F");
+            doc.setFont("helvetica","bold"); doc.setFontSize(fs+0.5);
+            doc.setTextColor(255,255,255);
+            headers.forEach(function(h,i){
+                doc.text(String(h), x0[i]+6, y+13.5, {maxWidth: widths[i]-12});
+            });
+            y += headH;
+        }
+        drawHead();
+        doc.setFontSize(fs);
+        rows.forEach(function(row, ri){
+            var wrapped = row.map(function(cell,i){
+                return doc.splitTextToSize(pdfSafe(cell,"Not available"), widths[i]-12);
+            });
+            var maxL = 1;
+            wrapped.forEach(function(w){ if(w.length>maxL) maxL=w.length; });
+            var rh = Math.max(20, maxL*lh + pad*2);
+            need(rh);
+            if(ri%2===1){ doc.setFillColor(247,250,252); doc.rect(M, y, CW, rh, "F"); }
+            doc.setDrawColor(LINEC[0],LINEC[1],LINEC[2]); doc.setLineWidth(0.5);
+            doc.rect(M, y, CW, rh, "S");
+            for(var c=1;c<widths.length;c++){ doc.line(x0[c], y, x0[c], y+rh); }
             row.forEach(function(cell, ci){
-                var txt = pdfSafe(cell, "Not available");
-                doc.setTextColor(30,30,30);
-                if(ci===0 && lines.length>1){
-                    doc.text(lines, rx, y+10);
-                } else {
-                    doc.text(txt, rx, y+11, {maxWidth: colWidths[ci]-8});
+                var col = BODY;
+                if(opt.statusCol===ci){
+                    var lv = String(cell).toLowerCase();
+                    col = (lv.indexOf("within")>=0||lv.indexOf("highly suitable")>=0||lv.indexOf("suitable")>=0||lv.indexOf("good")>=0||lv.indexOf("meets")>=0) ? GREEN
+                        : ((lv.indexOf("moderate")>=0||lv.indexOf("mixed")>=0||lv.indexOf("watch")>=0) ? AMBER
+                        : ((lv.indexOf("attention")>=0||lv.indexOf("poor")>=0||lv.indexOf("below")>=0||lv.indexOf("low")>=0||lv.indexOf("high")>=0) ? RED : BODY));
                 }
-                rx+=colWidths[ci];
+                if(opt.colorCol && ci===(opt.colorColIdx||widths.length-1)) col = opt.colorCol[ri];
+                doc.setTextColor(col[0],col[1],col[2]);
+                doc.setFont("helvetica",(opt.boldCol===ci||(opt.boldFirst&&ci===0))?"bold":"normal");
+                doc.text(wrapped[ci], x0[ci]+6, y+pad+fs*0.85);
             });
-            y+=need;
+            y += rh;
+            if(y > H - FOOT - 24 && ri < rows.length-1){ drawHead(); }
         });
-        y+=8;
+        y += 10;
     }
-    function badgeColor(score){
-        if(score===null) return [140,140,140];
-        if(score>=70) return [22,148,74];
-        if(score>=50) return [185,120,10];
-        return [185,30,30];
+    function scoreBar(score, x, w, hgt){
+        hgt = hgt||7;
+        var col = score===null?[200,200,200]:(score>=70?GREEN:(score>=50?AMBER:RED));
+        doc.setFillColor(232,238,243);
+        doc.roundedRect(x, y, w, hgt, 2, 2, "F");
+        if(score!==null){
+            doc.setFillColor(col[0],col[1],col[2]);
+            doc.roundedRect(x, y, Math.max(3, w*score/100), hgt, 2, 2, "F");
+        }
+        return col;
     }
-    y=40;
-    doc.setFontSize(9);
-    doc.setTextColor(14,124,149);
-    doc.setFont("helvetica","bold");
-    doc.text("AQUA AI", M, y);
-    y+=22;
-    doc.setFontSize(22);
-    doc.setTextColor(15,36,48);
-    doc.text("Water Quality", M, y);
-    y+=22;
-    doc.text("Analysis Report", M, y);
-    y+=12;
-    doc.setFontSize(8);
-    doc.setTextColor(100,116,139);
-    doc.setFont("helvetica","normal");
-    doc.text("Engineering water-quality assessment from live sensor data", M, y);
-    y+=18;
-    doc.setDrawColor(14,124,149);
-    doc.setLineWidth(1);
-    doc.line(M, y, W-M, y);
-    y+=18;
-    doc.setFillColor(244,248,250);
-    doc.setDrawColor(223,234,241);
-    doc.rect(M, y, W-2*M, 78, "FD");
-    var metaY = y+14;
-    doc.setFontSize(7);
-    doc.setTextColor(100,116,139);
-    doc.setFont("helvetica","bold");
-    doc.text("REPORT GENERATED", M+10, metaY);
-    doc.text("LATEST READING", M+10, metaY+18);
-    doc.text("DEVICE", M+10, metaY+36);
-    doc.text("DEVICE ID", W/2+10, metaY);
-    doc.text("DATA SOURCE", W/2+10, metaY+18);
-    doc.text("READINGS", W/2+10, metaY+36);
-    doc.setTextColor(15,36,48);
-    doc.setFont("helvetica","normal");
-    doc.setFontSize(7.5);
-    doc.text(formatPdfNow(), M+90, metaY);
-    doc.text(reading?formatPdfDate(reading.recorded_at):"Not available", M+90, metaY+18);
-    var devName = (device&&device.name)|| (reading&&("Device "+reading.device_id)) || "Not available";
-    doc.text(pdfSafe(devName).slice(0,32), M+90, metaY+36);
-    doc.text(reading&&reading.device_id?String(reading.device_id):"Not available", W/2+70, metaY);
-    doc.text("Live sensor / database", W/2+70, metaY+18);
-    var rcEl=document.getElementById("rptReadingCount");
-    var rcTxt=rcEl&&rcEl.textContent.trim()?rcEl.textContent.trim():"Not available";
-    doc.text(rcTxt, W/2+70, metaY+36);
-    y+=90;
-    doc.setFillColor(255,255,255);
-    doc.setDrawColor(223,234,241);
-    doc.rect(M, y, W-2*M, 58, "FD");
-    doc.setFontSize(7);
-    doc.setTextColor(100,116,139);
-    doc.setFont("helvetica","bold");
-    doc.text("OVERALL ANALYTICAL SCORE", M+12, y+16);
-    if(overall!==null){
-        var col=badgeColor(overall);
-        doc.setFontSize(32);
-        doc.setTextColor(col[0],col[1],col[2]);
-        doc.setFont("helvetica","bold");
-        doc.text(String(overall), M+12, y+42);
-        doc.setFontSize(12);
-        doc.text("/ 100", M+52, y+42);
-        doc.setFontSize(9);
-        doc.setTextColor(30,30,30);
-        doc.text(waterScoreLabel(overall), M+95, y+38);
-        var barX=M+95, barW=160, barH=6;
-        doc.setFillColor(235,242,247);
-        doc.roundedRect(barX, y+44, barW, barH, 2,2, "F");
-        doc.setFillColor(col[0],col[1],col[2]);
-        doc.roundedRect(barX, y+44, Math.max(2,barW*overall/100), barH, 2,2, "F");
-    } else {
-        doc.setFontSize(14);
-        doc.setTextColor(120,120,120);
-        doc.text("Not available", M+12, y+38);
+    /* Four-across compact stat cards (single row). */
+    function statCards4(cards){
+        var gap = 8, bw = (CW-3*gap)/4, bh = 66;
+        need(bh+6);
+        cards.forEach(function(cd, i){
+            var cx = M + i*(bw+gap);
+            doc.setFillColor(255,255,255); doc.setDrawColor(LINEC[0],LINEC[1],LINEC[2]);
+            doc.setLineWidth(0.6); doc.roundedRect(cx, y, bw, bh, 5, 5, "FD");
+            doc.setFillColor(cd.color[0],cd.color[1],cd.color[2]);
+            doc.rect(cx+1, y+8, 3, bh-16, "F");
+            doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+            doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
+            doc.text(cd.label.toUpperCase(), cx+10, y+15);
+            doc.setFontSize(cd.big||12); doc.setTextColor(cd.color[0],cd.color[1],cd.color[2]);
+            doc.text(String(cd.value).slice(0,20), cx+10, y+36);
+            doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+            doc.text(String(cd.sub).slice(0,22), cx+10, y+51);
+        });
+        y += bh + 10;
     }
-    doc.setFontSize(7);
-    doc.setTextColor(90,90,90);
-    doc.setFont("helvetica","normal");
-    var statusTxt = overall===null?"Unavailable":waterScoreLabel(overall);
-    doc.text("Status: "+statusTxt, W-M-120, y+30, {align:"left"});
-    y+=70;
-    doc.setFontSize(6.5);
-    doc.setTextColor(120,120,120);
-    doc.text("MEASURED \u2014 direct sensor readings  \u2022  CALCULATED \u2014 derived values  \u2022  ANALYTICAL \u2014 scores & suitability", M, y);
-    addFooter();
-    doc.addPage(); pageNum++; y=45; addHeader(false);
-    sectionTitle("Measured","Current Water Parameters","Direct sensor readings");
-    var phStatus = derived? (function(){var c=getParameterCondition('ph',derived.ph); return c.text;})() : "Not available";
-    var turbStatus = derived? (function(){var c=getParameterCondition('turbidity',derived.turbidity); return c.text;})() : "Not available";
-    var tdsStatus = derived? (function(){var c=getParameterCondition('tds',derived.tds); return c.text;})() : "Not available";
-    var tempStatus = derived? (function(){var c=getParameterCondition('temperature',derived.temperature); return c.text;})() : "Not available";
-    drawTable(["Parameter","Value","Unit","Status"], [
-        ["pH", reading&&reading.ph!==null?Number(reading.ph).toFixed(2):"Not available","--", phStatus],
-        ["Turbidity", reading&&reading.turbidity!==null?Number(reading.turbidity).toFixed(2):"Not available","NTU", turbStatus],
-        ["TDS", reading&&reading.tds!==null?Number(reading.tds).toFixed(0):"Not available","mg/L", tdsStatus],
-        ["Temperature", reading&&reading.temperature!==null?Number(reading.temperature).toFixed(1):"Not available","C", tempStatus]
-    ], [130,80,80, (W-2*M)-290]);
-    sectionTitle("Calculated","Derived Parameters","Estimated values \u2014 not directly measured");
-    var ecTxt = derived&&derived.estimatedEC!==null?Number(derived.estimatedEC).toFixed(2)+" dS/m":"Not available";
-    var hTxt = derived&&derived.hydrogenIonConcentration!==null?Number(derived.hydrogenIonConcentration).toExponential(2)+" mol/L":"Not available";
-    var salTxt = derived? (derived.salinityClass||"Not available") : "Not available";
-    var clarTxt = derived&&derived.clarityIndex!==null?Math.round(derived.clarityIndex)+"%":"Not available";
-    var phIdxTxt = derived&&derived.phIndex!==null?Math.round(derived.phIndex)+"%":"Not available";
-    var tempIdxTxt = derived&&derived.temperatureIndex!==null?Math.round(derived.temperatureIndex)+"%":"Not available";
-    drawTable(["Parameter","Value","Note"], [
-        ["Estimated EC", ecTxt, "TDS / 650"],
-        ["H+ Concentration", hTxt, "10^-pH"],
-        ["Salinity", salTxt, clarTxt],
-        ["Clarity", clarTxt, "from turbidity"],
-        ["pH Index", phIdxTxt, "analytical"],
-        ["Temperature Index", tempIdxTxt, "analytical"]
-    ], [160,120, (W-2*M)-280]);
-    sectionTitle("Analytical","Water Quality Score","Component indexes");
-    if(overall!==null){
-        doc.setFontSize(8);
-        doc.setTextColor(15,36,48);
-        doc.setFont("helvetica","bold");
-        doc.text("Overall: "+overall+" / 100 \u2014 "+waterScoreLabel(overall), M, y);
-        y+=12;
+    /* Horizontal impact bars (label + bar + value). impact 0-100. */
+    function impactBars(rows){
+        var rh = 17, labelW = 110, valW = 44, bw = CW-labelW-valW-8;
+        need(rows.length*rh + 8);
+        doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+        rows.forEach(function(r){
+            doc.setTextColor(BODY[0],BODY[1],BODY[2]);
+            doc.text(String(r.label).slice(0,20), M, y+11);
+            var bx = M+labelW;
+            doc.setFillColor(232,238,243);
+            doc.roundedRect(bx, y+3, bw, 9, 2, 2, "F");
+            var imp = Math.max(0, Math.min(100, r.impact));
+            if(imp>0){
+                doc.setFillColor(r.color[0],r.color[1],r.color[2]);
+                doc.roundedRect(bx, y+3, Math.max(3, bw*imp/100), 9, 2, 2, "F");
+            }
+            doc.setFont("helvetica","bold"); doc.setFontSize(8);
+            doc.setTextColor(r.color[0],r.color[1],r.color[2]);
+            doc.text(String(r.value), bx+bw+6, y+11);
+            doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+            y += rh;
+        });
+        y += 8;
     }
-    var rows = [
-        ["pH", derived&&derived.phIndex!==null?Math.round(derived.phIndex)+"%":"Not available"],
-        ["Salinity / EC", derived&&derived.salinityIndex!==null?Math.round(derived.salinityIndex)+"%":"Not available"],
-        ["Clarity", derived&&derived.clarityIndex!==null?Math.round(derived.clarityIndex)+"%":"Not available"],
-        ["Temperature", derived&&derived.temperatureIndex!==null?Math.round(derived.temperatureIndex)+"%":"Not available"]
+    /* Score-flow: 4 component boxes, arrow to overall band, then crop band. */
+    function scoreFlow(comps, overallVal, overallLabel, cropName, cropScore, cropLabel){
+        var gap = 6, bw = (CW-3*gap)/4, bh = 62;
+        var totalH = bh + 12 + 44 + 10 + 34;
+        need(totalH + 6);
+        var cols = comps.map(function(c){
+            if(c.score===null) return [150,150,150];
+            return c.score>=70?GREEN:(c.score>=50?AMBER:RED);
+        });
+        comps.forEach(function(c, i){
+            var cx = M + i*(bw+gap);
+            doc.setFillColor(255,255,255); doc.setDrawColor(LINEC[0],LINEC[1],LINEC[2]);
+            doc.setLineWidth(0.6); doc.roundedRect(cx, y, bw, bh, 5, 5, "FD");
+            doc.setFont("helvetica","bold"); doc.setFontSize(7);
+            doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
+            doc.text(c.label.toUpperCase(), cx+8, y+13);
+            doc.setFont("helvetica","normal"); doc.setFontSize(7.5);
+            doc.setTextColor(BODY[0],BODY[1],BODY[2]);
+            doc.text(String(c.measured).slice(0,22), cx+8, y+25);
+            doc.setFont("helvetica","bold"); doc.setFontSize(11);
+            doc.setTextColor(cols[i][0],cols[i][1],cols[i][2]);
+            doc.text(c.score===null?"n/a":Math.round(c.score)+"%", cx+8, y+43);
+            doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+            doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
+            doc.text("component", cx+8, y+53);
+            if(i<3){
+                doc.setFont("helvetica","bold"); doc.setFontSize(12);
+                doc.setTextColor(TEAL[0],TEAL[1],TEAL[2]);
+                doc.text("+", cx+bw+1, y+34);
+            }
+        });
+        y += bh + 4;
+        doc.setFont("helvetica","bold"); doc.setFontSize(11);
+        doc.setTextColor(TEAL[0],TEAL[1],TEAL[2]);
+        doc.text("\u25BC", M+CW/2-4, y+8);
+        y += 16;
+        /* overall band */
+        var oc = overallVal===null?[130,130,130]:(overallVal>=70?GREEN:(overallVal>=50?AMBER:RED));
+        doc.setFillColor(NAVY[0],NAVY[1],NAVY[2]);
+        doc.roundedRect(M, y, CW, 44, 5, 5, "F");
+        doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+        doc.setTextColor(170,200,212);
+        doc.text("OVERALL WATER QUALITY", M+12, y+16);
+        doc.setFontSize(17); doc.setTextColor(255,255,255);
+        doc.text(overallVal===null?"n/a":(overallVal+" / 100"), M+12, y+35);
+        doc.setFontSize(10);
+        doc.text(overallLabel, M+110, y+35);
+        doc.setFillColor(120,150,165);
+        doc.roundedRect(M+CW-192, y+18, 180, 8, 2, 2, "F");
+        if(overallVal!==null){
+            doc.setFillColor(oc[0],oc[1],oc[2]);
+            doc.roundedRect(M+CW-192, y+18, Math.max(3,180*overallVal/100), 8, 2, 2, "F");
+        }
+        y += 54;
+        /* crop band */
+        var cc = cropScore===null?[130,130,130]:(cropScore>=75?GREEN:(cropScore>=50?AMBER:RED));
+        doc.setFillColor(FAINT[0],FAINT[1],FAINT[2]);
+        doc.setDrawColor(LINEC[0],LINEC[1],LINEC[2]); doc.setLineWidth(0.6);
+        doc.roundedRect(M, y, CW, 34, 5, 5, "FD");
+        doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+        doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
+        doc.text("CROP SUITABILITY", M+12, y+14);
+        doc.setFontSize(11); doc.setTextColor(cc[0],cc[1],cc[2]);
+        doc.text((cropName||"n/a")+"  "+(cropScore===null?"n/a":Math.round(cropScore)+"%")+"  -  "+cropLabel, M+12, y+27);
+        y += 44;
+    }
+    /* Crop suitability bar chart (compact rows). */
+    function cropBars(rows){
+        var rh = 15, labelW = 120, pctW = 46, bw = CW-labelW-pctW-10;
+        need(rows.length*rh + 10);
+        rows.forEach(function(r){
+            doc.setFont("helvetica","normal"); doc.setFontSize(8);
+            doc.setTextColor(BODY[0],BODY[1],BODY[2]);
+            doc.text(String(r.label).slice(0,22), M, y+10);
+            var bx = M+labelW;
+            doc.setFillColor(232,238,243);
+            doc.roundedRect(bx, y+2, bw, 8, 2, 2, "F");
+            if(r.score!==null){
+                var col = r.score>=75?GREEN:(r.score>=50?AMBER:RED);
+                doc.setFillColor(col[0],col[1],col[2]);
+                doc.roundedRect(bx, y+2, Math.max(2, bw*r.score/100), 8, 2, 2, "F");
+            }
+            doc.setFont("helvetica","bold"); doc.setFontSize(8);
+            doc.setTextColor(BODY[0],BODY[1],BODY[2]);
+            doc.text(r.score===null?"n/a":Math.round(r.score)+"%", bx+bw+6, y+10);
+            y += rh;
+        });
+        y += 8;
+    }
+    function formulaBox(id, title, formulaLines, whereLines, resultText, whyText){
+        var inner = [];
+        doc.setFont("courier","bold"); doc.setFontSize(9);
+        formulaLines.forEach(function(f){ inner = inner.concat(doc.splitTextToSize(f, CW-40)); });
+        doc.setFont("helvetica","normal"); doc.setFontSize(8);
+        var wl = [];
+        (whereLines||[]).forEach(function(f){ wl = wl.concat(doc.splitTextToSize(f, CW-40)); });
+        var rl = resultText ? doc.splitTextToSize(resultText, CW-40) : [];
+        var yl = whyText ? doc.splitTextToSize(whyText, CW-40) : [];
+        var boxH = 34 + inner.length*13 + (wl.length? 6 + wl.length*12 : 0) + (rl.length? 8 + rl.length*12 : 0) + (yl.length? 10 + yl.length*12 : 0);
+        need(boxH + 8);
+        doc.setFillColor(FAINT[0],FAINT[1],FAINT[2]);
+        doc.setDrawColor(LINEC[0],LINEC[1],LINEC[2]); doc.setLineWidth(0.6);
+        doc.roundedRect(M, y, CW, boxH, 5, 5, "FD");
+        var by = y + 17;
+        doc.setFont("helvetica","bold"); doc.setFontSize(8);
+        doc.setTextColor(TEALD[0],TEALD[1],TEALD[2]);
+        doc.text(id+"  -  "+title.toUpperCase(), M+14, by); by += 13;
+        doc.setFont("courier","bold"); doc.setFontSize(9.5);
+        doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
+        inner.forEach(function(f){ doc.text(f, M+14, by); by += 13; });
+        if(wl.length){
+            by += 3;
+            doc.setFont("helvetica","normal"); doc.setFontSize(8);
+            doc.setTextColor(BODY[0],BODY[1],BODY[2]);
+            wl.forEach(function(f){ doc.text(f, M+14, by); by += 12; });
+        }
+        if(rl.length){
+            by += 4;
+            doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
+            doc.setTextColor(GREEN[0],GREEN[1],GREEN[2]);
+            rl.forEach(function(f){ doc.text(f, M+14, by); by += 12; });
+        }
+        if(yl.length){
+            by += 4;
+            doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+            doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
+            doc.text("WHY IT MATTERS", M+14, by); by += 11;
+            doc.setFont("helvetica","normal"); doc.setFontSize(8);
+            doc.setTextColor(BODY[0],BODY[1],BODY[2]);
+            yl.forEach(function(f){ doc.text(f, M+14, by); by += 12; });
+        }
+        y += boxH + 10;
+    }
+    /* Half-width trend chart for 2x2 dashboard. Returns after spacing. */
+    function halfChart(bx, bw, title, unit, points, refMin, refMax){
+        var boxH = 118;
+        doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
+        doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
+        doc.text(title + (unit ? " ("+unit+")" : ""), bx, y);
+        var cy = y + 5;
+        doc.setFillColor(255,255,255); doc.setDrawColor(LINEC[0],LINEC[1],LINEC[2]);
+        doc.setLineWidth(0.6);
+        doc.roundedRect(bx, cy, bw, boxH, 5, 5, "FD");
+        var px=bx+34, pw=bw-42, py=cy+10, ph=boxH-40;
+        var vals = points.map(function(p){return p.v;});
+        var lo=Math.min.apply(null,vals), hi=Math.max.apply(null,vals);
+        if(refMin!==null&&refMin!==undefined) lo=Math.min(lo,refMin);
+        if(refMax!==null&&refMax!==undefined) hi=Math.max(hi,refMax);
+        if(hi-lo<1e-9){ hi=lo+1; }
+        var pad=(hi-lo)*0.15; lo-=pad; hi+=pad;
+        function X(i){ return px + (points.length===1?pw/2:pw*i/(points.length-1)); }
+        function Y(v){ return py+ph - (v-lo)/(hi-lo)*ph; }
+        if(refMin!==null&&refMin!==undefined&&refMax!==null&&refMax!==undefined){
+            doc.setFillColor(232,245,240);
+            doc.rect(px, Y(refMax), pw, Y(refMin)-Y(refMax), "F");
+        }
+        doc.setDrawColor(190,200,210); doc.setLineWidth(0.5);
+        for(var g=0; g<=2; g++){ var gy = py + ph*g/2; doc.line(px, gy, px+pw, gy); }
+        doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+        doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
+        for(var g2=0; g2<=2; g2++){
+            var gv = hi - (hi-lo)*g2/2;
+            doc.text(gv.toFixed(1), px-3, py+ph*g2/2+2, {align:"right"});
+        }
+        doc.text(points.length+" pts", px, py+ph+12);
+        doc.setDrawColor(TEAL[0],TEAL[1],TEAL[2]); doc.setLineWidth(1.2);
+        var started=false, lx=0, ly=0;
+        points.forEach(function(p,i){
+            var cx=X(i), cyy=Y(p.v);
+            if(!started){ started=true; } else { doc.line(lx,ly,cx,cyy); }
+            lx=cx; ly=cyy;
+        });
+        doc.setFillColor(TEAL[0],TEAL[1],TEAL[2]);
+        points.forEach(function(p,i){ doc.circle(X(i), Y(p.v), 1.3, "F"); });
+        doc.setFillColor(NAVY[0],NAVY[1],NAVY[2]);
+        doc.circle(lx, ly, 2, "F");
+        doc.setFont("helvetica","bold"); doc.setFontSize(7);
+        doc.text("Now: "+vals[vals.length-1].toFixed(1), px+pw, py+ph+12, {align:"right"});
+    }
+    function trendRow(titleA, unitA, sA, refA, titleB, unitB, sB, refB, cap){
+        need(150);
+        halfChart(M, (CW-10)/2, titleA, unitA, sA, refA[0], refA[1]);
+        var _y = y;
+        halfChart(M+(CW+10)/2, (CW-10)/2, titleB, unitB, sB, refB[0], refB[1]);
+        y = _y + 5 + 118 + 16;
+        if(cap){ para(cap, {size:7.5, color:GRAY, after:6}); }
+    }
+
+    /* ---------- derived context ---------- */
+    var devName = (device&&device.name) || (reading&&reading.device_id!==null&&reading.device_id!==undefined ? "Device "+reading.device_id : "Not available");
+    var cfg = (typeof ANALYSIS_CONFIG!=="undefined") ? ANALYSIS_CONFIG : null;
+    var crops = (typeof CROP_PROFILES!=="undefined") ? CROP_PROFILES : [];
+    var scored = [];
+    try{
+        scored = crops.map(function(c){ return {crop:c, res:calculateCropScore(reading,c)}; })
+            .filter(function(x){ return x.res && x.res.suitability!==null; })
+            .sort(function(a,b){ return b.res.suitability-a.res.suitability; });
+    }catch(e){ scored=[]; }
+    var top = scored.length? scored[0] : null;
+    /* Single source of dataset size: the readings cache actually held by the app.
+       Charts show the most recent CHART_N of these; captions state both numbers. */
+    var CHART_N = 30;
+    var cacheCount = (typeof readingsCache!=="undefined" && readingsCache) ? readingsCache.length : 0;
+    var datasetSize = cacheCount;
+    if(!datasetSize){
+        var rcEl = (typeof document!=="undefined") ? document.getElementById("rptReadingCount") : null;
+        var rcTxt = rcEl&&rcEl.textContent.trim() ? rcEl.textContent.trim() : "";
+        var m = rcTxt.match(/(\d+)/);
+        datasetSize = m ? parseInt(m[1],10) : 0;
+    }
+    var hist = (typeof readingsCache!=="undefined" && readingsCache.length) ? readingsCache.slice(0,CHART_N).reverse() : [];
+    var histLabel = !hist.length ? "no historical readings"
+        : (datasetSize>hist.length ? (hist.length+" most recent of "+datasetSize+" in dataset") : ("all "+hist.length+" in dataset"));
+    var cam = (typeof latestCameraAnalysis!=="undefined") ? latestCameraAnalysis : null;
+    var figures = (typeof window!=="undefined" && window.__aquaReportFigures) ? window.__aquaReportFigures : [];
+
+    function condOf(key, v){ try{ return getParameterCondition(key, v); }catch(e){ return {text:"Not available", level:"unknown"}; } }
+    function devText(v, unit, digits){
+        if(v===null||v===undefined) return "Not available";
+        return fmtVal(v, digits)+(unit?" "+unit:"");
+    }
+    function signed(n, digits){ return (n>0?"+":n<0?"-":"")+fmtVal(Math.abs(n), digits===undefined?2:digits); }
+    function deviation(measured, rMin, rMax, unit, digits){
+        if(measured===null||measured===undefined) return "Not available";
+        if(rMin===null||rMin===undefined||rMax===null||rMax===undefined) return "Reference not available";
+        if(measured>=rMin&&measured<=rMax) return "Within range";
+        var d = measured<rMin ? measured-rMin : measured-rMax;
+        var edge = measured<rMin ? ("from lower limit "+rMin) : ("from upper limit "+rMax);
+        return signed(d,digits)+" "+(unit||"")+" "+edge;
+    }
+    function riskOf(s){
+        if(s===null||s===undefined) return {t:"UNKNOWN", c:[130,130,130]};
+        if(s>=70) return {t:"LOW", c:GREEN};
+        if(s>=50) return {t:"MODERATE", c:AMBER};
+        return {t:"HIGH", c:RED};
+    }
+
+    /* ================= COVER ================= */
+    y = 60;
+    doc.setFillColor(TEAL[0],TEAL[1],TEAL[2]);
+    doc.rect(0, 0, W, 8, "F");
+    doc.setFont("helvetica","bold"); doc.setFontSize(10);
+    doc.setTextColor(TEAL[0],TEAL[1],TEAL[2]);
+    doc.text("A Q U A   A I", M, y); y += 8;
+    doc.setFont("helvetica","normal"); doc.setFontSize(8);
+    doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
+    doc.text("Agricultural water-quality intelligence", M, y); y += 24;
+    doc.setFont("helvetica","bold"); doc.setFontSize(27);
+    doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
+    doc.text("Water Quality &", M, y); y += 29;
+    doc.text("Crop Suitability", M, y); y += 29;
+    doc.setTextColor(TEAL[0],TEAL[1],TEAL[2]);
+    doc.text("Analysis Report", M, y); y += 20;
+    rule(TEAL, 1.2);
+    /* cover score strip: water / crop / risk */
+    var risk = riskOf(overall);
+    var covCards = [
+        {label:"Water quality", value: overall===null?"n/a":overall+" / 100", sub: overall===null?"Unavailable":waterScoreLabel(overall), color: overall===null?[130,130,130]:(overall>=70?GREEN:(overall>=50?AMBER:RED))},
+        {label:"Crop suitability", value: top?(Math.round(top.res.suitability)+"%"):"n/a", sub: top?scoreLabel(top.res.suitability):"Unavailable", color: top?(top.res.suitability>=75?GREEN:(top.res.suitability>=50?AMBER:RED)):[130,130,130]},
+        {label:"Risk", value: risk.t, sub: top?top.crop.name:"No crop scored", color: risk.c}
     ];
-    drawTable(["Parameter","Score"], rows, [180, (W-2*M)-180]);
-    sectionTitle("Analytical","Application Suitability","Configured references \u2014 deterministic scores");
-    function appRows(profiles, scorer){
-        var out=[];
-        try{
-            var scored = profiles.map(function(p){ return {profile:p, result: scorer(reading,p)}; }).filter(function(x){return x.result.suitability!==null;}).sort(function(a,b){return b.result.suitability - a.result.suitability;});
-            scored.forEach(function(x){
-                var name = x.result.crop||x.result.name||x.profile.name;
-                var sc = Math.round(x.result.suitability);
-                var lbl = scoreLabel(x.result.suitability);
-                out.push([name, sc+"%", lbl]);
-            });
-        }catch(e){ out.push(["Not available","--","--"]); }
-        return out;
-    }
-    doc.setFontSize(8);
-    doc.setTextColor(15,36,48);
-    doc.setFont("helvetica","bold");
-    checkSpace(14); doc.text("Agriculture \u2014 Top 5 crops", M, y); y+=8;
-    var agRows = appRows(CROP_PROFILES, calculateCropScore).slice(0,5);
-    if(agRows.length===0) agRows=[["Not available","--","--"]];
-    drawTable(["Application","Score","Classification"], agRows, [220,70,(W-2*M)-290]);
-    checkSpace(14); doc.setFont("helvetica","bold"); doc.text("Industry \u2014 All profiles", M, y); y+=8;
-    var indRows = appRows(INDUSTRIAL_PROFILES, calculateApplicationScore);
-    drawTable(["Application","Score","Classification"], indRows, [220,70,(W-2*M)-290]);
-    checkSpace(14); doc.setFont("helvetica","bold"); doc.text("Domestic \u2014 All profiles", M, y); y+=8;
-    var domRows = appRows(DOMESTIC_PROFILES, calculateApplicationScore);
-    drawTable(["Application","Score","Classification"], domRows, [220,70,(W-2*M)-290]);
-    checkSpace(14); doc.setFont("helvetica","bold"); doc.text("General Utility \u2014 All profiles", M, y); y+=8;
-    var genRows = appRows(GENERAL_PROFILES, calculateApplicationScore);
-    drawTable(["Application","Score","Classification"], genRows, [220,70,(W-2*M)-290]);
-    sectionTitle("Screening","Drinking Water Screening","Screening only \u2014 not a certification");
-    var dk = DRINKING_PROFILE;
-    var dRes=null; try{ dRes = calculateApplicationScore(reading, dk); }catch(e){}
-    var dScore = dRes&&dRes.suitability!==null?Math.round(dRes.suitability):null;
-    drawTable(["Parameter","Current","Reference","Score"], [
-        ["pH", reading&&reading.ph!==null?Number(reading.ph).toFixed(2):"Not available", dk.phMin+" - "+dk.phMax, dRes&&dRes.phScore!==null?Math.round(dRes.phScore)+"%":"Not available"],
-        ["TDS", reading&&reading.tds!==null?Number(reading.tds).toFixed(0)+" mg/L":"Not available", "< "+dk.tdsMaximum+" mg/L", dRes&&dRes.tdsScore!==null?Math.round(dRes.tdsScore)+"%":"Not available"],
-        ["Turbidity", reading&&reading.turbidity!==null?Number(reading.turbidity).toFixed(2)+" NTU":"Not available", "< "+dk.turbidityMaximum+" NTU", dRes&&dRes.turbidityScore!==null?Math.round(dRes.turbidityScore)+"%":"Not available"]
-    ], [110,110,110, (W-2*M)-330]);
-    checkSpace(22);
-    doc.setFontSize(8);
-    doc.setTextColor(15,36,48);
-    doc.setFont("helvetica","bold");
-    doc.text("Screening Score: "+(dScore!==null?dScore+"%":"Not available")+" \u2014 "+(dScore!==null?scoreLabel(dScore):"Unavailable"), M, y);
-    y+=10;
-    doc.setFontSize(6.5);
-    doc.setTextColor(100,100,100);
-    doc.setFont("helvetica","italic");
-    doc.text("Screening assessment based on available sensor parameters; laboratory verification is separate.", M, y, {maxWidth: W-2*M});
-    y+=12;
-    doc.setFont("helvetica","normal");
-    sectionTitle("Analytical","Key Finding","Main limiting factor");
-    var comp = [
-        {label:"pH", v: derived?derived.phIndex:null},
-        {label:"Salinity / EC", v: derived?derived.salinityIndex:null},
-        {label:"Clarity", v: derived?derived.clarityIndex:null},
-        {label:"Temperature", v: derived?derived.temperatureIndex:null}
-    ].filter(function(x){return x.v!==null;});
-    var limiting = null; comp.forEach(function(c){ if(!limiting||c.v<limiting.v) limiting=c; });
-    checkSpace(30);
-    doc.setFontSize(7.5);
-    doc.setTextColor(15,36,48);
-    doc.setFont("helvetica","bold");
-    if(limiting){
-        if(limiting.v>=100) doc.text("All component scores are within their preferred ranges.", M, y);
-        else doc.text("Main limiting factor: "+limiting.label+" \u2014 "+Math.round(limiting.v)+"%", M, y);
-        y+=10;
-        doc.setFont("helvetica","normal");
-        doc.setTextColor(80,80,80);
-        doc.text(limiting.v>=100?"No single parameter is currently limiting the score.": limiting.label+" is the strongest limiting parameter for this profile.", M, y, {maxWidth: W-2*M});
+    (function(){
+        var gap=8, bw=(CW-2*gap)/3, bh=64;
+        need(bh+6);
+        covCards.forEach(function(cd,i){
+            var cx=M+i*(bw+gap);
+            doc.setFillColor(NAVY[0],NAVY[1],NAVY[2]);
+            doc.roundedRect(cx, y, bw, bh, 6, 6, "F");
+            doc.setFont("helvetica","bold"); doc.setFontSize(7);
+            doc.setTextColor(150,185,198);
+            doc.text(cd.label.toUpperCase(), cx+12, y+16);
+            doc.setFontSize(16); doc.setTextColor(255,255,255);
+            doc.text(String(cd.value).slice(0,18), cx+12, y+38);
+            doc.setFontSize(8); doc.setTextColor(cd.color[0],cd.color[1],cd.color[2]);
+            doc.text(String(cd.sub).slice(0,24), cx+12, y+53);
+        });
+        y += bh + 12;
+    })();
+    /* cover metadata: compact lines, no table */
+    doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+    var meta = [
+        ["Selected crop", top?top.crop.name:"Not available"],
+        ["Reading / sample ID", reading&&reading.id!==undefined?("#"+reading.id):"Not available"],
+        ["Device", pdfSafe(devName).slice(0,44)+(reading&&reading.device_id!==undefined?("  (ID "+reading.device_id+")"):"")],
+        ["Analysis date", formatPdfNow()]
+    ];
+    meta.forEach(function(mm){
+        doc.setFont("helvetica","bold"); doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
+        doc.text(mm[0].toUpperCase(), M, y);
+        doc.setFont("helvetica","normal"); doc.setTextColor(BODY[0],BODY[1],BODY[2]);
+        doc.text(String(mm[1]).slice(0,60), M+150, y);
+        y += 13;
+    });
+    y += 4;
+    para("This report follows the water from measurement to recommendation: readings are compared against configured references, converted to component scores, combined into an overall water score, ranked per crop, and traced to limiting factors and actions.", {size:8, color:GRAY});
+
+    /* ================= 01 EXECUTIVE SUMMARY ================= */
+    h2("01", "Executive Summary", "Decision dashboard - the whole assessment at a glance.");
+    statCards4([
+        {label:"Water quality", value: overall===null?"n/a":overall+" / 100", sub: overall===null?"Unavailable":waterScoreLabel(overall), color: overall===null?[130,130,130]:(overall>=70?GREEN:(overall>=50?AMBER:RED))},
+        {label:"Crop suitability", value: top?(Math.round(top.res.suitability)+"%"):"n/a", sub: top?scoreLabel(top.res.suitability):"Unavailable", color: top?(top.res.suitability>=75?GREEN:(top.res.suitability>=50?AMBER:RED)):[130,130,130], big:11},
+        {label:"Selected crop", value: top?top.crop.name:"n/a", sub: top?("EC tol. "+top.crop.ecwFullYield+" dS/m"):"No data", color: NAVY, big:11},
+        {label:"Risk", value: risk.t, sub: overall===null?"Unknown":(overall>=70?"In preferred ranges":(overall>=50?"Some drift":"Action advised")), color: risk.c}
+    ]);
+    h3("Key findings");
+    var sumBullets = [];
+    if(derived){
+        var cPh=condOf("ph",derived.ph), cTd=condOf("tds",derived.tds),
+            cTb=condOf("turbidity",derived.turbidity), cTp=condOf("temperature",derived.temperature);
+        if(cPh.level!=="good") sumBullets.push("pH "+fmtVal(reading.ph,2)+" is outside the preferred irrigation range (6.5-8.4).");
+        if(cTd.level==="alert") sumBullets.push("TDS "+fmtVal(reading.tds,0)+" mg/L indicates elevated dissolved solids.");
+        else if(cTd.level==="caution") sumBullets.push("TDS "+fmtVal(reading.tds,0)+" mg/L is above the preferred level.");
+        if(cTb.level==="alert") sumBullets.push("Turbidity "+fmtVal(reading.turbidity,2)+" NTU is significantly elevated.");
+        else if(cTb.level==="caution") sumBullets.push("Turbidity "+fmtVal(reading.turbidity,2)+" NTU is above the preferred band.");
+        if(cTp.level!=="good"&&derived.temperature!==null) sumBullets.push("Temperature "+fmtVal(reading.temperature,1)+" C is outside the configured crop envelope.");
+        if(!sumBullets.length) sumBullets.push("All measured parameters sit within their preferred bands.");
     } else {
-        doc.text("Not available \u2014 insufficient data.", M, y);
+        sumBullets.push("No sensor readings are available yet; connect a device to begin monitoring.");
     }
-    y+=14;
-    sectionTitle("Reference","Data Classification","How to read this report");
-    checkSpace(50);
-    doc.setFontSize(7);
-    doc.setTextColor(15,36,48);
-    doc.setFont("helvetica","bold");
-    doc.text("MEASURED", M, y); doc.setFont("helvetica","normal"); doc.setTextColor(80,80,80); doc.text("Direct sensor readings: pH, TDS, Turbidity, Temperature", M+70, y);
-    y+=10;
-    doc.setFont("helvetica","bold"); doc.setTextColor(15,36,48); doc.text("CALCULATED", M, y); doc.setFont("helvetica","normal"); doc.setTextColor(80,80,80); doc.text("Values derived from sensor readings: EC, H+ concentration, indexes", M+70, y);
-    y+=10;
-    doc.setFont("helvetica","bold"); doc.setTextColor(15,36,48); doc.text("ANALYTICAL", M, y); doc.setFont("helvetica","normal"); doc.setTextColor(80,80,80); doc.text("Scores & suitability generated from configured references", M+70, y);
-    y+=10;
-    addFooter();
+    bullets(sumBullets.slice(0,5));
+    h3("Top limiting factors");
+    if(derived){
+        var comps = [
+            {label:"Temperature", score:derived.temperatureIndex},
+            {label:"Turbidity", score:derived.clarityIndex},
+            {label:"pH", score:derived.phIndex},
+            {label:"Salinity / EC", score:derived.salinityIndex}
+        ].filter(function(c){return c.score!==null;})
+         .sort(function(a,b){return a.score-b.score;})
+         .slice(0,4);
+        impactBars(comps.map(function(c){
+            var imp = 100-c.score;
+            return {label:c.label, impact:imp, value:Math.round(c.score)+"%",
+                color: c.score>=70?GREEN:(c.score>=50?AMBER:RED)};
+        }));
+        para("Bars show constraint impact (100 minus component score): longer bars constrain the final score more.", {size:7.5, color:GRAY});
+    }
+
+    /* ================= 02 SCORE FLOW ================= */
+    h2("02", "How the Score Was Reached", "Measured values become component scores, then one water score, then crop suitability.");
+    if(derived && reading){
+        var ecV = derived.estimatedEC;
+        scoreFlow([
+            {label:"pH", measured:"Measured "+fmtVal(reading.ph,2), score:derived.phIndex},
+            {label:"Salinity", measured:"EC "+(ecV!==null?fmtVal(ecV,2)+" dS/m":"n/a"), score:derived.salinityIndex},
+            {label:"Turbidity", measured:fmtVal(reading.turbidity,2)+" NTU", score:derived.clarityIndex},
+            {label:"Temperature", measured:fmtVal(reading.temperature,1)+" C", score:derived.temperatureIndex}
+        ], overall, overall===null?"Unavailable":waterScoreLabel(overall),
+           top?top.crop.name:null, top?Math.round(top.res.suitability):null, top?scoreLabel(top.res.suitability):"Unavailable");
+        para("Component scores use the application's target-range and piecewise formulas (Section 07). The weighted combination and crop step are detailed there; this diagram shows the values flowing through them.", {size:7.5, color:GRAY});
+    } else {
+        para("Score flow cannot be drawn without sensor data.", {});
+    }
+
+    /* ================= 03 SAMPLE & DEVICE ================= */
+    h2("03", "Sample & Device Information", "Provenance of the analysed data.");
+    proTable(["Field","Value"], [
+        ["Device", pdfSafe(devName).slice(0,60)],
+        ["Device ID / type / location", (reading&&reading.device_id!==undefined?String(reading.device_id):"--")+" / "+((device&&device.device_type)||"ESP32")+" / "+((device&&device.location)||"Not available")],
+        ["Reading ID / recorded", (reading&&reading.id!==undefined?("#"+reading.id):"--")+" / "+(reading?formatPdfDate(reading.recorded_at):"Not available")],
+        ["Dataset", datasetSize? (datasetSize+" readings") : "Not available"],
+        ["Generated", formatPdfNow()]
+    ], [170, CW-170], {fontSize:8});
+
+    /* ================= 04 MEASUREMENTS ================= */
+    h2("04", "Water Quality Measurements", "Direct sensor readings with references, deviations and status.");
+    proTable(["Parameter","Measured","Unit","Reference","Deviation","Status"], [
+        ["pH", (reading&&reading.ph!==null&&reading.ph!==undefined)?fmtVal(reading.ph,2):"Not available", "--", "6.5-8.4", deviation(reading?reading.ph:null,6.5,8.4,"",2), derived?condOf("ph",derived.ph).text:"Not available"],
+        ["TDS", (reading&&reading.tds!==null&&reading.tds!==undefined)?fmtVal(reading.tds,0):"Not available", "mg/L", "<=450 good / <=2000 moderate", (function(){ if(!reading||reading.tds===null||reading.tds===undefined) return "Not available"; if(reading.tds<=450) return "Within range"; return "+"+fmtVal(reading.tds-450,0)+" mg/L from preferred"; })(), derived?condOf("tds",derived.tds).text:"Not available"],
+        ["Turbidity", (reading&&reading.turbidity!==null&&reading.turbidity!==undefined)?fmtVal(reading.turbidity,2):"Not available", "NTU", "<=1 good / <=5 moderate", (function(){ if(!reading||reading.turbidity===null||reading.turbidity===undefined) return "Not available"; if(reading.turbidity<=1) return "Within range"; return "+"+fmtVal(reading.turbidity-1,2)+" NTU from good threshold"; })(), derived?condOf("turbidity",derived.turbidity).text:"Not available"],
+        ["Temperature", (reading&&reading.temperature!==null&&reading.temperature!==undefined)?fmtVal(reading.temperature,1):"Not available", "C", "15-30 preferred", deviation(reading?reading.temperature:null,15,30,"C",1), derived?condOf("temperature",derived.temperature).text:"Not available"]
+    ], [78, 62, 42, 128, 108, CW-418], {statusCol:5, fontSize:7.5});
+
+    /* ================= 05 CROP REFERENCES ================= */
+    h2("05", "Crop Reference Standards", "General irrigation references are distinct from the selected crop's scoring requirements.");
+    h3("General irrigation reference");
+    proTable(["Parameter","Reference"], [
+        ["pH", "6.5 - 8.4 preferred (moderate 6.0 - 9.0)"],
+        ["TDS", "<= 450 mg/L good; <= 2000 mg/L moderate"],
+        ["Turbidity", "<= 1 NTU good; <= 5 NTU moderate"],
+        ["Temperature", "15 - 30 C preferred"]
+    ], [150, CW-150], {fontSize:8});
+    var ecMeas2 = derived?derived.estimatedEC:null;
+    callout("Important distinction - TDS vs EC",
+        ["TDS is used for the general irrigation reference above.",
+         "EC is used by the crop scoring engine for salinity tolerance: EC = TDS / 650.",
+         "This sample: TDS "+devText(reading?reading.tds:null,"mg/L",0)+"  ->  EC "+(ecMeas2!==null?fmtVal(ecMeas2,2)+" dS/m":"Not available")+"."]);
+    if(top){
+        h3("Selected crop requirements - "+top.crop.name);
+        var cr = top.crop, cres = top.res;
+        proTable(["Parameter","Crop requirement","Measured","Difference","Status"], [
+            ["pH", cr.phMin+" - "+cr.phMax, devText(reading?reading.ph:null,"",2), deviation(reading?reading.ph:null, cr.phMin, cr.phMax, "", 2), cres.phScore!==null?scoreLabel(cres.phScore):"Unavailable"],
+            ["Salinity (EC)", "<= "+cr.ecwFullYield+" dS/m", ecMeas2!==null?fmtVal(ecMeas2,2)+" dS/m":"Not available", (function(){ if(ecMeas2===null) return "Not available"; if(ecMeas2<=cr.ecwFullYield) return "Within tolerance"; return "+"+fmtVal(ecMeas2-cr.ecwFullYield,2)+" dS/m above tolerance"; })(), cres.salinityScore!==null?scoreLabel(cres.salinityScore):"Unavailable"],
+            ["Temperature", cr.temperatureMin+" - "+cr.temperatureMax+" C", devText(reading?reading.temperature:null,"C",1), deviation(reading?reading.temperature:null, cr.temperatureMin, cr.temperatureMax, "C", 1), cres.temperatureScore!==null?scoreLabel(cres.temperatureScore):"Unavailable"],
+            ["Turbidity", "<= "+cr.turbidityPreferred+" NTU", devText(reading?reading.turbidity:null,"NTU",2), (function(){ if(!reading||reading.turbidity===null||reading.turbidity===undefined) return "Not available"; if(reading.turbidity<=cr.turbidityPreferred) return "Within range"; return "+"+fmtVal(reading.turbidity-cr.turbidityPreferred,2)+" NTU above"; })(), cres.turbidityScore!==null?scoreLabel(cres.turbidityScore):"Unavailable"]
+        ], [100, 110, 100, 120, CW-430], {statusCol:4, fontSize:7.5});
+        para("Source: in-application CROP_PROFILES dataset. Requirement values above are the exact references used by the crop-scoring engine.", {size:7.5, color:GRAY});
+    }
+
+    /* ================= 06 CROP COMPARISON ================= */
+    h2("06", "Crop Comparison", "All configured crops ranked for this sample - visual and compact table carry the same data once.");
+    if(scored.length){
+        h3("Suitability ranking");
+        cropBars(scored.map(function(x){ return {label:x.crop.name, score:x.res.suitability}; }));
+        var _pct0 = function(v){ return (v===null||v===undefined)?"n/a":Math.round(v)+"%"; };
+        proTable(["Crop","Score","Status","Main limiting factor"], scored.map(function(x){
+            var parts = [["Salinity",x.res.salinityScore],["pH",x.res.phScore],["Temperature",x.res.temperatureScore],["Turbidity",x.res.turbidityScore]]
+                .filter(function(p){return p[1]!==null;}).sort(function(a,b){return a[1]-b[1];});
+            return [x.crop.name, _pct0(x.res.suitability), scoreLabel(x.res.suitability), parts.length?(parts[0][0]+" ("+Math.round(parts[0][1])+"%)"):"No data"];
+        }), [110, 60, 130, CW-300], {statusCol:2, fontSize:7.5});
+    } else {
+        para("Crop ranking is unavailable for this sample (insufficient sensor data).", {});
+    }
+
+    /* ================= 07 METHODOLOGY ================= */
+    h2("07", "Calculation Methodology", "Exact formulas executed by the application (ANALYSIS_CONFIG). Nothing here is illustrative.");
+    if(cfg){
+        var ecF = cfg.ec.tdsConversionFactor;
+        formulaBox("F1", "Electrical conductivity (EC)",
+            ["EC  =  TDS / "+ecF],
+            ["TDS = measured total dissolved solids ("+devText(reading?reading.tds:null,"mg/L",0)+")",
+             ecF+" = configured TDS-to-EC conversion factor"],
+            "Result: EC = "+(derived&&derived.estimatedEC!==null?fmtVal(derived.estimatedEC,2)+" dS/m":"Not available"),
+            "EC is the salinity input to the crop scoring engine; each crop defines an EC tolerance.");
+        formulaBox("F2", "Hydrogen ion concentration",
+            ["[H+]  =  10^(-pH)"],
+            ["pH = measured value ("+devText(reading?reading.ph:null,"",2)+")"],
+            "Result: [H+] = "+(derived&&derived.hydrogenIonConcentration!==null?derived.hydrogenIonConcentration.toExponential(2)+" mol/L":"Not available"),
+            "Reports acidity on the chemical concentration scale behind the pH reading.");
+        formulaBox("F3", "Clarity index from turbidity (piecewise linear)",
+            ["100 at turbidity <= 1 NTU;",
+             "ramps 100 -> 60 from 1 to 5 NTU;",
+             "ramps 60 -> 0 from 5 to 20 NTU; 0 above 20 NTU"],
+            ["turbidity = measured "+devText(reading?reading.turbidity:null,"NTU",2)],
+            "Result: clarity = "+(derived&&derived.clarityIndex!==null?Math.round(derived.clarityIndex)+"%":"Not available"),
+            "Translates optical cloudiness into a 0-100 component used by both overall and crop scores.");
+        formulaBox("F4", "Target-range score (pH, salinity, temperature)",
+            ["100 inside the ideal range;",
+             "linear ramp to 0 at the outer limits; 0 beyond"],
+            ["Ideal/outer limits are the configured irrigation, pH-index and temperature bands",
+             "This sample: pH "+(derived&&derived.phIndex!==null?Math.round(derived.phIndex)+"%":"n/a")+", salinity "+(derived&&derived.salinityIndex!==null?Math.round(derived.salinityIndex)+"%":"n/a")+", temperature "+(derived&&derived.temperatureIndex!==null?Math.round(derived.temperatureIndex)+"%":"n/a")],
+            null,
+            "The shared scoring primitive behind every range-based component.");
+        /* F5 with explicit contribution breakdown (mirrors code incl. renormalisation) */
+        var w = cfg.weights.overall;
+        var avail = [];
+        if(derived){
+            if(derived.phIndex!==null) avail.push({label:"pH", w:w.ph, v:derived.phIndex});
+            if(derived.salinityIndex!==null) avail.push({label:"Salinity", w:w.salinity, v:derived.salinityIndex});
+            if(derived.clarityIndex!==null) avail.push({label:"Clarity", w:w.turbidity, v:derived.clarityIndex});
+            if(derived.temperatureIndex!==null) avail.push({label:"Temperature", w:w.temperature, v:derived.temperatureIndex});
+        }
+        var totW = avail.reduce(function(s,a){return s+a.w;},0);
+        var totC = avail.reduce(function(s,a){return s+a.w*a.v;},0);
+        var f5where = avail.map(function(a){
+            return a.label+": "+a.w.toFixed(2)+" x "+fmtVal(a.v,1)+" = "+fmtVal(a.w*a.v,1);
+        });
+        f5where.push("Missing parameters are excluded and weights renormalised over "+fmtVal(totW,2)+".");
+        formulaBox("F5", "Overall analytical score (weighted mean)",
+            ["Score  =  sum(weight x component) / sum(available weights)"],
+            f5where.length?f5where:["No components available"],
+            "Result: "+fmtVal(totC,1)+" / "+fmtVal(totW,2)+" = "+(overall===null?"Not available":("~ "+overall+" / 100 ("+waterScoreLabel(overall)+")")),
+            "Configured weights: pH 0.35, salinity 0.30, turbidity 0.20, temperature 0.15. Displayed total is rounded to the reported score.");
+        /* F6 with crop contribution breakdown + cap rule */
+        var cw = cfg.weights.crop;
+        if(top){
+            var cav = [];
+            if(top.res.salinityScore!==null) cav.push({label:"Salinity", w:cw.salinity, v:top.res.salinityScore});
+            if(top.res.phScore!==null) cav.push({label:"pH", w:cw.ph, v:top.res.phScore});
+            if(top.res.temperatureScore!==null) cav.push({label:"Temperature", w:cw.temperature, v:top.res.temperatureScore});
+            if(top.res.turbidityScore!==null) cav.push({label:"Turbidity", w:cw.turbidity, v:top.res.turbidityScore});
+            var ctotW = cav.reduce(function(s,a){return s+a.w;},0);
+            var f6where = cav.map(function(a){
+                return a.label+": "+a.w.toFixed(2)+" x "+fmtVal(a.v,1)+" = "+fmtVal(a.w*a.v,1);
+            });
+            var minC = cav.length?Math.min.apply(null, cav.map(function(a){return a.v;})):null;
+            f6where.push("Critical-cap rule: if any component scores 0, suitability is capped at 20"+(minC===0?" - CAP ACTIVE for "+top.crop.name:" - not triggered (minimum "+fmtVal(minC,0)+")")+".");
+            formulaBox("F6", "Crop suitability - "+top.crop.name,
+                ["Suitability  =  sum(weight x component) / sum(available weights)",
+                 "Configured crop weights: salinity 0.45, pH 0.25, temperature 0.20, turbidity 0.10"],
+                f6where,
+                "Result: "+Math.round(top.res.suitability)+"% ("+scoreLabel(top.res.suitability)+")",
+                "Salinity uses the crop EC tolerance; pH uses crop range +/- 2.0; temperature uses crop range +/- 10 C.");
+        } else {
+            formulaBox("F6", "Crop suitability (weighted mean with critical-cap rule)",
+                ["Suitability  =  (0.45 x salinity + 0.25 x pH + 0.20 x temperature + 0.10 x turbidity) / available weight",
+                 "If any component scores 0, suitability is capped at 20."],
+                ["Insufficient data for substitution"],
+                "Result: Not available",
+                "Per-crop EC tolerance, pH range and temperature range come from CROP_PROFILES.");
+        }
+        para("Score bands - water: 80+ Very Good, 60+ Good, 40+ Moderate, below 40 Low. Suitability: 90+ Highly Suitable, 75+ Suitable, 50+ Moderately Suitable, 30+ Low Suitability, below 30 Poor Match.", {size:8});
+    } else {
+        para("Configuration data is unavailable; formulas cannot be displayed.", {});
+    }
+
+    /* ================= 08 PARAMETER BLOCKS ================= */
+    h2("08", "Parameter Analysis", "One block per parameter: value, reference, deviation, component, interpretation.");
+    function paramBlock(title, key, unit, digits, refTxt, devTxt, compScore, interp){
+        if(!reading || reading[key]===null || reading[key]===undefined) return;
+        var c = condOf(key, derived?derived[key]:null);
+        var col = statusRGB(c.level);
+        var boxH = 86;
+        need(boxH + 30);
+        h3(title);
+        y -= 6;
+        doc.setFillColor(255,255,255); doc.setDrawColor(LINEC[0],LINEC[1],LINEC[2]);
+        doc.setLineWidth(0.6); doc.roundedRect(M, y, CW, boxH, 5, 5, "FD");
+        doc.setFillColor(col[0],col[1],col[2]); doc.roundedRect(M, y, 4, boxH, 2, 2, "F");
+        doc.setFont("helvetica","bold"); doc.setFontSize(8);
+        doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
+        var L1 = "Measured "+fmtVal(reading[key],digits)+(unit?" "+unit:"")+"   |   Reference "+refTxt;
+        var L2 = "Deviation "+devTxt+"   |   Component "+(compScore===null?"n/a":Math.round(compScore)+"%");
+        doc.text(doc.splitTextToSize(L1, CW-90), M+12, y+17);
+        doc.text(doc.splitTextToSize(L2, CW-90), M+12, y+31);
+        doc.setFontSize(9); doc.setTextColor(col[0],col[1],col[2]);
+        doc.text(c.text.toUpperCase(), M+CW-12, y+24, {align:"right"});
+        doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+        doc.setTextColor(BODY[0],BODY[1],BODY[2]);
+        var il = doc.splitTextToSize(interp, CW-28).slice(0,2);
+        doc.text(il, M+12, y+48);
+        y += boxH + 10;
+    }
+    if(reading){
+        paramBlock("pH", "ph", "", 2, "6.5 - 8.4",
+            deviation(reading.ph,6.5,8.4,"",2), derived?derived.phIndex:null,
+            (reading.ph<6.5||reading.ph>8.4)?"Outside the irrigation band; verify with a calibrated meter before sensitive plantings.":"Inside the irrigation band; pH does not constrain this sample.");
+        paramBlock("TDS / EC", "tds", "mg/L", 0, "<= 450 good, <= 2000 moderate",
+            (reading.tds===null||reading.tds===undefined)?"Not available":(reading.tds<=450?"Within range":"+"+fmtVal(reading.tds-450,0)+" mg/L from preferred"),
+            derived?derived.salinityIndex:null,
+            "EC "+(derived&&derived.estimatedEC!==null?fmtVal(derived.estimatedEC,2)+" dS/m":"unavailable")+" (salinity class "+(derived?derived.salinityClass:"unavailable")+"). "+((reading.tds>2000)?"Above the moderate ceiling; sensitive crops lose suitability first.":(reading.tds>450?"Above preferred but moderate; consider blending or leaching.":"Preferred band.")));
+        paramBlock("Turbidity", "turbidity", "NTU", 2, "<= 1 good, <= 5 moderate",
+            (reading.turbidity===null||reading.turbidity===undefined)?"Not available":(reading.turbidity<=1?"Within range":"+"+fmtVal(reading.turbidity-1,2)+" NTU from good threshold"),
+            derived?derived.clarityIndex:null,
+            (reading.turbidity>5)?"High suspended load; settle or filter before irrigation to protect drip lines.":(reading.turbidity>1?"Slight cloudiness, acceptable for most field crops.":"Optically clear."));
+        paramBlock("Temperature", "temperature", "C", 1, "15 - 30 preferred",
+            deviation(reading.temperature,15,30,"C",1), derived?derived.temperatureIndex:null,
+            (reading.temperature<5||reading.temperature>35)?"Outside the tolerable envelope; re-measure in cooler conditions.":((reading.temperature<15||reading.temperature>30)?"Tolerable but outside preferred; heat-sensitive stages are most affected.":"Preferred band."));
+    } else {
+        para("No readings available for parameter analysis.", {});
+    }
+
+    /* ================= 09 SELECTED CROP ================= */
+    h2("09", "Selected Crop Assessment", "Why this crop leads for this sample, and what holds it back.");
+    if(top){
+        h3(top.crop.name+" - "+Math.round(top.res.suitability)+"% ("+scoreLabel(top.res.suitability)+")");
+        var _sy2 = y;
+        scoreBar(Math.round(top.res.suitability), M, 260, 8);
+        y = _sy2 + 16;
+        para(top.res.reason, {});
+        proTable(["Component","Score","Crop reference used"], [
+            ["Salinity", top.res.salinityScore!==null?Math.round(top.res.salinityScore)+"%":"n/a", "EC tolerance "+top.crop.ecwFullYield+" dS/m"],
+            ["pH", top.res.phScore!==null?Math.round(top.res.phScore)+"%":"n/a", "Range "+top.crop.phMin+" - "+top.crop.phMax],
+            ["Temperature", top.res.temperatureScore!==null?Math.round(top.res.temperatureScore)+"%":"n/a", "Range "+top.crop.temperatureMin+" - "+top.crop.temperatureMax+" C"],
+            ["Turbidity", top.res.turbidityScore!==null?Math.round(top.res.turbidityScore)+"%":"n/a", "Preferred <="+top.crop.turbidityPreferred+" NTU"]
+        ], [130, 80, CW-210], {fontSize:8});
+    } else {
+        para("No crop assessment is possible without sensor data.", {});
+    }
+
+    /* ================= 10 TRENDS ================= */
+    function seriesOf(key){
+        return hist.map(function(r){ return {v:(r&&r[key]!==null&&r[key]!==undefined)?Number(r[key]):null}; })
+            .filter(function(p){ return p.v!==null && Number.isFinite(p.v); });
+    }
+    var sPh = seriesOf("ph"), sTds = seriesOf("tds"), sTb = seriesOf("turbidity"), sTp = seriesOf("temperature");
+    var trendPairs = [];
+    if(sPh.length>=2) trendPairs.push(["pH trend","",sPh,[6.5,8.4]]);
+    if(sTds.length>=2) trendPairs.push(["TDS trend","mg/L",sTds,[0,450]]);
+    if(sTb.length>=2) trendPairs.push(["Turbidity trend","NTU",sTb,[0,1]]);
+    if(sTp.length>=2) trendPairs.push(["Temperature trend","C",sTp,[15,30]]);
+    if(trendPairs.length){
+        h2("10", "Historical Trends", "Compact dashboard ("+histLabel+"). Shaded bands mark preferred ranges.");
+        for(var ti=0; ti<trendPairs.length; ti+=2){
+            var A = trendPairs[ti], B = trendPairs[ti+1];
+            if(B){
+                trendRow(A[0],A[1],A[2],A[3], B[0],B[1],B[2],B[3], null);
+            } else {
+                need(150);
+                halfChart(M, (CW-10)/2, A[0], A[1], A[2], A[3][0], A[3][1]);
+                y += 5 + 118 + 10;
+            }
+        }
+        h3("Trend interpretation");
+        var tint = [];
+        function bandShare(s, lo, hi){
+            var out = s.filter(function(p){return p.v<lo||p.v>hi;}).length;
+            return s.length? out/s.length : 0;
+        }
+        if(sPh.length>=2){
+            var sh = bandShare(sPh,6.5,8.4);
+            tint.push("pH ("+sPh.length+" pts): "+(sh>0.5?"repeated excursions outside 6.5-8.4.":(sh>0?"occasional excursions outside 6.5-8.4.":"remains within 6.5-8.4.")));
+        }
+        if(sTds.length>=2){
+            var sh2 = bandShare(sTds,0,450);
+            tint.push("TDS ("+sTds.length+" pts): "+(sh2>0.5?"remains elevated above 450 mg/L.":(sh2>0?"partly above the preferred level.":"remains within the preferred level.")));
+        }
+        if(sTb.length>=2){
+            var sh3 = bandShare(sTb,0,1);
+            tint.push("Turbidity ("+sTb.length+" pts): "+(sh3>0.5?"remains above the 1 NTU preferred band.":(sh3>0?"partly above the preferred band.":"remains clear.")));
+        }
+        if(sTp.length>=2){
+            var sh4 = bandShare(sTp,15,30);
+            tint.push("Temperature ("+sTp.length+" pts): "+(sh4>0.5?"repeatedly outside 15-30 C.":(sh4>0?"occasional excursions outside 15-30 C.":"remains within 15-30 C.")));
+        }
+        bullets(tint);
+    }
+
+    /* ================= 11 CAMERA ================= */
+    if(cam && (cam.prediction || cam.overall_observation || cam.summary)){
+        h2("11", "AI / Camera Findings", "Visual screening only - not a laboratory result.");
+        para(String(cam.prediction || cam.overall_observation || cam.summary || ""), {});
+        if(cam.confidence!==undefined&&cam.confidence!==null) para("Reported confidence: "+Math.round(Number(cam.confidence)*100)+"%.", {size:8.5});
+        para("Camera analysis cannot measure pH, TDS, temperature, turbidity or contaminants; it complements but never replaces sensor data.", {size:7.5, color:GRAY});
+    }
+
+    /* ================= FIGURES ================= */
+    if(figures && figures.length){
+        h2("12", "Annexed Figures", "Supporting imagery attached to this report.");
+        figures.forEach(function(f, i){
+            var src = f.src||f.dataUrl||f, cap = f.caption||("Figure "+(i+1));
+            try{
+                var img = doc.getImageProperties(src);
+                var maxW = CW, maxH = H-FOOT-y-60;
+                if(maxH < 140){ newPage(); maxH = H-FOOT-y-60; }
+                var r = Math.min(maxW/img.width, maxH/img.height);
+                var iw = img.width*r, ih = img.height*r;
+                need(ih+34);
+                doc.addImage(src, "JPEG", M+(CW-iw)/2, y, iw, ih);
+                y += ih + 5;
+                doc.setFont("helvetica","italic"); doc.setFontSize(7.5);
+                doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
+                doc.text("Figure "+(i+1)+". "+cap, M, y);
+                y += 14;
+            }catch(e){
+                para("Figure "+(i+1)+" ("+cap+") could not be embedded.", {size:8});
+            }
+        });
+    }
+
+    /* ================= 13 RECOMMENDATIONS ================= */
+    h2("13", "Recommendations", "Grouped actions derived from the limiting parameters above.");
+    var imm = [], mon = [];
+    if(derived){
+        var cPh2 = condOf("ph", derived.ph), cTd2 = condOf("tds", derived.tds),
+            cTb2 = condOf("turbidity", derived.turbidity), cTp2 = condOf("temperature", derived.temperature);
+        if(cPh2.level!=="good"&&derived.ph!==null) imm.push("Verify pH ("+fmtVal(reading.ph,2)+") with a calibrated instrument before sensitive plantings.");
+        if(cTb2.level==="alert"&&derived.turbidity!==null) imm.push("Address turbidity ("+fmtVal(reading.turbidity,2)+" NTU) - settle or filter before irrigation.");
+        if(cTp2.level==="alert"&&derived.temperature!==null) imm.push("Re-measure temperature ("+fmtVal(reading.temperature,1)+" C) during cooler conditions.");
+        if(cTd2.level!=="good"&&derived.tds!==null) mon.push("Track TDS/EC ("+fmtVal(reading.tds,0)+" mg/L); prefer salt-tolerant crops and consider blending.");
+        if(cTb2.level==="caution") mon.push("Monitor turbidity; confirm drip lines stay clear.");
+        mon.push("Continue sensor monitoring on the regular schedule.");
+        if(top) mon.push("Monitor crop response for "+top.crop.name+" against the constraints above.");
+    } else {
+        imm.push("Collect sensor readings before acting.");
+    }
+    if(imm.length){ h3("Immediate actions"); bullets(imm); }
+    if(mon.length){ h3("Monitoring actions"); bullets(mon); }
+    h3("Validation");
+    bullets(["Laboratory analysis is recommended before major agricultural decisions."]);
+
+    /* ================= 14 FINAL ================= */
+    h2("14", "Final Assessment & Limitations", "Closing judgement, scope and constraints - kept with the conclusion.");
+    (function(){
+        var gap=8, bw=(CW-2*gap)/3, bh=62;
+        var frows = top?[["Salinity",top.res.salinityScore],["pH",top.res.phScore],["Temperature",top.res.temperatureScore],["Turbidity",top.res.turbidityScore]].filter(function(p){return p[1]!==null;}).sort(function(a,b){return a[1]-b[1];}):[];
+        need(bh+40);
+        var fc = [
+            {t:"WATER", v: overall===null?"n/a":overall+" / 100", s: overall===null?"Unavailable":waterScoreLabel(overall)},
+            {t:"CROP", v: top?top.crop.name:"n/a", s: top?(Math.round(top.res.suitability)+"% "+scoreLabel(top.res.suitability)):"Unavailable"},
+            {t:"CONSTRAINT", v: frows.length?frows[0][0]:"n/a", s: frows.length?("strongest limit"):"No data"}
+        ];
+        fc.forEach(function(cd,i){
+            var cx=M+i*(bw+gap);
+            doc.setFillColor(NAVY[0],NAVY[1],NAVY[2]);
+            doc.roundedRect(cx, y, bw, bh, 6, 6, "F");
+            doc.setFont("helvetica","bold"); doc.setFontSize(7);
+            doc.setTextColor(150,185,198);
+            doc.text(cd.t, cx+10, y+15);
+            doc.setFontSize(12); doc.setTextColor(255,255,255);
+            doc.text(String(cd.v).slice(0,20), cx+10, y+35);
+            doc.setFontSize(7.5); doc.setTextColor(170,200,212);
+            doc.text(String(cd.s).slice(0,24), cx+10, y+50);
+        });
+        y += bh + 10;
+    })();
+    if(overall!==null){
+        para("The sample scores "+overall+"/100 ("+waterScoreLabel(overall)+"). "+(top?("Strongest match is "+top.crop.name+" at "+Math.round(top.res.suitability)+"% ("+scoreLabel(top.res.suitability)+"). "+top.res.reason+" "):"")+"Judgement is limited to the sensed parameters and the configured references cited below.", {});
+    } else {
+        para("No assessment is possible until sensor readings are available.", {});
+    }
+    h3("Report limitations");
+    bullets([
+        "Data source: live sensor / database. Measured: pH, TDS, turbidity, temperature. Derived: EC, ion concentration, indexes and scores.",
+        "Reference source: the application's configured dataset (ANALYSIS_CONFIG, CROP_PROFILES, drinking-screening profile). No external citation database is stored in the project.",
+        "EC is estimated from TDS (factor 650), not directly measured. Sensor accuracy and calibration are outside this report's scope.",
+        "Camera findings, where present, are visual screening only and never replace laboratory testing.",
+        "This report is a prototype assessment aid, not a laboratory certification."
+    ]);
+    h3("References");
+    bullets([
+        "CROP_PROFILES (12 crops: Rice, Wheat, Maize, Sugarcane, Tomato, Cucumber, Potato, Pepper, Lettuce, Carrot, Bean, Onion) - EC tolerance, pH/temperature ranges, turbidity preference.",
+        "ANALYSIS_CONFIG - EC factor 650; irrigation bands TDS 450/2000 mg/L, pH 6.5-8.4; temperature 15-30 C; overall weights 0.35/0.30/0.20/0.15; crop weights 0.45/0.25/0.20/0.10.",
+        "Drinking-screening profile (pH 6.5-8.5, TDS < 500 mg/L, turbidity < 5 NTU) - screening only.",
+        "Sample: device "+pdfSafe(devName).slice(0,40)+(reading&&reading.device_id!==undefined?(" (ID "+reading.device_id+")"):"")+", reading "+(reading&&reading.id!==undefined?("#"+reading.id):"n/a")+" recorded "+(reading?formatPdfDate(reading.recorded_at):"n/a")+"."
+    ]);
+
+    /* ---------- single-pass header/footer ---------- */
     var total = doc.internal.getNumberOfPages();
     for(var p=1;p<=total;p++){
         doc.setPage(p);
-        doc.setFontSize(7);
+        doc.setFont("helvetica","normal"); doc.setFontSize(7);
         doc.setTextColor(130,130,130);
-        doc.setFont("helvetica","normal");
         if(p>1){
-            doc.text("AQUA AI", M, 28);
-            doc.text("Water Quality Analysis Report", M+55, 28);
+            doc.setFont("helvetica","bold");
+            doc.text("AQUA SENSE", M, 30);
+            doc.setFont("helvetica","normal");
+            doc.text("Water Quality & Crop Suitability Analysis", M+52, 30);
+            doc.setDrawColor(220,220,220); doc.setLineWidth(0.5);
+            doc.line(M, 35, W-M, 35);
         }
-        doc.text("Page "+p+" of "+total, W-M, H-18, {align:"right"});
+        doc.text("Aqua Sense  |  Water Quality & Crop Suitability Analysis", M, H-22);
+        doc.text("Page "+p+" of "+total, W-M, H-22, {align:"right"});
+        doc.text("Generated: "+formatPdfNow(), W/2, H-12, {align:"center"});
     }
     return doc;
 }
@@ -7146,7 +8363,7 @@ function currentReportPdfLines(){
     var ctx=getReportContext();
     var r=ctx.reading, d=ctx.derived;
     return [
-        "Aqua AI - Water Quality Analysis Report",
+        "Aqua Sense - Water Quality Analysis Report",
         "Generated: "+formatPdfNow(),
         "Latest: "+(r?formatPdfDate(r.recorded_at):"Not available"),
         "Overall: "+(d&&d.analyticalWaterScore!==null?Math.round(d.analyticalWaterScore)+"/100":"Not available")
@@ -7162,7 +8379,7 @@ async function downloadReportPdf(button){
         if(!latestReading){ await renderReportPage(); }
         if(!latestReading){ showToast("No live report data is available yet.","warning"); return; }
         var doc = buildProfessionalPdf();
-        var fname = "Aqua_AI";
+        var fname = "Aqua_Sense";
         try{
             var devName = latestDevice&&latestDevice.name?sanitizeFilename(latestDevice.name):null;
             if(devName) fname += "_"+devName;
@@ -7401,7 +8618,7 @@ function setupPreferenceControls() {
         interval.addEventListener("change", () => {
             const prefs = getPrefs();
             const ms = Number(interval.value);
-            if ([15000, 30000, 60000].includes(ms)) {
+            if (REFRESH_INTERVALS_MS.includes(ms)) {
                 prefs.refreshIntervalMs = ms;
                 savePrefs(prefs);
             }
@@ -7415,7 +8632,7 @@ function setupPreferenceControls() {
         resetButton.dataset.prefReady = "true";
         resetButton.addEventListener("click", () => {
             const confirmed = window.confirm(
-                "Reset Aqua AI display preferences in this browser? " +
+                "Reset Aqua Sense display preferences in this browser? " +
                 "Readings, devices and backend data are not affected."
             );
             if (!confirmed) {
@@ -7444,28 +8661,27 @@ let allContactsCache = [];
 
 async function loadAlerts(){
     try{
-        const data = await apiRequest(`/alerts?status=${alertsFilter}`);
-        allAlertsCache = data || [];
-        renderAlerts(allAlertsCache);
+        // Fetch the FULL set (active + resolved): the email-history list is
+        // grouped from every row that recorded a notification, and resolved
+        // history rows must never be hidden by the active/resolved filter.
+        // The alerts list itself is still filtered client-side.
+        const all = await apiRequest(`/alerts?status=all`);
+        allAlertsCache = all || [];
+        var visible = allAlertsCache;
+        if(alertsFilter === "active") visible = allAlertsCache.filter(function(a){return a.status==="active";});
+        else if(alertsFilter === "resolved") visible = allAlertsCache.filter(function(a){return a.status==="resolved";});
+        renderAlerts(visible);
         renderEmailHistory(allAlertsCache);
-        renderHistory(allAlertsCache);
+        renderHistory(visible);
         updateSummary();
     }catch(e){ const el=$("alertsList"); if(el) el.innerHTML=`<p style="color:var(--red)">Failed to load alerts: ${escapeHtml(e.message)}</p>`; }
+    loadAutoStatus();
 }
 function updateSummary(){
-    const active = allAlertsCache.filter(function(a){return a.status==="active";}).length;
-    const resolved = allAlertsCache.filter(function(a){return a.status==="resolved";}).length;
-    // If filter is active, we need total counts from all? Fetch all for summary separately
-    // For now use cached filtered; but also fetch counts if needed via separate call
-    // We'll fetch all for accurate summary in background
-    apiRequest("/alerts?status=all").then(function(all){ 
-        const a = all.filter(function(x){return x.status==="active";}).length;
-        const r = all.filter(function(x){return x.status==="resolved";}).length;
-        const sa=$("summaryActive"); if(sa) sa.textContent = a;
-        const sr=$("summaryResolved"); if(sr) sr.textContent = r;
-    }).catch(function(){});
-    const sa2=$("summaryActive"); if(sa2 && alertsFilter==="active") sa2.textContent = active;
-    const sr2=$("summaryResolved"); if(sr2 && alertsFilter==="resolved") sr2.textContent = resolved;
+    const a = allAlertsCache.filter(function(x){return x.status==="active";}).length;
+    const r = allAlertsCache.filter(function(x){return x.status==="resolved";}).length;
+    const sa=$("summaryActive"); if(sa) sa.textContent = a;
+    const sr=$("summaryResolved"); if(sr) sr.textContent = r;
 }
 
 function renderAlerts(alerts){
@@ -7477,8 +8693,8 @@ function renderAlerts(alerts){
         var isActive = a.status==="active";
         var dotClass = isActive ? "active" : "resolved";
         var badgeClass = isActive ? "alert" : "unknown";
-        var created = a.created_at ? new Date(a.created_at).toLocaleString(undefined,{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) : "--";
-        var last = a.last_notified_at ? new Date(a.last_notified_at).toLocaleString(undefined,{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) : "Never";
+        var created = a.created_at ? parseApiDate(a.created_at).toLocaleString(undefined,{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) : "--";
+        var last = a.last_notified_at ? parseApiDate(a.last_notified_at).toLocaleString(undefined,{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) : "Never";
         var cooldown = a.cooldown_remaining>0 ? Math.floor(a.cooldown_remaining/60)+"m "+(a.cooldown_remaining%60)+"s" : "Ready";
         var thr = a.threshold_value!=null ? a.threshold_value : "--";
         var cur = a.current_value!=null ? a.current_value : "--";
@@ -7501,7 +8717,7 @@ function renderAlerts(alerts){
                     <div><span style="color:var(--text-muted)">Last notification</span><br><strong>${escapeHtml(last)}</strong></div>
                     <div><span style="color:var(--text-muted)">Email status</span><br><strong>${escapeHtml(emailSt)}</strong></div>
                 </div>
-                <div style="margin-top:8px;font-size:11px;color:var(--text-muted)">Cooldown remaining: ${escapeHtml(cooldown)} · ${a.status==="active"?"Active — will resolve when parameter returns to normal":"Resolved at "+(a.resolved_at? new Date(a.resolved_at).toLocaleString():"--")}</div>
+                <div style="margin-top:8px;font-size:11px;color:var(--text-muted)">Cooldown remaining: ${escapeHtml(cooldown)} · ${a.status==="active"?"Active — will resolve when parameter returns to normal":"Resolved at "+(a.resolved_at? parseApiDate(a.resolved_at).toLocaleString():"--")}</div>
                 <div style="margin-top:6px;font-size:11px;color:var(--text-muted)">${escapeHtml(a.parameter)} is ${a.parameter==="ph" && a.current_value < 5.5 ? "below" : "above"} the configured critical threshold of ${escapeHtml(String(thr))}.</div>
             </div>
         </div>`;
@@ -7515,42 +8731,276 @@ window.toggleAlertDetails = function(id){
     else { el.classList.add("hidden"); var row2=el.closest(".alert-row"); if(row2) row2.setAttribute("aria-expanded","false"); }
 };
 
+
+/* ---- Automatic Alert Status (backend is authoritative; frontend only displays) ---- */
+var autoClockTimer = null;
+var autoClockDeadlineMs = 0;
+var autoStatusCache = null;
+
+var autoStatusSeq = 0;
+async function loadAutoStatus(){
+    var mySeq = ++autoStatusSeq;
+    try{
+        const s = await apiRequest("/alerts/auto-status");
+        if(mySeq !== autoStatusSeq) return; // stale response: a newer sync already started
+        autoStatusCache = s;
+        renderAutoStatus(s);
+    }catch(e){
+        if(mySeq !== autoStatusSeq) return;
+        var badge=$("autoStatusBadge");
+        if(badge){ badge.textContent="UNKNOWN"; badge.className="quality-status-badge unknown"; }
+        var em=$("autoEmailState"); if(em) em.textContent="Status unavailable";
+    }
+}
+function renderAutoStatus(s){
+    var badge=$("autoStatusBadge");
+    var emailEl=$("autoEmailState");
+    var critWrap=$("autoCritParams");
+    var clockWrap=$("autoCooldownWrap");
+    var clockEl=$("autoCooldownClock");
+    var subEl=$("autoCooldownSub");
+    var readyEl=$("autoReadyMsg");
+    var normalEl=$("autoNormalMsg");
+    var cfgEl=$("autoCooldownCfg");
+    var lastEl=$("autoLastNotified");
+    if(!badge) return;
+    var status = s.latest_status || "unknown";
+    var isCrit = status==="critical";
+    var isNormal = status==="normal";
+    badge.textContent = isCrit ? "CRITICAL" : isNormal ? "NORMAL" : "UNKNOWN";
+    badge.className = "quality-status-badge " + (isCrit ? "alert" : isNormal ? "safe" : "unknown");
+    // Automatic email state: Enabled / Disabled / Provider not configured
+    if(emailEl){
+        if(!s.alerts_enabled){ emailEl.textContent="Disabled"; emailEl.style.color="var(--status-critical)"; }
+        else if(!s.provider_configured){ emailEl.textContent="Provider not configured"; emailEl.style.color="var(--status-critical)"; }
+        else { emailEl.textContent="Enabled"; emailEl.style.color="var(--status-normal)"; }
+    }
+    // Critical parameters (may be several; one combined email covers them)
+    if(critWrap){
+        critWrap.innerHTML = isCrit ? (s.critical_parameters||[]).map(function(p){
+            var unit = p.parameter==="ph" ? "" : p.parameter==="turbidity" ? " NTU" : p.parameter==="tds" ? " mg/L" : p.parameter==="temperature" ? " °C" : "";
+            return `<span class="provider-pill bad" style="font-size:11px">${escapeHtml(p.parameter)} ${escapeHtml(String(p.current_value))}${escapeHtml(unit)} (threshold ${escapeHtml(String(p.threshold))})</span>`;
+        }).join("") : "";
+    }
+    if(cfgEl) cfgEl.textContent = "Cooldown: " + (s.cooldown_minutes!=null ? s.cooldown_minutes + " minute" + (s.cooldown_minutes==1?"":"s") : "—");
+    // Latest successful notification time across per-parameter cooldowns
+    var lastMs = 0;
+    (s.cooldowns||[]).forEach(function(c){
+        if(c.last_notified_at){
+            var m = parseApiTimestamp(c.last_notified_at);
+            if(!isNaN(m) && m > lastMs) lastMs = m;
+        }
+    });
+    if(lastEl) lastEl.textContent = "Last email: " + (lastMs ? new Date(lastMs).toLocaleString() : "—");
+
+    // Clock / ready / normal messaging.
+    // Backend timestamps are authoritative. remaining = next_eligible_at - now.
+    // The countdown survives NORMAL readings, browser refresh, and backend
+    // restarts because last_notified_at lives in the database.
+    // When automatic alerts are OFF, the historical cooldown timestamps are
+    // preserved in the DB but NO countdown is presented as operational.
+    var alertsOn = s.alerts_enabled !== false;
+    if(!alertsOn){
+        stopAutoClock();
+        if(clockWrap) clockWrap.classList.add("hidden");
+        if(readyEl) readyEl.classList.add("hidden");
+        if(normalEl){
+            normalEl.classList.remove("hidden");
+            normalEl.textContent = "Automatic Alerts — OFF · Automatic alert processing is disabled.";
+        }
+        if(subEl) subEl.textContent = "";
+        return;
+    }
+    var cdActive = !!(s.overall && s.overall.cooldown_active);
+    var cdSecs = (s.overall && s.overall.next_eligible_in_seconds) || 0;
+    var cdIso = s.overall && s.overall.next_eligible_at;
+    if(cdActive && cdSecs > 0){
+        if(readyEl) readyEl.classList.add("hidden");
+        if(normalEl) normalEl.classList.add("hidden");
+        if(clockWrap) clockWrap.classList.remove("hidden");
+        if(subEl){
+            var perParam = (s.cooldowns||[]).filter(function(c){return (c.next_eligible_in_seconds||c.remaining_seconds||0)>0;})
+                .map(function(c){return c.parameter;}).join(", ");
+            subEl.textContent = "Cooldown active" + (perParam ? " · " + perParam : "") + " · Next critical reading eligible after cooldown";
+        }
+        syncAutoClockFromIso(cdIso, cdSecs);
+    } else if(isCrit){
+        // Cooldown expired (or never started) while the latest reading is
+        // still critical: NEVER sit idle on "Ready..." — fire the backend
+        // re-check immediately so the next email goes out with no gap, then
+        // refresh the alerts list + email history from the authoritative
+        // result. The backend cooldown still suppresses duplicates, so this
+        // is safe to attempt on every eligible render (debounced inside).
+        stopAutoClock();
+        if(clockWrap) clockWrap.classList.add("hidden");
+        if(normalEl) normalEl.classList.add("hidden");
+        if(readyEl){
+            readyEl.classList.remove("hidden");
+            if(!s.provider_configured){
+                readyEl.textContent = "Automatic email paused — provider not configured";
+            } else if(autoResendInFlight){
+                readyEl.textContent = "Cooldown expired — sending next critical email…";
+            } else {
+                readyEl.textContent = "Cooldown expired — sending next critical email…";
+            }
+        }
+        if(s.provider_configured && !autoResendInFlight){
+            triggerAutoResendAfterCooldown("eligible-critical");
+        }
+    } else if(isNormal){
+        stopAutoClock();
+        if(clockWrap) clockWrap.classList.add("hidden");
+        if(readyEl) readyEl.classList.add("hidden");
+        if(normalEl){
+            normalEl.classList.remove("hidden");
+            normalEl.textContent = "Automatic Alerts — Normal — No cooldown active";
+        }
+    }
+}
+/* Authoritative display: remaining = next_eligible_at - Date.now().
+ * ISO timestamp is preferred (robust to refresh/restart/drift); the
+ * numeric fallback keeps older payloads working. Periodic resync from
+ * GET /alerts/auto-status corrects any local drift. */
+function syncAutoClockFromIso(nextEligibleIso, fallbackSecs){
+    var targetDeadline = 0;
+    if(nextEligibleIso){
+        var parsed = Date.parse(nextEligibleIso);
+        if(!isNaN(parsed)) targetDeadline = parsed;
+    }
+    if(!targetDeadline) targetDeadline = Date.now() + Math.max(0, fallbackSecs || 0) * 1000;
+    if(!autoClockTimer || Math.abs(autoClockDeadlineMs - targetDeadline) > 1500){
+        autoClockDeadlineMs = targetDeadline;
+    }
+    if(!autoClockTimer){
+        tickAutoClock();
+        autoClockTimer = setInterval(tickAutoClock, 1000);
+    }
+}
+function syncAutoClock(serverSecs){
+    syncAutoClockFromIso(null, serverSecs);
+}
+function startAutoClock(secs){
+    syncAutoClockFromIso(null, secs);
+}
+function tickAutoClock(){
+    var clockEl=$("autoCooldownClock");
+    var remaining = Math.max(0, Math.round((autoClockDeadlineMs - Date.now())/1000));
+    var mm = String(Math.floor(remaining/60)).padStart(2,"0");
+    var ss = String(remaining%60).padStart(2,"0");
+    var display = mm+":"+ss;
+    if(clockEl){
+        clockEl.textContent = display;
+    }
+
+    if(remaining<=0){
+        stopAutoClock();
+        // No gap: the moment the cooldown hits zero, run the backend
+        // re-check (it sends immediately when the latest reading is still
+        // critical) and refresh alerts + email history + status together.
+        var readyEl = $("autoReadyMsg");
+        var clockWrap = $("autoCooldownWrap");
+        if(clockWrap) clockWrap.classList.add("hidden");
+        if(readyEl){
+            readyEl.classList.remove("hidden");
+            readyEl.textContent = "Cooldown expired — sending next critical email…";
+        }
+        triggerAutoResendAfterCooldown("cooldown-expired");
+    }
+}
+/* No-gap resend: ask the backend to re-evaluate the latest stored reading
+ * right now (POST /alerts/run-startup-check sends the REAL email when the
+ * reading is critical and the cooldown is not active), then refresh the
+ * alerts list, the email history, and the authoritative status together.
+ * Debounced per eligible window so polling renders can never spam sends;
+ * the backend cooldown is the final duplicate guard. */
+var autoResendInFlight = false;
+var lastAutoResendSig = "";
+var lastAutoResendMs = 0;
+async function triggerAutoResendAfterCooldown(reason){
+    if(autoResendInFlight) return;
+    var s = autoStatusCache || {};
+    var readingId = (s.latest_reading && s.latest_reading.id) || "";
+    var paramsSig = ((s.critical_parameters||[]).map(function(p){return p.parameter;}).sort().join(","));
+    var sig = readingId + "|" + paramsSig;
+    var nowMs = Date.now();
+    if(sig && sig === lastAutoResendSig && (nowMs - lastAutoResendMs) < 30000) return;
+    autoResendInFlight = true;
+    lastAutoResendSig = sig;
+    lastAutoResendMs = nowMs;
+    try{
+        await apiRequest("/alerts/run-startup-check", {method:"POST"});
+    }catch(e){
+        // A failed re-check must never leave the card stuck: fall through
+        // to the authoritative refresh below.
+    }
+    autoResendInFlight = false;
+    try{
+        await loadAlerts();
+    }catch(e){
+        try{ await loadAutoStatus(); }catch(_){}
+    }
+    if(typeof loadCurrentStatus === "function"){ try{ loadCurrentStatus(); }catch(e){} }
+}
+function stopAutoClock(){
+    if(autoClockTimer){
+        try{ clearInterval(autoClockTimer); }catch(e){}
+        autoClockTimer = null;
+    }
+}
+
 function renderEmailHistory(alerts){
     const list=$("emailHistoryList"); const empty=$("emailHistoryEmpty");
     const fallback=$("alertHistoryBody");
-    // Group by reading_id for combined email
+    // Group one combined email per reading: every parameter row notified for
+    // the same reading shares one send time. Compare REAL timestamps (never
+    // raw strings — mixed "Z" / "+00:00" suffixes do not sort as strings)
+    // and keep the LATEST time of the group. Backend timestamps are UTC so
+    // parseApiDate renders the true local time.
     var groups={};
     (alerts||[]).forEach(function(a){
         if(!a.last_notified_at) return;
-        var key = a.reading_id || a.last_notified_at;
-        if(!groups[key]) groups[key]={time:a.last_notified_at, device:a.device_id, reading_id:a.reading_id, params:[], email_status: a.email_status, created_at:a.created_at};
+        var key = (a.reading_id!=null ? "r"+a.reading_id : "t"+a.last_notified_at);
+        if(!groups[key]) groups[key]={time:a.last_notified_at, timeMs:parseApiTimestamp(a.last_notified_at), device:a.device_id, reading_id:a.reading_id, params:[], email_status: a.email_status, created_at:a.created_at};
         groups[key].params.push(a);
-        // keep earliest time
-        if(a.last_notified_at < groups[key].time) groups[key].time=a.last_notified_at;
+        var m = parseApiTimestamp(a.last_notified_at);
+        if(!isNaN(m) && (isNaN(groups[key].timeMs) || m > groups[key].timeMs)){ groups[key].time=a.last_notified_at; groups[key].timeMs=m; }
+        if(groups[key].email_status!=="sent" && groups[key].email_status!=="partial" && groups[key].email_status!=="sent_manual"){
+            groups[key].email_status = a.email_status;
+        }
     });
-    var grouped = Object.values(groups).sort(function(a,b){ return new Date(b.time)-new Date(a.time); }).slice(0,20);
+    function emailKindLabel(st){
+        return st==="sent_manual" ? "Manual" : "Automatic";
+    }
+    function recipientLabel(){
+        var active = (allContactsCache||[]).filter(function(c){return c.active && c.email;});
+        if(active.length===0) return "Active recipients";
+        if(active.length===1) return active[0].email;
+        return active[0].email + " +" + (active.length-1) + " more";
+    }
+    var grouped = Object.values(groups).sort(function(a,b){ return (b.timeMs||0)-(a.timeMs||0); }).slice(0,20);
     if(list){
         if(grouped.length===0){ list.innerHTML=""; if(empty) empty.classList.remove("hidden"); }
         else {
             if(empty) empty.classList.add("hidden");
             list.innerHTML = grouped.map(function(g){
-                var t = g.time ? new Date(g.time).toLocaleString(undefined,{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) : "--";
+                var t = g.time ? parseApiDate(g.time).toLocaleString() : "--";
                 var paramsText = g.params.map(function(p){ return p.parameter; }).join(" · ");
                 var count = g.params.length;
-                var status = g.params[0].email_status || "--";
-                var badgeClass = status==="sent" ? "ok" : status==="failed" ? "bad" : "";
+                var status = g.email_status || g.params[0].email_status || "--";
+                var badgeClass = (status==="sent"||status==="sent_manual"||status==="partial") ? "ok" : status==="failed" ? "bad" : "";
                 var device = g.device || "--";
-                // recipient from contacts
-                var recipient = (allContactsCache[0] && allContactsCache[0].email) || "Active recipients";
+                var recipient = recipientLabel();
+                var kind = emailKindLabel(status);
+                var statusText = status==="sent_manual" ? "sent" : status;
                 return `<div class="email-history-row" onclick="openEmailHistoryDetail('${g.reading_id||''}')" role="button" tabindex="0">
                     <div style="flex:1;min-width:0">
-                        <div style="font-size:12px;font-weight:600;color:var(--text-primary)"><i class="ri-mail-send-line" style="color:var(--primary)"></i> Critical water-quality event · ${count} parameter${count!=1?"s":""}</div>
+                        <div style="font-size:12px;font-weight:600;color:var(--text-primary)"><i class="ri-mail-send-line" style="color:var(--primary)"></i> ${escapeHtml(kind)} Alert · ${count} parameter${count!=1?"s":""}</div>
                         <div style="font-size:11px;color:var(--text-muted)">${escapeHtml(t)} · ${escapeHtml(String(device))} · Reading #${escapeHtml(String(g.reading_id||"--"))}</div>
                         <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${escapeHtml(paramsText)}</div>
                     </div>
                     <div style="text-align:right;flex-shrink:0">
                         <div style="font-size:11px;color:var(--text-muted)">${escapeHtml(recipient)}</div>
-                        <span class="provider-pill ${badgeClass}" style="font-size:10px;margin-top:4px;display:inline-block">✉ ${escapeHtml(status)}</span>
+                        <span class="provider-pill ${badgeClass}" style="font-size:10px;margin-top:4px;display:inline-block">✉ ${escapeHtml(kind)} | ${escapeHtml(statusText)}</span>
                     </div>
                 </div>`;
             }).join("");
@@ -7560,10 +9010,12 @@ function renderEmailHistory(alerts){
         if(!grouped.length){ fallback.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">No email history</td></tr>'; }
         else {
             fallback.innerHTML = grouped.map(function(g){
-                var t=g.time? new Date(g.time).toLocaleString():"--";
+                var t=g.time? parseApiDate(g.time).toLocaleString():"--";
                 var params=g.params.map(function(p){return p.parameter;}).join(", ");
-                var rec=(allContactsCache[0]&&allContactsCache[0].email)||"--";
-                return `<tr><td>${escapeHtml(t)}</td><td>${escapeHtml(String(g.device||"--"))}</td><td>${escapeHtml(params)}</td><td>critical</td><td>${escapeHtml(g.params[0].email_status||"--")}</td><td>sent</td></tr>`;
+                var rec=recipientLabel();
+                var st=g.email_status||g.params[0].email_status||"--";
+                var kind=emailKindLabel(st);
+                return `<tr><td>${escapeHtml(t)}</td><td>${escapeHtml(String(g.device||"--"))}</td><td>${escapeHtml(params)}</td><td>critical</td><td>${escapeHtml(kind)} | ${escapeHtml(st==="sent_manual"?"sent":st)}</td><td>${escapeHtml(rec)}</td></tr>`;
             }).join("");
         }
     }
@@ -7572,16 +9024,19 @@ window.openEmailHistoryDetail = function(readingId){
     var groups={};
     (allAlertsCache||[]).forEach(function(a){
         if(!a.last_notified_at) return;
-        var key=a.reading_id||a.last_notified_at;
-        if(!groups[key]) groups[key]={time:a.last_notified_at, device:a.device_id, reading_id:a.reading_id, params:[]};
+        var key=(a.reading_id!=null ? "r"+a.reading_id : "t"+a.last_notified_at);
+        if(!groups[key]) groups[key]={time:a.last_notified_at, timeMs:parseApiTimestamp(a.last_notified_at), device:a.device_id, reading_id:a.reading_id, params:[]};
         groups[key].params.push(a);
+        var m = parseApiTimestamp(a.last_notified_at);
+        if(!isNaN(m) && (isNaN(groups[key].timeMs) || m > groups[key].timeMs)){ groups[key].time=a.last_notified_at; groups[key].timeMs=m; }
     });
     var g=Object.values(groups).find(function(x){ return String(x.reading_id)===String(readingId); });
     if(!g) return;
     var body=$("emailHistoryDetailBody");
     if(!body) return;
-    var t=g.time? new Date(g.time).toLocaleString():"--";
-    var recipient=(allContactsCache[0]&&allContactsCache[0].email)||"Active recipients";
+    var t=g.time? parseApiDate(g.time).toLocaleString():"--";
+    var active=(allContactsCache||[]).filter(function(c){return c.active && c.email;});
+    var recipient= active.length===0 ? "Active recipients" : active.map(function(c){return c.email;}).join(", ");
     var rows=g.params.map(function(p){
         var thr=p.threshold_value!=null? p.threshold_value : "--";
         var cur=p.current_value!=null? p.current_value : "--";
@@ -7602,7 +9057,7 @@ function renderHistory(alerts){
     if(!body) return;
     if(!alerts||alerts.length===0){ body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">No history</td></tr>'; return; }
     body.innerHTML = alerts.slice(0,50).map(function(a){
-        var t=a.created_at? new Date(a.created_at).toLocaleString():"--";
+        var t=a.created_at? parseApiDate(a.created_at).toLocaleString():"--";
         return `<tr><td>${escapeHtml(t)}</td><td>${a.device_id||"--"}</td><td>${escapeHtml(a.parameter)}</td><td>${escapeHtml(a.severity)}</td><td>${escapeHtml(a.email_status||"--")}</td><td>${escapeHtml(a.status)}</td></tr>`;
     }).join("");
 }
@@ -7644,13 +9099,24 @@ async function loadProviderStatus(){
         if(opBadge) opBadge.style.display = s.email.configured ? "inline-flex" : "none";
     }catch(e){}
 }
+var alertConfigSeq = 0;
 async function loadAlertConfig(){
     const statusEl=$("alertConfigStatus");
     const errEl=$("alertConfigError");
+    var mySeq = ++alertConfigSeq;
+    // Loading state: never default the UI to ON before backend state is known.
+    // Backend is the single source of truth — no localStorage involved.
+    var togglePre=$("alertsEnabledToggle");
+    if(togglePre) togglePre.disabled=true;
+    var statusPre=$("alertsEnabledStatus");
+    if(statusPre){ statusPre.textContent="Loading…"; statusPre.style.color="var(--text-muted)"; }
+    var descPre=$("alertsEnabledDesc");
+    if(descPre) descPre.textContent="Loading alert state…";
     if(statusEl) statusEl.textContent="Loading alert configuration…";
     if(errEl) errEl.textContent="";
     try{
         const cfg=await apiRequest("/alerts/config");
+        if(mySeq !== alertConfigSeq) return; // stale response guard
         const setVal=(id,v)=>{ var el=$(id); if(el) el.value=v; };
         setVal("cfgPhMin", cfg.ph_min);
         setVal("cfgPhMax", cfg.ph_max);
@@ -7659,26 +9125,61 @@ async function loadAlertConfig(){
         setVal("cfgTempMax", cfg.temperature_max);
         setVal("cfgCooldown", cfg.cooldown_minutes);
         var toggle=$("alertsEnabledToggle");
-        if(toggle){ toggle.checked=!!cfg.alerts_enabled; }
+        if(toggle){ toggle.checked=!!cfg.alerts_enabled; toggle.disabled=false; }
         var statusTxt=$("alertsEnabledStatus");
         if(statusTxt) { statusTxt.textContent=cfg.alerts_enabled?"ON":"OFF"; statusTxt.style.color=cfg.alerts_enabled?"var(--status-normal)":"var(--status-critical)"; }
         var desc=$("alertsEnabledDesc");
-        if(desc) desc.textContent=cfg.alerts_enabled?"Automatic email notifications for critical conditions":"Email notifications are currently disabled.";
+        if(desc) desc.textContent=cfg.alerts_enabled?"Automatic email notifications for critical conditions":"Automatic alert processing is disabled.";
         var notice=$("alertsDisabledNotice");
         if(notice){ if(cfg.alerts_enabled) notice.classList.add("hidden"); else notice.classList.remove("hidden"); }
+        // Manual alert stays available regardless of the automatic toggle.
         var sendBtn=$("sendCurrentStatusBtn");
-        if(sendBtn){
-            if(!cfg.alerts_enabled){ sendBtn.disabled=true; sendBtn.title="Email alerts are disabled"; }
-            else { sendBtn.disabled=false; sendBtn.title=""; }
-        }
+        if(sendBtn){ sendBtn.disabled=false; sendBtn.title=""; }
         if(statusEl){
-            var t=cfg.updated_at? new Date(cfg.updated_at).toLocaleString() : "—";
+            var t=cfg.updated_at? parseApiDate(cfg.updated_at).toLocaleString() : "—";
             statusEl.textContent="Last updated: "+t;
         }
         // also update current status critical check to use new thresholds for display? Keep simple.
     }catch(e){
+        if(mySeq !== alertConfigSeq) return;
+        var toggleErr=$("alertsEnabledToggle");
+        if(toggleErr) toggleErr.disabled=false;
         if(statusEl) statusEl.textContent="Unable to load alert configuration.";
         if(errEl) errEl.textContent= e.message || "Failed to load";
+    }
+}
+async function persistAlertsEnabled(on){
+    // Single-toggle persistence: backend owns alerts_enabled. Read the current
+    // backend config, flip only alerts_enabled, PUT it back, and render the
+    // confirmed backend state (never just the local checkbox).
+    var toggle=$("alertsEnabledToggle");
+    var statusTxt=$("alertsEnabledStatus");
+    var desc=$("alertsEnabledDesc");
+    var notice=$("alertsDisabledNotice");
+    var sendBtn=$("sendCurrentStatusBtn");
+    if(toggle) toggle.disabled=true;
+    if(statusTxt){ statusTxt.textContent="Saving…"; statusTxt.style.color="var(--text-muted)"; }
+    try{
+        const current=await apiRequest("/alerts/config");
+        var payload={
+            ph_min: current.ph_min, ph_max: current.ph_max,
+            turbidity_max: current.turbidity_max, tds_max: current.tds_max,
+            temperature_max: current.temperature_max, cooldown_minutes: current.cooldown_minutes,
+            alerts_enabled: !!on
+        };
+        const res=await apiRequest("/alerts/config",{method:"PUT", body:JSON.stringify(payload)});
+        if(toggle){ toggle.checked=!!res.alerts_enabled; toggle.disabled=false; }
+        if(statusTxt){ statusTxt.textContent=res.alerts_enabled?"ON":"OFF"; statusTxt.style.color=res.alerts_enabled?"var(--status-normal)":"var(--status-critical)"; }
+        if(desc) desc.textContent=res.alerts_enabled?"Automatic email notifications for critical conditions":"Automatic alert processing is disabled.";
+        if(notice){ if(res.alerts_enabled) notice.classList.add("hidden"); else notice.classList.remove("hidden"); }
+        if(sendBtn){ sendBtn.disabled=false; sendBtn.title=""; }
+        showToast(res.alerts_enabled?"Automatic alerts enabled":"Automatic alerts disabled","success");
+        loadAutoStatus(); // resync authoritative cooldown state immediately
+        loadAlertConfig(); // refresh "last updated" + thresholds from backend
+    }catch(e){
+        if(toggle){ toggle.checked=!on; toggle.disabled=false; } // revert optimistic change
+        if(statusTxt){ statusTxt.textContent=(!on)?"ON":"OFF"; }
+        showToast(e.message||"Unable to save alert state","error");
     }
 }
 async function saveAlertConfig(){
@@ -7708,7 +9209,7 @@ async function saveAlertConfig(){
         const res=await apiRequest("/alerts/config",{method:"PUT", body:JSON.stringify(payload)});
         showToast("Alert settings saved","success");
         // update UI with returned config
-        if(statusEl) statusEl.textContent="Last updated: "+(res.updated_at? new Date(res.updated_at).toLocaleString():"just now");
+        if(statusEl) statusEl.textContent="Last updated: "+(res.updated_at? parseApiDate(res.updated_at).toLocaleString():"just now");
         var toggle=$("alertsEnabledToggle");
         if(toggle){ toggle.checked=!!res.alerts_enabled; }
         var statusTxt=$("alertsEnabledStatus");
@@ -7716,10 +9217,11 @@ async function saveAlertConfig(){
         var notice=$("alertsDisabledNotice");
         if(notice){ if(res.alerts_enabled) notice.classList.add("hidden"); else notice.classList.remove("hidden"); }
         var sendBtn=$("sendCurrentStatusBtn");
-        if(sendBtn){ sendBtn.disabled=!res.alerts_enabled; }
-        // refresh alerts to reflect new thresholds
+        if(sendBtn){ sendBtn.disabled=false; sendBtn.title=""; }
+        // refresh alerts to reflect new thresholds + authoritative auto state
         loadAlerts();
         loadCurrentStatus();
+        loadAutoStatus();
     }catch(e){
         if(errEl) errEl.textContent=e.message||"Unable to save";
         showToast(e.message,"error");
@@ -7806,7 +9308,22 @@ function setupAlertsPage(){
         });
     });
     const refreshBtn=$("alertsRefreshBtn");
-    if(refreshBtn && !refreshBtn.dataset.bound){ refreshBtn.dataset.bound="1"; refreshBtn.addEventListener("click", function(){ loadCurrentStatus(); loadAlerts(); loadContacts(); loadProviderStatus(); loadAlertConfig(); }); }
+    if(refreshBtn && !refreshBtn.dataset.bound){ refreshBtn.dataset.bound="1"; refreshBtn.addEventListener("click", function(){ loadCurrentStatus(); loadAlerts(); loadContacts(); loadProviderStatus(); loadAlertConfig(); loadAutoStatus(); }); }
+    const clearHistBtn=$("clearEmailHistoryBtn");
+    if(clearHistBtn && !clearHistBtn.dataset.bound){
+        clearHistBtn.dataset.bound="1";
+        clearHistBtn.addEventListener("click", async function(){
+            if(!confirm("Clear the email history?\n\nThis deletes all past notification records and resets the email cooldown, so the next critical reading will send immediately.")) return;
+            clearHistBtn.disabled=true;
+            try{
+                const r=await apiRequest("/alerts/history",{method:"DELETE"});
+                const removed=(r.deleted||0)+(r.reset||0);
+                showToast(removed>0?`Email history cleared (${removed} record(s) removed).`:"Email history is already empty.","success");
+                loadAlerts();
+            }catch(e){ showToast(e.message||"Unable to clear email history","error"); }
+            finally{ clearHistBtn.disabled=false; }
+        });
+    }
     const addBtn=$("addContactBtn");
     const modal=$("contactModal");
     const closeBtn=$("closeContactModal");
@@ -7838,15 +9355,7 @@ function setupAlertsPage(){
     if(toggle && !toggle.dataset.bound){
         toggle.dataset.bound="1";
         toggle.addEventListener("change", function(){
-            var statusTxt=$("alertsEnabledStatus");
-            var desc=$("alertsEnabledDesc");
-            var notice=$("alertsDisabledNotice");
-            var sendBtn=$("sendCurrentStatusBtn");
-            var on=toggle.checked;
-            if(statusTxt){ statusTxt.textContent=on?"ON":"OFF"; statusTxt.style.color=on?"var(--status-normal)":"var(--status-critical)"; }
-            if(desc) desc.textContent=on?"Automatic email notifications for critical conditions":"Email notifications are currently disabled.";
-            if(notice){ if(on) notice.classList.add("hidden"); else notice.classList.remove("hidden"); }
-            if(sendBtn){ sendBtn.disabled=!on; sendBtn.title=on?"":"Email alerts are disabled"; }
+            persistAlertsEnabled(toggle.checked);
         });
     }
     const saveBtn=$("saveAlertConfigBtn");
@@ -7860,10 +9369,21 @@ function setupAlertsPage(){
     if(closeHist && histModal && !closeHist.dataset.bound){ closeHist.dataset.bound="1"; closeHist.addEventListener("click", function(){ histModal.classList.add("hidden"); histModal.style.display="none"; }); if(!histModal.dataset.bound){ histModal.dataset.bound="1"; histModal.addEventListener("click", function(e){ if(e.target===histModal){ histModal.classList.add("hidden"); histModal.style.display="none"; }}); } }
     const observer = new MutationObserver(function(){
         const sec=$("page-alerts");
-        if(sec && sec.classList.contains("active")){ loadCurrentStatus(); loadAlerts(); loadContacts(); loadProviderStatus(); loadAlertConfig(); }
+        if(sec && sec.classList.contains("active")){ loadCurrentStatus(); loadAlerts(); loadContacts(); loadProviderStatus(); loadAlertConfig(); loadAutoStatus(); }
     });
     const pageAlerts=$("page-alerts");
     if(pageAlerts) observer.observe(pageAlerts, {attributes:true, attributeFilter:["class"]});
+    if (!window.autoStatusPollTimer) {
+        // Backend is authoritative: resync every 8s so browser drift,
+        // tab suspension, or refresh never corrupts the countdown.
+        window.autoStatusPollTimer = setInterval(function(){
+            const sec = $("page-alerts");
+            if (sec && sec.classList.contains("active")) {
+                loadAutoStatus();
+            }
+        }, 8000);
+    }
+
 }
 
 async function initializeApp() {
@@ -7882,6 +9402,8 @@ async function initializeApp() {
     setupSettings();
     setupPreferenceControls();
     setupAddDevice();
+    setupDeviceDelete();
+    setupDeviceRename();
     setupAuth();
     setupReadingForm();
     setupCameraUpload();

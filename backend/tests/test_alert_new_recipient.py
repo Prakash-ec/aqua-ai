@@ -230,7 +230,10 @@ def test_I_contacts_survive_new_session(monkeypatch):
     svc.process_reading_alerts(db2, add_critical_reading(db2, dev.id))
     assert sender.calls == ["a@example.com"]
     db2.close()
-def test_J_alerts_off_blocks_auto_and_manual(monkeypatch):
+def test_J_alerts_off_blocks_auto_manual_still_works(monkeypatch):
+    # Contract (Parts B/C): alerts_enabled=OFF stops AUTOMATIC emails, but the
+    # MANUAL alert stays independent — it uses the latest DB reading, bypasses
+    # the automatic cooldown, and is never blocked by the automatic toggle.
     eng, S = make_db()
     db = S()
     sender = Sender()
@@ -247,8 +250,8 @@ def test_J_alerts_off_blocks_auto_and_manual(monkeypatch):
     svc.process_reading_alerts(db, add_critical_reading(db, dev.id))
     assert sender.calls == []
     out = svc.send_manual_status(db)
-    assert out.get("success") is False
-    assert sender.calls == []
+    assert out.get("success") is True
+    assert sender.calls != []
     db.close()
 def test_J_manual_bypasses_cooldown(monkeypatch):
     eng, S = make_db()

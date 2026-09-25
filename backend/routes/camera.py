@@ -1,7 +1,7 @@
 import io
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import (
@@ -16,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from backend.agents.camera_agent import CameraAgent
-from backend.database import get_db
+from backend.database import get_db, utc_iso
 from backend.models import CameraPrediction, Device, WaterReading
 from backend.services.ai_provider import (
     VisionProviderError,
@@ -716,7 +716,7 @@ def get_latest_sensor_context(db: Session) -> dict[str, Any] | None:
     try:
         row = (
             db.query(WaterReading)
-            .order_by(WaterReading.recorded_at.desc())
+            .order_by(WaterReading.recorded_at.desc(), WaterReading.id.desc())
             .first()
         )
         if row is None:
@@ -727,7 +727,7 @@ def get_latest_sensor_context(db: Session) -> dict[str, Any] | None:
             "ph": row.ph,
             "turbidity": row.turbidity,
             "tds": row.tds,
-            "recorded_at": row.recorded_at.isoformat() if row.recorded_at else None,
+            "recorded_at": utc_iso(row.recorded_at) if row.recorded_at else None,
         }
     except Exception:
         return None
@@ -799,7 +799,7 @@ async def analyze_camera(
                     prediction=analysis["overall_observation"],
                     confidence=analysis["confidence"],
                     details=json.dumps(analysis, ensure_ascii=False),
-                    created_at=datetime.now(),
+                    created_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 )
                 db.add(prediction)
                 db.commit()
@@ -949,7 +949,7 @@ async def analyze_camera(
                     analysis,
                     ensure_ascii=False,
                 ),
-                created_at=datetime.now(),
+                created_at=datetime.now(timezone.utc).replace(tzinfo=None),
             )
 
             db.add(prediction)
@@ -1129,7 +1129,7 @@ def camera_history(
 
     rows = (
         query
-        .order_by(CameraPrediction.created_at.desc())
+        .order_by(CameraPrediction.created_at.desc(), CameraPrediction.id.desc())
         .limit(max(1, min(limit, 200)))
         .all()
     )
@@ -1145,11 +1145,7 @@ def camera_history(
                 "prediction": row.prediction,
                 "confidence": row.confidence,
                 "details": row.details,
-                "created_at": (
-                    row.created_at.isoformat()
-                    if row.created_at is not None
-                    else None
-                ),
+                "created_at": utc_iso(row.created_at),
             }
             for row in rows
         ],

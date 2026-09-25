@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from backend.database import get_db
+from backend.database import get_db, utc_iso
 from backend.models import Device, WaterReading
 from backend.services.water_quality import calculate_water_quality
 
@@ -74,7 +74,7 @@ def get_latest_water_quality(
             "success": True,
             "device_id": latest.device_id,
             "reading_id": latest.id,
-            "recorded_at": latest.recorded_at,
+            "recorded_at": utc_iso(latest.recorded_at),
             "sensor_values": {
                 "temperature": latest.temperature,
                 "ph": latest.ph,

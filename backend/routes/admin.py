@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.database import get_db
+from backend.database import get_db, utc_iso
 from backend.models import User
 from backend.services.ai_provider import get_provider_debug_info
 
@@ -50,9 +50,7 @@ def _serialize_user(user: User) -> dict:
         "email": user.email,
         "is_admin": user.is_admin,
         "is_active": user.is_active,
-        "created_at": (
-            user.created_at.isoformat() if user.created_at else None
-        ),
+        "created_at": utc_iso(user.created_at),
     }
 
 

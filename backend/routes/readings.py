@@ -1,8 +1,8 @@
 from typing import Optional
 
-from datetime import datetime
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -17,6 +17,40 @@ router = APIRouter(
     prefix="/readings",
     tags=["Water Readings"],
 )
+
+
+def _process_alerts_background(reading_id: int) -> None:
+    """Evaluate alerts for a stored reading after the HTTP response is sent.
+
+    Alert evaluation (including the Resend email network calls) must never
+    hold up the ingest response: the ESP32 waits only ~10s for the ``201``
+    and a slow email provider would otherwise make every critical reading
+    look like a timeout on the device. The reading is already committed, so
+    nothing is lost — this only defers the notification work by milliseconds
+    using its own database session.
+    """
+
+    from backend.database import SessionLocal
+
+    db = SessionLocal()
+
+    try:
+        reading = (
+            db.query(WaterReading)
+            .filter(WaterReading.id == reading_id)
+            .first()
+        )
+
+        if reading is None:
+            return
+
+        process_reading_alerts(db, reading)
+
+    except Exception as alert_error:
+        print(f"[INGEST] alert processing error (ingestion unaffected): {type(alert_error).__name__}: {alert_error}")
+
+    finally:
+        db.close()
 
 
 # =========================================================
@@ -88,6 +122,7 @@ class IngestReading(BaseModel):
 )
 def ingest_reading(
     reading: IngestReading,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     """
@@ -132,19 +167,18 @@ def ingest_reading(
         ph=reading.ph,
         turbidity=reading.turbidity,
         tds=reading.tds,
-        recorded_at=datetime.now(),
+        recorded_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
 
     try:
         db.add(new_reading)
         db.commit()
         db.refresh(new_reading)
+        print(f"[INGEST] saved reading id={new_reading.id} device={device.id}")
 
-        # Evaluate alerts (never break ingestion)
-        try:
-            process_reading_alerts(db, new_reading)
-        except Exception:
-            pass
+        # Alerts (including email network calls) run after the 201 response
+        # is sent, so the ESP32 never waits on the email provider.
+        background_tasks.add_task(_process_alerts_background, new_reading.id)
 
         return new_reading
 
@@ -168,6 +202,7 @@ def ingest_reading(
 )
 def create_reading(
     reading: WaterReadingCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     """Save a new water-quality reading for a device."""
@@ -193,7 +228,7 @@ def create_reading(
         ph=reading.ph,
         turbidity=reading.turbidity,
         tds=reading.tds,
-        recorded_at=datetime.now(),
+        recorded_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
 
     try:
@@ -201,10 +236,8 @@ def create_reading(
         db.commit()
         db.refresh(new_reading)
 
-        try:
-            process_reading_alerts(db, new_reading)
-        except Exception:
-            pass
+        # Alerts run after the 201 response is sent (see ingest endpoint).
+        background_tasks.add_task(_process_alerts_background, new_reading.id)
 
         return new_reading
 
@@ -256,7 +289,7 @@ def get_readings(
 
     return (
         query
-        .order_by(WaterReading.recorded_at.desc())
+        .order_by(WaterReading.recorded_at.desc(), WaterReading.id.desc())
         .limit(limit)
         .all()
     )
@@ -300,7 +333,7 @@ def get_latest_reading(
 
     latest = (
         query
-        .order_by(WaterReading.recorded_at.desc())
+        .order_by(WaterReading.recorded_at.desc(), WaterReading.id.desc())
         .first()
     )
 
@@ -346,7 +379,7 @@ def get_device_readings(
     return (
         db.query(WaterReading)
         .filter(WaterReading.device_id == device_id)
-        .order_by(WaterReading.recorded_at.desc())
+        .order_by(WaterReading.recorded_at.desc(), WaterReading.id.desc())
         .limit(limit)
         .all()
     )
@@ -384,7 +417,7 @@ def get_latest_device_reading(
     latest = (
         db.query(WaterReading)
         .filter(WaterReading.device_id == device_id)
-        .order_by(WaterReading.recorded_at.desc())
+        .order_by(WaterReading.recorded_at.desc(), WaterReading.id.desc())
         .first()
     )
 

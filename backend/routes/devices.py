@@ -1,20 +1,33 @@
 from typing import Optional
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from backend.database import get_db
-from backend.models import Device
+from backend.database import get_db, utc_iso
+from backend.models import Alert, Device, WaterReading
 
 
 router = APIRouter(
     prefix="/devices",
     tags=["Devices"],
 )
+
+
+def _device_dict(device) -> dict:
+    """Serialize a device with an explicit UTC offset on timestamps."""
+    return {
+        "id": device.id,
+        "name": device.name,
+        "device_type": device.device_type,
+        "location": device.location,
+        "user_id": device.user_id,
+        "is_active": device.is_active,
+        "created_at": utc_iso(device.created_at),
+    }
 
 
 # =========================================================
@@ -56,6 +69,21 @@ class DeviceUpdate(BaseModel):
     )
 
 
+def _clean_name(value: str | None) -> str | None:
+    """Strip whitespace; whitespace-only becomes empty string."""
+    if value is None:
+        return None
+    return value.strip()
+
+
+def _clean_location(value: str | None) -> str | None:
+    """Strip whitespace; empty/whitespace-only becomes None."""
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 # =========================================================
 # CREATE DEVICE
 # =========================================================
@@ -74,10 +102,26 @@ def create_device(
     No authentication required — public API for demo/local use.
     """
 
+    name = _clean_name(device_data.name)
+    if not name:
+        raise HTTPException(
+            status_code=422,
+            detail="Device name must not be empty or whitespace only.",
+        )
+
+    device_type = _clean_name(device_data.device_type)
+    if not device_type:
+        raise HTTPException(
+            status_code=422,
+            detail="Device type must not be empty or whitespace only.",
+        )
+
+    location = _clean_location(device_data.location)
+
     try:
         existing_device = (
             db.query(Device)
-            .filter(Device.name == device_data.name)
+            .filter(Device.name == name)
             .first()
         )
 
@@ -88,15 +132,11 @@ def create_device(
             )
 
         device = Device(
-            name=device_data.name.strip(),
-            device_type=device_data.device_type.strip(),
-            location=(
-                device_data.location.strip()
-                if device_data.location
-                else None
-            ),
+            name=name,
+            device_type=device_type,
+            location=location,
             user_id=None,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
         )
 
         db.add(device)
@@ -113,7 +153,7 @@ def create_device(
                 "location": device.location,
                 "user_id": device.user_id,
                 "is_active": device.is_active,
-                "created_at": device.created_at.isoformat(),
+                "created_at": utc_iso(device.created_at),
             },
         }
 
@@ -153,7 +193,7 @@ def get_devices(
         return {
             "success": True,
             "count": len(devices),
-            "devices": devices,
+            "devices": [_device_dict(d) for d in devices],
         }
 
     except SQLAlchemyError:
@@ -192,7 +232,7 @@ def get_device(
 
     return {
         "success": True,
-        "device": device,
+        "device": _device_dict(device),
     }
 
 
@@ -229,7 +269,12 @@ def update_device(
     )
 
     if "name" in update_values:
-        new_name = update_values["name"].strip()
+        new_name = _clean_name(update_values["name"])
+        if not new_name:
+            raise HTTPException(
+                status_code=422,
+                detail="Device name must not be empty or whitespace only.",
+            )
 
         duplicate = (
             db.query(Device)
@@ -249,18 +294,16 @@ def update_device(
         device.name = new_name
 
     if "device_type" in update_values:
-        device.device_type = (
-            update_values["device_type"].strip()
-        )
+        new_type = _clean_name(update_values["device_type"])
+        if not new_type:
+            raise HTTPException(
+                status_code=422,
+                detail="Device type must not be empty or whitespace only.",
+            )
+        device.device_type = new_type
 
     if "location" in update_values:
-        location = update_values["location"]
-
-        device.location = (
-            location.strip()
-            if location is not None
-            else None
-        )
+        device.location = _clean_location(update_values["location"])
 
     try:
         db.commit()
@@ -269,7 +312,7 @@ def update_device(
         return {
             "success": True,
             "message": "Device updated successfully.",
-            "device": device,
+            "device": _device_dict(device),
         }
 
     except SQLAlchemyError:
@@ -291,11 +334,17 @@ def delete_device(
     db: Session = Depends(get_db),
 ):
     """
-    Delete a device.
+    Delete a device and its device-owned data.
 
     No authentication required — public API for demo/local use.
-    This may fail if related readings or camera records are not
-    configured with database cascade behavior.
+
+    Deletion policy (matches models.py relationships):
+    - water_readings for this device are deleted (CASCADE / delete-orphan).
+    - camera_predictions for this device are deleted (delete-orphan).
+    - alerts are preserved as history with device_id set to NULL
+      (SET NULL), so deleting a device never destroys alert history.
+    After deletion, readings ingestion with the deleted device ID
+    returns 404 and no reading is stored.
     """
 
     device = (
@@ -311,6 +360,24 @@ def delete_device(
         )
 
     try:
+        # Preserve alert history explicitly (portable across databases —
+        # does not rely on the DB enforcing ON DELETE SET NULL).
+        db.query(Alert).filter(Alert.device_id == device_id).update(
+            {"device_id": None},
+            synchronize_session=False,
+        )
+        reading_ids = [
+            row[0]
+            for row in db.query(WaterReading.id)
+            .filter(WaterReading.device_id == device_id)
+            .all()
+        ]
+        if reading_ids:
+            db.query(Alert).filter(Alert.reading_id.in_(reading_ids)).update(
+                {"reading_id": None},
+                synchronize_session=False,
+            )
+
         db.delete(device)
         db.commit()
 

@@ -8,10 +8,12 @@ Install the dependencies, provide `DATABASE_URL` and any AI provider keys in a l
 
 ```powershell
 python -m pip install -r requirements.txt
-python -m uvicorn backend.main:app --reload --port 8000
+python -m uvicorn backend.main:app --reload --port 8002
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). FastAPI serves both the frontend and API, so the dashboard uses the same origin automatically. Do not open `frontend/index.html` directly with a `file:` URL: browsers block its API requests for security.
+Open [http://127.0.0.1:8002](http://127.0.0.1:8002). FastAPI serves both the frontend and API, so the dashboard uses the same origin automatically. Do not open `frontend/index.html` directly with a `file:` URL: browsers block its API requests for security.
+
+Alternatively, serve the `frontend/` folder separately (e.g. VS Code Live Server) on `http://127.0.0.1:5501`; the frontend targets the local backend at `http://127.0.0.1:8002` automatically.
 
 ## Deploy to Render
 

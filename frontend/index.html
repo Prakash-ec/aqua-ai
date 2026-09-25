@@ -5,11 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Aqua AI | Water Quality Monitoring</title>
+    <title>Aqua Sense | Water Quality Monitoring</title>
 
     <meta
         name="description"
-        content="Aqua AI water quality monitoring dashboard with live sensor readings, camera analysis and water-quality trends."
+        content="Aqua Sense water quality monitoring dashboard with live sensor readings, camera analysis and water-quality trends."
     >
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -49,7 +49,7 @@
                     </div>
 
                     <div class="brand-text">
-                        <h1>Aqua<span>AI</span></h1>
+                        <h1>Aqua<span>Sense</span></h1>
                         <p>Smart Water Quality Monitoring</p>
                     </div>
                 </div>
@@ -221,7 +221,7 @@
 
                 <div class="sidebar-footer">
                     <span class="footer-dot"></span>
-                    <span>Aqua</span>
+                    <span>Aqua Sense</span>
                     <span class="footer-version">v1.0</span>
                 </div>
 
@@ -248,7 +248,7 @@
                     </button>
 
                     <div class="breadcrumb">
-                        <span>Aqua AI</span>
+                        <span>Aqua Sense</span>
                         <i class="ri-arrow-right-s-line"></i>
                         <strong id="breadcrumbCurrent">Dashboard</strong>
                     </div>
@@ -324,7 +324,7 @@
 
                         <div>
                             <p class="page-eyebrow">Dashboard</p>
-                            <h2>Aqua AI Dashboard</h2>
+                            <h2>Aqua Sense Dashboard</h2>
                             <p class="page-description">
                                 Smart water-quality monitoring and analysis
                             </p>
@@ -366,7 +366,7 @@
                             <div class="summary-card-header">
                                 <div>
                                     <span class="summary-label">
-                                        Aqua AI Analytical Score
+                                        Aqua Sense Analytical Score
                                     </span>
                                     <h3 id="qualityStatusText">Waiting for data</h3>
                                 </div>
@@ -378,7 +378,7 @@
 
                             <div class="quality-score-layout">
 
-                                <div class="quality-score-circle" id="qualityScoreCircle" role="img" aria-label="Aqua AI analytical score">
+                                <div class="quality-score-circle" id="qualityScoreCircle" role="img" aria-label="Aqua Sense analytical score">
 
                                     <div class="quality-score-inner">
                                         <strong id="qualityScore">--</strong>
@@ -516,7 +516,7 @@
                                     Waiting
                                 </span>
                                 <span class="sensor-reference" id="temperatureDescription">
-                                    Recommended: 20–30°C
+                                    Recommended: 20–30 °C
                                 </span>
                             </div>
 
@@ -781,11 +781,11 @@
                                     </svg>
 
                                     <div class="chart-x-labels">
-                                        <span>Now</span>
-                                        <span>15m</span>
-                                        <span>30m</span>
-                                        <span>45m</span>
                                         <span>1h</span>
+                                        <span>45m</span>
+                                        <span>30m</span>
+                                        <span>15m</span>
+                                        <span>Now</span>
                                     </div>
 
                                 </div>
@@ -1220,7 +1220,7 @@
                         <div class="an-hero-grid">
                             <div class="an-hero-score-wrap" id="analysisSummary"></div>
                             <div class="an-hero-meta">
-                                <p class="an-hero-kicker">Aqua AI — Analytical Score</p>
+                                <p class="an-hero-kicker">Aqua Sense — Analytical Score</p>
                                 <p class="an-hero-note">Deterministic assessment from the latest sensor reading. Scores are generated from configured references; no laboratory data is inferred.</p>
                                 <div class="an-hero-legend">
                                     <span><i class="an-dot good" aria-hidden="true"></i> Good</span>
@@ -1557,6 +1557,25 @@
                                 </div>
                             </div>
 
+                            <div style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px">
+                                <button
+                                    class="secondary-button"
+                                    id="renameDeviceButton"
+                                    type="button"
+                                >
+                                    <i class="ri-edit-line"></i>
+                                    Rename
+                                </button>
+                                <button
+                                    class="secondary-button"
+                                    id="deleteDeviceButton"
+                                    type="button"
+                                >
+                                    <i class="ri-delete-bin-line"></i>
+                                    Delete device
+                                </button>
+                            </div>
+
                         </article>
 
                     </div>
@@ -1658,14 +1677,14 @@
                             <div class="content-card-header">
                                 <div>
                                     <h3>Data Flow</h3>
-                                    <p>How the device integrates with Aqua AI.</p>
+                                    <p>How the device integrates with Aqua Sense.</p>
                                 </div>
                             </div>
 
                             <ol class="device-flow-steps">
                                 <li><i class="ri-sensor-line"></i>ESP32 Sensors</li>
                                 <li class="device-flow-arrow" aria-hidden="true"><i class="ri-arrow-down-line"></i></li>
-                                <li><i class="ri-server-line"></i>Aqua AI Backend</li>
+                                <li><i class="ri-server-line"></i>Aqua Sense Backend</li>
                                 <li class="device-flow-arrow" aria-hidden="true"><i class="ri-arrow-down-line"></i></li>
                                 <li><i class="ri-database-2-line"></i>PostgreSQL</li>
                                 <li class="device-flow-arrow" aria-hidden="true"><i class="ri-arrow-down-line"></i></li>
@@ -1679,7 +1698,7 @@
                             <div class="content-card-header">
                                 <div>
                                     <h3>ESP32 Integration</h3>
-                                    <p>The ESP32 sends sensor readings to the Aqua AI backend.</p>
+                                    <p>The ESP32 sends sensor readings to the Aqua Sense backend.</p>
                                 </div>
                             </div>
 
@@ -1790,6 +1809,9 @@
                                     class="standard-select"
                                     aria-label="Refresh interval"
                                 >
+                                    <option value="2000">2 seconds</option>
+                                    <option value="3000">3 seconds</option>
+                                    <option value="5000">5 seconds</option>
                                     <option value="15000">15 seconds</option>
                                     <option value="30000">30 seconds</option>
                                     <option value="60000">60 seconds</option>
@@ -1988,7 +2010,7 @@
 
                                 <div>
                                     <span>Application</span>
-                                    <strong>Aqua AI</strong>
+                                    <strong>Aqua Sense</strong>
                                 </div>
 
                                 <div>
@@ -2013,7 +2035,7 @@
 
                                 <div>
                                     <span>API Port</span>
-                                    <strong>8001</strong>
+                                    <strong>8002</strong>
                                 </div>
 
                             </div>
@@ -2027,12 +2049,12 @@
                                 <input
                                     type="url"
                                     id="backendUrlInput"
-                                    placeholder="http://127.0.0.1:8001"
+                                    placeholder="http://127.0.0.1:8002"
                                 >
 
                                 <p class="form-help">
                                     Example:
-                                    http://127.0.0.1:8001
+                                    http://127.0.0.1:8002
                                 </p>
 
                                 <button
@@ -2050,7 +2072,7 @@
                                 <div>
                                     <strong>Reset preferences</strong>
                                     <p>
-                                        Clear Aqua AI display preferences in this
+                                        Clear Aqua Sense display preferences in this
                                         browser. Readings, devices and backend
                                         data are not affected.
                                     </p>
@@ -2084,7 +2106,7 @@
                     <div class="page-heading-row">
 
                         <div>
-                            <p class="page-eyebrow">Aqua AI Water Quality Report</p>
+                            <p class="page-eyebrow">Aqua Sense Water Quality Report</p>
                             <h2>Water Quality Report</h2>
                             <p class="page-description">
                                 Current sensor-based water quality summary and application analysis.
@@ -2152,7 +2174,7 @@
                             <article class="content-card report-header-card">
                                 <div class="report-title-row">
                                     <div>
-                                        <h3>Aqua AI</h3>
+                                        <h3>Aqua Sense</h3>
                                         <p class="report-subtitle">Water Quality Analysis Report</p>
                                     </div>
                                     <span class="report-live-badge"><span class="status-dot online" aria-hidden="true"></span> Live sensor data</span>
@@ -2170,11 +2192,11 @@
                             </article>
                             <div class="report-exec-grid">
                                 <article class="content-card report-score-card">
-                                    <div class="score-ring" id="rptScoreRing" role="img" aria-label="Aqua AI score">
+                                    <div class="score-ring" id="rptScoreRing" role="img" aria-label="Aqua Sense score">
                                         <svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="52" class="score-ring-track"></circle><circle cx="60" cy="60" r="52" class="score-ring-fill" id="rptScoreArc"></circle></svg>
                                         <div class="score-ring-text"><strong id="rptScore">--</strong><span>/ 100</span></div>
                                     </div>
-                                    <div class="report-score-meta"><strong id="rptScoreLabel">--</strong><p>Aqua AI Analytical Score</p></div>
+                                    <div class="report-score-meta"><strong id="rptScoreLabel">--</strong><p>Aqua Sense Analytical Score</p></div>
                                 </article>
                                 <article class="content-card">
                                     <div class="content-card-header"><div><h3>Executive summary</h3><p>Deterministic summary from the latest reading.</p></div></div>
@@ -2192,7 +2214,7 @@
                             <div class="report-assessment-basis">
                                 <h4>Assessment Basis</h4>
                                 <p>Assessment based on the available sensor parameters and configured application references.</p>
-                                <div class="report-print-footer">Aqua AI — Water Quality Analysis Report · Generated from live sensor/database readings</div>
+                                <div class="report-print-footer">Aqua Sense — Water Quality Analysis Report · Generated from live sensor/database readings</div>
                             </div>
                         </div>
                     </div>
@@ -2219,14 +2241,6 @@
 
                     <!-- Summary metrics -->
                     <div class="alerts-summary-grid">
-                        <div class="alert-summary-card">
-                            <div class="alert-summary-icon critical"><i class="ri-alarm-warning-line"></i></div>
-                            <div class="alert-summary-text"><span>Active Alerts</span><strong id="summaryActive">--</strong><small>Requires attention</small></div>
-                        </div>
-                        <div class="alert-summary-card">
-                            <div class="alert-summary-icon resolved"><i class="ri-checkbox-circle-line"></i></div>
-                            <div class="alert-summary-text"><span>Resolved</span><strong id="summaryResolved">--</strong><small>Historical alerts</small></div>
-                        </div>
                         <div class="alert-summary-card">
                             <div class="alert-summary-icon contacts"><i class="ri-mail-send-line"></i></div>
                             <div class="alert-summary-text"><span>Email Contacts</span><strong id="summaryContacts">--</strong><small>Active recipients</small></div>
@@ -2258,21 +2272,23 @@
                                 </div>
                             </article>
 
-                            <!-- Current Alerts -->
-                            <article class="content-card" style="margin-top:18px">
+                            <!-- Automatic Alert Status -->
+                            <article class="content-card" style="margin-top:18px" id="autoAlertStatusCard">
                                 <div class="content-card-header">
-                                    <div><h3>Current Alerts</h3><p>Critical threshold exceeded</p></div>
-                                    <div class="segmented-control" role="tablist" aria-label="Alert filter">
-                                        <button type="button" data-alert-filter="active" class="active" aria-selected="true">Active</button>
-                                        <button type="button" data-alert-filter="resolved" aria-selected="false">Resolved</button>
-                                        <button type="button" data-alert-filter="all" aria-selected="false">All</button>
-                                    </div>
+                                    <div><h3>Automatic Alert Status</h3><p>Live backend state — automatic emails are sent by the server, not this browser.</p></div>
+                                    <span class="quality-status-badge unknown" id="autoStatusBadge">UNKNOWN</span>
                                 </div>
-                                <div id="alertsList" style="margin-top:12px;display:flex;flex-direction:column;gap:10px"></div>
-                                <div id="alertsEmpty" class="hidden" style="padding:28px;text-align:center">
-                                    <div style="width:40px;height:40px;border-radius:50%;background:var(--status-normal-bg);color:var(--status-normal);display:inline-flex;align-items:center;justify-content:center;margin-bottom:10px"><i class="ri-checkbox-line" style="font-size:20px"></i></div>
-                                    <div style="font-weight:600;color:var(--text-primary)">No active critical alerts</div>
-                                    <div style="font-size:13px;color:var(--text-muted);margin-top:4px">All monitored parameters are currently within configured critical thresholds.</div>
+                                <div style="margin-top:12px;display:flex;flex-direction:column;gap:10px;font-size:13px">
+                                    <div style="display:flex;justify-content:space-between;align-items:center"><span style="color:var(--text-muted)">Automatic Email</span><strong id="autoEmailState">Checking…</strong></div>
+                                    <div id="autoCritParams" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+                                    <div id="autoCooldownWrap" class="hidden" style="text-align:center;padding:14px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-soft)">
+                                        <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--text-muted)">AUTOMATIC ALERT — COOLDOWN ACTIVE</div>
+                                        <div id="autoCooldownClock" class="auto-cooldown-clock">--:--</div>
+                                        <div id="autoCooldownSub" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
+                                    </div>
+                                    <div id="autoReadyMsg" class="hidden" style="text-align:center;padding:10px;border-radius:10px;background:var(--status-normal-bg);color:var(--status-normal);font-weight:700;font-size:13px;border:1px solid var(--status-normal-border)">00:00 — Ready for next critical reading</div>
+                                    <div id="autoNormalMsg" style="font-size:12px;color:var(--text-muted)">Waiting for readings…</div>
+                                    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted)"><span id="autoCooldownCfg">Cooldown: —</span><span id="autoLastNotified">Last email: —</span></div>
                                 </div>
                             </article>
 
@@ -2280,6 +2296,7 @@
                             <article class="content-card" style="margin-top:18px">
                                 <div class="content-card-header">
                                     <div><h3>Email History</h3><p>Combined notification events — one email per critical reading</p></div>
+                                    <button class="secondary-button" id="clearEmailHistoryBtn" type="button" aria-label="Clear email history" style="padding:6px 12px;font-size:12px;flex-shrink:0"><i class="ri-delete-bin-line"></i> Clear</button>
                                 </div>
                                 <div id="emailHistoryList" style="margin-top:12px;display:flex;flex-direction:column;gap:10px"></div>
                                 <div id="emailHistoryEmpty" class="hidden" style="padding:28px;text-align:center">
@@ -2312,11 +2329,11 @@
                             <article class="content-card" style="margin-top:16px" id="alertSettingsCard">
                                 <div class="content-card-header">
                                     <div><h3>Alert Settings</h3><p>Thresholds and notifications</p></div>
-                                    <label class="toggle-switch" style="margin-left:8px" title="Enable email alerts"><input type="checkbox" id="alertsEnabledToggle" checked><span class="toggle-slider"></span></label>
+                                    <label class="toggle-switch" style="margin-left:8px" title="Enable email alerts"><input type="checkbox" id="alertsEnabledToggle" disabled aria-label="Enable automatic email alerts"><span class="toggle-slider"></span></label>
                                 </div>
                                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:10px;background:var(--bg-soft);border-radius:8px;border:1px solid var(--border-color)">
-                                    <div><div style="font-weight:600;font-size:13px">Email Alerts</div><div style="font-size:11px;color:var(--text-muted)" id="alertsEnabledDesc">Automatic email notifications for critical conditions</div></div>
-                                    <strong id="alertsEnabledStatus" style="font-size:12px;color:var(--status-normal)">ON</strong>
+<div><div style="font-weight:600;font-size:13px">Email Alerts</div><div style="font-size:11px;color:var(--text-muted)" id="alertsEnabledDesc">Loading alert state…</div></div>
+                                     <strong id="alertsEnabledStatus" style="font-size:12px;color:var(--text-muted)">Loading…</strong>
                                 </div>
                                 <div id="alertsDisabledNotice" class="hidden" style="margin-top:10px;padding:8px;background:var(--status-critical-bg);border:1px solid var(--status-critical-border);border-radius:8px;font-size:12px;color:var(--status-critical)">Email alerts are OFF. Critical conditions are still being monitored, but email notifications are disabled.</div>
                                 <div style="margin-top:16px;display:flex;flex-direction:column;gap:12px">
@@ -2412,7 +2429,7 @@
                             <div class="profile-hero-text">
                                 <strong>Admin</strong>
                                 <span class="profile-username">@admin</span>
-                                <span class="profile-role">System User &middot; Aqua AI</span>
+                                <span class="profile-role">System User &middot; Aqua Sense</span>
                                 <span class="profile-status">
                                     <span class="status-dot online"></span>
                                     Active
@@ -2449,7 +2466,7 @@
 
                                 <div>
                                     <span>Application</span>
-                                    <strong>Aqua AI</strong>
+                                    <strong>Aqua Sense</strong>
                                 </div>
 
                                 <div>
@@ -2530,7 +2547,7 @@
 
                             <div class="content-card-header">
                                 <div>
-                                    <h3>About Aqua AI</h3>
+                                    <h3>About Aqua Sense</h3>
                                     <p>Smart water-quality monitoring and analysis.</p>
                                 </div>
                             </div>
@@ -2674,6 +2691,137 @@
                 </div>
 
             </form>
+
+        </div>
+
+    </div>
+
+    <!-- Rename-device modal -->
+    <div
+        class="modal-backdrop hidden"
+        id="renameDeviceModal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="renameDeviceModalTitle"
+    >
+
+        <div class="modal-card">
+
+            <div class="modal-header">
+
+                <div>
+                    <p class="page-eyebrow">DEVICE MANAGEMENT</p>
+                    <h3 id="renameDeviceModalTitle">Rename device</h3>
+                </div>
+
+                <button
+                    class="modal-close-button"
+                    id="closeRenameDeviceModal"
+                    type="button"
+                    aria-label="Close rename device dialog"
+                >
+                    <i class="ri-close-line"></i>
+                </button>
+
+            </div>
+
+            <form id="renameDeviceForm" class="settings-form">
+
+                <label for="renameDeviceName">
+                    Device name
+                </label>
+
+                <input
+                    type="text"
+                    id="renameDeviceName"
+                    required
+                    maxlength="100"
+                    placeholder="Device 1"
+                >
+
+                <p id="renameDeviceFormError" style="font-size:13px;color:var(--status-critical);min-height:18px;margin:4px 0 0"></p>
+
+                <div class="modal-actions">
+
+                    <button
+                        class="secondary-button"
+                        id="cancelRenameDeviceButton"
+                        type="button"
+                    >
+                        Cancel
+                    </button>
+
+                    <button
+                        class="primary-button"
+                        id="saveRenameDeviceButton"
+                        type="submit"
+                    >
+                        <i class="ri-check-line"></i>
+                        Save name
+                    </button>
+
+                </div>
+
+            </form>
+
+        </div>
+
+    </div>
+
+    <!-- Delete-device confirmation modal -->
+    <div
+        class="modal-backdrop hidden"
+        id="deleteDeviceModal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="deleteDeviceModalTitle"
+    >
+
+        <div class="modal-card">
+
+            <div class="modal-header">
+
+                <div>
+                    <p class="page-eyebrow">DEVICE MANAGEMENT</p>
+                    <h3 id="deleteDeviceModalTitle">Delete device?</h3>
+                </div>
+
+                <button
+                    class="modal-close-button"
+                    id="closeDeleteDeviceModal"
+                    type="button"
+                    aria-label="Close delete device dialog"
+                >
+                    <i class="ri-close-line"></i>
+                </button>
+
+            </div>
+
+            <p id="deleteDeviceMessage" style="font-size:14px;color:var(--text-secondary)">
+                This will permanently remove the device and its associated data.
+            </p>
+
+            <div class="modal-actions">
+
+                <button
+                    class="secondary-button"
+                    id="cancelDeleteDeviceButton"
+                    type="button"
+                >
+                    Cancel
+                </button>
+
+                <button
+                    class="primary-button"
+                    id="confirmDeleteDeviceButton"
+                    type="button"
+                    style="background:#dc2626;border-color:#b91c1c"
+                >
+                    <i class="ri-delete-bin-line"></i>
+                    Delete
+                </button>
+
+            </div>
 
         </div>
 

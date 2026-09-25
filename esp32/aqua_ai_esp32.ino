@@ -8,7 +8,7 @@
  *     {"device_id": <id>, "temperature": ..., "ph": ..., "turbidity": ..., "tds": ...}
  *
  * !!! FILL IN YOUR OWN VALUES BELOW !!!
- *  - AQUA_AI_SERVER must be the PC's LAN IP (e.g. http://192.168.1.50:8001).
+  *  - AQUA_AI_SERVER must be the PC's LAN IP (e.g. http://192.168.1.50:8002).
  *    NEVER use 127.0.0.1 or "localhost": from the ESP32 those point at the
  *    ESP32 itself, not your backend.
  *  - DEVICE_ID comes from the Devices page.
@@ -25,7 +25,7 @@ const char* WIFI_SSID     = "YOUR_WIFI_SSID";        // <-- your WiFi name
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";    // <-- your WiFi password
 
 // Backend reachable on the SAME network. Example LAN address:
-const char* AQUA_AI_SERVER = "http://192.168.1.50:8001";  // <-- PC LAN IP + backend port
+const char* AQUA_AI_SERVER = "http://192.168.1.50:8002";  // <-- PC LAN IP + backend port
 
 const int   DEVICE_ID    = 1;                        // <-- id from the Devices page
 
@@ -138,7 +138,11 @@ void sendReading() {
 
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
-  http.setTimeout(10000);  // 10 s so a slow backend cannot hang the loop
+  // 30 s budget: the Render backend can be slow (free-tier cold starts take
+  // up to ~50 s on the first request after sleeping, and critical readings
+  // trigger alert emails). The loop retries automatically every 60 s, so a
+  // cold-start timeout on one cycle succeeds on the next.
+  http.setTimeout(30000);
 
   Serial.print("[HTTP] POST ");
   Serial.println(url);

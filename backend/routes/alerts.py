@@ -2,9 +2,9 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from backend.database import get_db
+from backend.database import get_db, utc_iso
 from backend.models import Alert, AlertContact, Device, WaterReading, AlertConfiguration
-from backend.services.alert_service import send_manual_status, get_effective_config, get_active_email_contacts
+from backend.services.alert_service import send_manual_status, get_effective_config, get_active_email_contacts, get_auto_status
 from backend.services.email_service import is_email_configured, get_email_config_status, send_email, build_status_email
 from backend.services.alert_config import ALERT_COOLDOWN_SECONDS
 
@@ -91,8 +91,8 @@ def list_alerts(status: str = "all", db: Session = Depends(get_db)):
         out.append({
             "id": a.id, "device_id": a.device_id, "reading_id": a.reading_id, "parameter": a.parameter,
             "severity": a.severity, "current_value": a.current_value, "threshold_value": a.threshold_value,
-            "message": a.message, "status": a.status, "created_at": a.created_at, "resolved_at": a.resolved_at,
-            "last_notified_at": a.last_notified_at, "email_status": a.email_status,
+            "message": a.message, "status": a.status, "created_at": utc_iso(a.created_at), "resolved_at": utc_iso(a.resolved_at),
+            "last_notified_at": utc_iso(a.last_notified_at), "email_status": a.email_status,
             "cooldown_remaining": cooldown_remaining, "cooldown_seconds": cooldown_sec
         })
     return out
@@ -100,6 +100,42 @@ def list_alerts(status: str = "all", db: Session = Depends(get_db)):
 @router.get("/active")
 def list_active(db: Session = Depends(get_db)):
     return list_alerts(status="active", db=db)
+
+@router.delete("/history")
+def clear_email_history(db: Session = Depends(get_db)):
+    """Clear the email-history list.
+
+    Deletes all resolved alerts (pure history) and strips the notification
+    fields (``last_notified_at`` / ``email_status``) from active alerts so
+    no past send remains visible. Live critical state is preserved: active
+    alert rows stay active with their current values.
+
+    Side effect: clearing also resets the per-parameter email cooldowns
+    (they are derived from ``last_notified_at``), so the next critical
+    reading sends immediately instead of waiting out the old cooldown.
+    """
+    resolved_deleted = (
+        db.query(Alert)
+        .filter(Alert.status == "resolved")
+        .delete(synchronize_session=False)
+    )
+    active_reset = (
+        db.query(Alert)
+        .filter(
+            Alert.status == "active",
+            Alert.last_notified_at.isnot(None),
+        )
+        .update(
+            {"last_notified_at": None, "email_status": None},
+            synchronize_session=False,
+        )
+    )
+    db.commit()
+    return {
+        "success": True,
+        "deleted": resolved_deleted,
+        "reset": active_reset,
+    }
 
 class ConfigUpdate(BaseModel):
     ph_min: float
@@ -144,8 +180,8 @@ def get_config(db: Session = Depends(get_db)):
         "temperature_max": cfg.temperature_max,
         "cooldown_minutes": cfg.cooldown_minutes,
         "alerts_enabled": cfg.alerts_enabled,
-        "updated_at": getattr(cfg, "updated_at", None),
-        "created_at": getattr(cfg, "created_at", None),
+        "updated_at": utc_iso(getattr(cfg, "updated_at", None)),
+        "created_at": utc_iso(getattr(cfg, "created_at", None)),
     }
 
 @router.put("/config")
@@ -172,7 +208,44 @@ def update_config(payload: ConfigUpdate, db: Session = Depends(get_db)):
         "temperature_max": db_cfg.temperature_max,
         "cooldown_minutes": db_cfg.cooldown_minutes,
         "alerts_enabled": db_cfg.alerts_enabled,
-        "updated_at": db_cfg.updated_at,
+        "updated_at": utc_iso(db_cfg.updated_at),
+    }
+
+
+@router.get("/auto-status")
+def auto_status(db: Session = Depends(get_db)):
+    """Authoritative automatic-alert state (read-only, never sends email).
+
+    Powers the frontend Automatic Alert Status card and digital cooldown
+    clock. Database is the source of truth.
+    """
+    return get_auto_status(db)
+
+@router.post("/run-startup-check")
+def run_startup_check(db: Session = Depends(get_db)):
+    """Run the backend startup automatic-alert check on demand.
+
+    Same code path the backend executes when it becomes live: the latest
+    stored reading of every device is evaluated immediately. A real email is
+    sent only when that reading is critical AND the (device, parameter)
+    cooldown is not active; an active cooldown is preserved, never reset.
+    """
+    from backend.services.alert_service import run_startup_auto_alert_check
+
+    return run_startup_auto_alert_check(db)
+
+
+
+def _alert_dict(a) -> dict:
+    """Serialize one alert with explicit UTC offsets on timestamps."""
+    return {
+        "id": a.id, "device_id": a.device_id, "reading_id": a.reading_id,
+        "parameter": a.parameter, "severity": a.severity,
+        "current_value": a.current_value, "threshold_value": a.threshold_value,
+        "message": a.message, "status": a.status,
+        "created_at": utc_iso(a.created_at), "resolved_at": utc_iso(a.resolved_at),
+        "last_notified_at": utc_iso(a.last_notified_at),
+        "email_status": a.email_status, "sms_status": a.sms_status,
     }
 
 
@@ -181,7 +254,7 @@ def get_alert(aid: int, db: Session = Depends(get_db)):
     a = db.query(Alert).filter(Alert.id==aid).first()
     if not a:
         raise HTTPException(status_code=404, detail="Alert not found")
-    return a
+    return _alert_dict(a)
 
 @router.post("/{aid}/resolve")
 def resolve_alert(aid: int, db: Session = Depends(get_db)):
@@ -193,7 +266,7 @@ def resolve_alert(aid: int, db: Session = Depends(get_db)):
         a.status="resolved"
         a.resolved_at=datetime.now(timezone.utc).replace(tzinfo=None)
         db.commit(); db.refresh(a)
-    return a
+    return _alert_dict(a)
 
 @router.post("/send-current-status")
 def send_current_status(db: Session = Depends(get_db)):

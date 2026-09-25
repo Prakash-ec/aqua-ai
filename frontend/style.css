@@ -1,12 +1,12 @@
 
 /* =========================================================
-   AQUA AI
+   AQUA SENSE
    Smart Water Quality Monitoring Dashboard
    Complete stylesheet
 ========================================================= */
 
 /* =========================================================
-   AQUA AI
+   AQUA SENSE
    Smart Water Quality Monitoring Dashboard
    Complete stylesheet
    ========================================================= */
@@ -3010,7 +3010,7 @@ a {
     letter-spacing: 0.01em;
 }
 
-/* ---- Aqua AI Chatbot — clean professional layout ---- */
+/* ---- Aqua Sense Chatbot — clean professional layout ---- */
 .chat-header-status {
     display: flex;
     align-items: center;
@@ -4550,8 +4550,9 @@ body.quality-unknown .quality-score-circle {
 }
 
 .result-status-badge.analysis-failed {
-    color: #991b1b;
-    background: #fee2e2;
+    color: var(--status-critical);
+    background: var(--status-critical-bg);
+    border-color: var(--status-critical-border);
 }
 
 
@@ -6264,7 +6265,7 @@ body.quality-unknown .quality-score-circle {
 
 /* =========================================================
    DASHBOARD IMPROVEMENTS (dashboard only)
-   Keeps existing Aqua AI visual identity. No new status system.
+   Keeps existing Aqua Sense visual identity. No new status system.
    ========================================================= */
 
 .dashboard-header-actions {
@@ -6645,7 +6646,7 @@ body.dashboard-loading #qualityScore {
 
 /* =========================================================
    TRENDS PAGE — historical sensor readings (measurements only)
-   Reuses Aqua AI cards, radius, borders and status colors.
+   Reuses Aqua Sense cards, radius, borders and status colors.
    ========================================================= */
 
 .sr-only {
@@ -6912,7 +6913,7 @@ body.trends-loading .trend-chart::after {
 
 /* =========================================================
    DEVICE PAGE — ESP32 data activity (data states only)
-   Reuses Aqua AI cards, radius, borders and status colors.
+   Reuses Aqua Sense cards, radius, borders and status colors.
    ========================================================= */
 
 .device-header-actions {
@@ -8277,10 +8278,12 @@ html[data-theme="dark"] body.dashboard-loading #qualityScore {
 .an-drinking-label.caution{color:var(--status-monitor);background:var(--status-monitor-bg)}
 .an-drinking-label.alert{color:var(--status-critical);background:var(--status-critical-bg)}
 .an-drinking-label.unknown{color:var(--text-muted);background:var(--bg-soft)}
-.an-drinking-table{display:flex;flex-direction:column;border:1px solid var(--border-color);border-radius:8px;overflow:hidden}
-.an-drinking-row{display:grid;grid-template-columns:1.2fr 1fr 1fr 0.8fr;gap:8px;padding:10px 12px;font-size:12px;align-items:center;border-bottom:1px solid var(--border-subtle)}
+.an-table-scroll{overflow-x:auto}
+.an-drinking-table{display:flex;flex-direction:column;border:1px solid var(--border-color);border-radius:8px;overflow:hidden;min-width:600px}
+.an-drinking-row{display:grid;grid-template-columns:1.1fr 1fr 1fr 1.1fr 0.7fr;gap:8px;padding:10px 12px;font-size:12px;align-items:center;border-bottom:1px solid var(--border-subtle)}
 .an-drinking-row.head{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);background:var(--bg-soft)}
 .an-drinking-row:last-child{border-bottom:none}
+.an-drinking-row span{font-variant-numeric:tabular-nums}
 .an-drinking-note{font-size:11px;color:var(--text-muted);line-height:1.6;margin-top:10px;font-style:italic}
 .an-empty{padding:24px;text-align:center;color:var(--text-muted);font-size:13px;border:1px dashed var(--border-color);border-radius:8px;background:var(--bg-soft)}
 .an-empty.small{padding:16px}
@@ -8297,7 +8300,7 @@ html[data-theme="dark"] body.dashboard-loading #qualityScore {
   .an-params-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .an-derived-grid{grid-template-columns:1fr}
   .an-score-row{grid-template-columns:80px 1fr 50px}
-  .an-drinking-row{grid-template-columns:1fr 1fr 1fr 0.7fr;font-size:11px}
+  .an-drinking-row{grid-template-columns:1.1fr 1fr 1fr 1.1fr 0.7fr;font-size:11px}
   .an-app-grid{grid-template-columns:1fr}
 }
 @media(max-width:420px){
@@ -8312,13 +8315,11 @@ html[data-theme="dark"] body.dashboard-loading #qualityScore {
 /* Alerts — Email Alert Center */
 .alerts-operational-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:6px 10px;border-radius:999px;background:var(--status-normal-bg);color:var(--status-normal);border:1px solid var(--status-normal-border)}
 .alerts-operational-badge .dot{width:8px;height:8px;border-radius:50%;background:var(--status-normal)}
-.alerts-summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
-.alert-summary-card{display:flex;align-items:center;gap:12px;padding:14px;background:#fff;border:1px solid var(--border-color);border-radius:12px}
+.alerts-summary-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:18px}
+.alert-summary-card{display:flex;align-items:center;gap:12px;padding:14px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px}
 .alert-summary-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
-.alert-summary-icon.critical{background:#fef2f2;color:#dc2626}
-.alert-summary-icon.resolved{background:#f0fdf4;color:#16a34a}
-.alert-summary-icon.contacts{background:#eff6ff;color:#2563eb}
-.alert-summary-icon.provider{background:#f5f3ff;color:#7c3aed}
+.alert-summary-icon.contacts{background:var(--blue-light);color:var(--blue)}
+.alert-summary-icon.provider{background:var(--purple-light);color:var(--purple)}
 .alert-summary-text{flex:1;min-width:0}
 .alert-summary-text span{font-size:11px;letter-spacing:0.5px;text-transform:uppercase;color:var(--text-muted);font-weight:600;display:block}
 .alert-summary-text strong{font-size:20px;font-weight:800;color:var(--text-primary);display:block;line-height:1.1}
@@ -8328,14 +8329,8 @@ html[data-theme="dark"] body.dashboard-loading #qualityScore {
 .provider-status-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;border:1px solid var(--border-color);background:var(--bg-soft)}
 .provider-status-badge.ok{background:var(--status-normal-bg);color:var(--status-normal);border-color:var(--status-normal-border)}
 .provider-status-badge.bad{background:var(--status-critical-bg);color:var(--status-critical);border-color:var(--status-critical-border)}
-.alert-row{padding:12px;border:1px solid var(--border-color);border-radius:10px;background:#fff;cursor:pointer;transition:background 0.15s}
-.alert-row:hover{background:var(--bg-soft)}
-.alert-row-header{display:flex;justify-content:space-between;align-items:center;gap:10px}
-.alert-row-main{display:flex;gap:10px;align-items:center}
-.alert-row-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.alert-row-dot.active{background:var(--red)}
-.alert-row-dot.resolved{background:var(--green)}
-.email-history-row{padding:12px;border:1px solid var(--border-color);border-radius:10px;background:#fff;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.auto-cooldown-clock{font-size:34px;font-weight:800;letter-spacing:2px;color:var(--text-primary);font-variant-numeric:tabular-nums;line-height:1.2}
+.email-history-row{padding:12px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-card);cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px}
 .email-history-row:hover{background:var(--bg-soft)}
 @media(max-width:1000px){.alerts-summary-grid{grid-template-columns:repeat(2,1fr)}.alerts-layout{grid-template-columns:1fr}}
 @media(max-width:600px){.alerts-summary-grid{grid-template-columns:1fr}}
@@ -8347,7 +8342,358 @@ html[data-theme="dark"] body.dashboard-loading #qualityScore {
 .provider-pill{font-size:11px;padding:4px 8px;border-radius:999px;border:1px solid var(--border-color);background:var(--bg-soft);color:var(--text-secondary)}
 .provider-pill.ok{background:var(--status-normal-bg);color:var(--status-normal);border-color:var(--status-normal-border)}
 .provider-pill.bad{background:var(--status-critical-bg);color:var(--status-critical);border-color:var(--status-critical-border)}
-.alert-card{padding:12px;border:1px solid var(--border-color);border-radius:10px;background:#fff}
+.alert-card{padding:12px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-card)}
 .alert-card.critical{border-left:4px solid var(--red)}
 .alert-card .meta{font-size:11px;color:var(--text-muted)}
 @media(max-width:900px){.alerts-grid{grid-template-columns:1fr}}
+
+/* =========================================================
+   DARK MODE — camera detection chips.
+   Light-mode colors stay inline-identical via the base rules;
+   these overrides apply only under data-theme="dark".
+   ========================================================= */
+.cam-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+.cam-chip-algae { background: #e0f2f1; border-color: #b2dfdb; color: #00695c; }
+.cam-chip-foam { background: #e3f2fd; border-color: #bbdefb; color: #0d47a1; }
+.cam-chip-particles { background: #fff3e0; border-color: #ffe0b2; color: #e65100; }
+.cam-chip-oil { background: #fce4ec; border-color: #f8bbd0; color: #880e4f; }
+.cam-chip-micro { background: #f3e5f5; border-color: #e1bee7; color: #4a148c; }
+
+html[data-theme="dark"] .cam-chip { background: var(--bg-soft); }
+html[data-theme="dark"] .cam-chip-algae { border-color: var(--teal); color: var(--teal); }
+html[data-theme="dark"] .cam-chip-foam { border-color: var(--blue); color: var(--blue); }
+html[data-theme="dark"] .cam-chip-particles { border-color: var(--amber); color: var(--amber); }
+html[data-theme="dark"] .cam-chip-oil { border-color: var(--red); color: var(--red); }
+html[data-theme="dark"] .cam-chip-micro { border-color: var(--purple); color: var(--purple); }
+
+/* =========================================================
+   UI POLISH PASS — presentation-only refinements.
+   Uses existing design tokens; no functional changes.
+   ========================================================= */
+
+/* ---- 1. Tabular numerals for all measured values ---- */
+.sensor-value-row strong,
+#qualityScore,
+.trend-stat strong,
+.trends-overview-list strong,
+.readings-table td,
+.alert-current-item strong,
+.alert-summary-text strong,
+#dashboardReadingTime,
+#lastUpdatedTime {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---- 2. Countdown clock: clear but restrained, fluid on small screens ---- */
+.auto-cooldown-clock {
+    font-size: clamp(24px, 5vw, 32px);
+    letter-spacing: 1px;
+}
+
+/* ---- 3. Chatbot readability ---- */
+.chat-message.assistant {
+    max-width: min(85%, 640px);
+}
+.chat-messages {
+    scroll-padding: 12px;
+}
+.chat-paragraph:first-child {
+    margin-top: 0;
+}
+.chat-paragraph:last-child {
+    margin-bottom: 0;
+}
+.chat-message.assistant .chat-message-bubble {
+    border-left: 3px solid var(--primary);
+}
+.chat-input-form textarea {
+    font-size: 14px;
+}
+
+/* ---- 4. Keyboard focus for the alert toggle ---- */
+.toggle-switch input:focus-visible + .toggle-slider {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+}
+.toggle-switch input:disabled + .toggle-slider {
+    opacity: 0.55;
+}
+
+/* ---- 5. Global guards ---- */
+body {
+    overflow-x: clip;
+}
+img {
+    max-width: 100%;
+}
+.modal-card {
+    max-width: min(470px, calc(100vw - 32px));
+}
+
+/* ---- 6. Disabled button affordance (all variants) ---- */
+.primary-button:disabled,
+.secondary-button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+/* ---- 7. Table row comfort ---- */
+.dashboard-recent-table th,
+.dashboard-recent-table td {
+    padding: 8px 10px;
+}
+.readings-table th,
+.readings-table td {
+    font-variant-numeric: tabular-nums;
+}
+
+/* =========================================================
+   COMPACT DENSITY — reduce extra whitespace across all sections.
+   Layout-only overrides; no logic, colors, or behavior changes.
+   ========================================================= */
+
+/* ---- Page frame ---- */
+.page-container {
+    padding: 20px 24px 16px;
+}
+.page-heading-row {
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.page-description {
+    margin-top: 4px;
+}
+
+/* ---- Cards ---- */
+.summary-card,
+.content-card {
+    padding: 16px;
+}
+.sensor-card {
+    padding: 14px;
+}
+.sensor-card-top {
+    margin-bottom: 10px;
+}
+.modal-card {
+    padding: 20px;
+}
+.modal-actions {
+    margin-top: 10px;
+}
+
+/* ---- Main grids ---- */
+.dashboard-summary-grid {
+    gap: 12px;
+    margin-bottom: 20px;
+}
+.sensor-card-grid {
+    gap: 12px;
+    margin-bottom: 18px;
+}
+.alerts-layout {
+    gap: 12px;
+}
+.camera-layout-grid {
+    gap: 12px;
+}
+.trends-grid {
+    gap: 12px;
+}
+.quality-score-layout {
+    gap: 14px;
+    margin-top: 12px;
+}
+
+/* ---- Side-column stacks (beat inline margin-top for uniform rhythm) ---- */
+.alerts-main,
+.alerts-side {
+    gap: 12px;
+}
+.alerts-main > article + article,
+.alerts-side > article + article {
+    margin-top: 0 !important;
+}
+
+/* ---- Section headings & stacked blocks ---- */
+.section-heading-row {
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.readings-history-card {
+    margin-top: 16px;
+}
+.readings-table-scroll {
+    margin-top: 12px;
+}
+.trend-chart {
+    margin-top: 12px;
+}
+.trend-note {
+    margin-top: 8px;
+}
+.camera-dropzone {
+    min-height: 200px;
+    margin-top: 12px;
+    padding: 20px 16px;
+}
+.camera-preview-container {
+    margin-top: 16px;
+}
+.camera-result-content {
+    margin-top: 14px;
+}
+
+/* ---- Tabs: compact but still tappable ---- */
+.analysis-tabs {
+    gap: 6px;
+    margin: 12px 0 10px;
+    padding-bottom: 8px;
+}
+.analysis-tab {
+    padding: 7px 12px;
+    font-size: 12.5px;
+}
+.camera-mode-selector {
+    gap: 6px;
+    margin: 10px 0 8px;
+}
+.camera-mode-btn {
+    padding: 8px 10px;
+    font-size: 12.5px;
+}
+.nav-item {
+    min-height: 34px;
+}
+
+/* ---- Chat density ---- */
+.chat-messages {
+    gap: 10px;
+    margin-top: 12px;
+    padding: 8px 6px 12px 6px;
+}
+.chat-message-bubble {
+    padding: 9px 12px;
+}
+.chat-input-form {
+    margin-top: 10px;
+}
+
+/* ---- Table density ---- */
+.dashboard-recent-table th,
+.dashboard-recent-table td {
+    padding: 8px 10px;
+}
+
+@media (max-width: 650px) {
+    .page-container {
+        padding: 14px 14px 12px;
+    }
+    .summary-card,
+    .content-card {
+        padding: 14px;
+    }
+    .sensor-card {
+        padding: 12px;
+    }
+}
+
+/* =========================================================
+   HISTORY CHART POLISH — live timeline axes (Aqua Sense).
+   Presentation only: the axes now carry real time/scale values
+   that update every refresh, so labels must never wrap, crowd,
+   or jitter while values swap underneath.
+   ========================================================= */
+
+/* X labels: five real timestamps — truncate instead of wrapping. */
+.chart-x-labels {
+    gap: 8px;
+    min-height: 18px;
+}
+
+.chart-x-labels span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+    min-width: 0;
+}
+
+.chart-x-labels span:first-child {
+    text-align: left;
+}
+
+.chart-x-labels span:last-child {
+    text-align: right;
+}
+
+/* Y labels: right-aligned tabular numerals keep a steady edge. */
+.chart-y-labels {
+    align-items: flex-end;
+    font-variant-numeric: tabular-nums;
+}
+
+.chart-y-labels span {
+    white-space: nowrap;
+}
+
+/* Live note: steady pill with a soft pulse while real data flows. */
+.chart-data-note.live {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--status-normal);
+    font-weight: 600;
+}
+
+.chart-data-note.live::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--status-normal);
+    animation: livePulse 1.6s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.45;
+        transform: scale(0.8);
+    }
+}
+
+@media (max-width: 560px) {
+    .chart-x-labels {
+        font-size: 11px;
+    }
+
+    /* Oldest / middle / newest only on narrow screens. */
+    .chart-x-labels span:nth-child(even) {
+        display: none;
+    }
+
+    .chart-y-labels {
+        font-size: 11px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chart-data-note.live::before {
+        animation: none;
+    }
+}
